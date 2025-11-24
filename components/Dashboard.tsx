@@ -31,6 +31,7 @@ interface TableColumnConfig {
   label: string;
   width?: number;
   sticky?: boolean;
+  stickySide?: 'left' | 'right';
   align?: 'left' | 'center' | 'right';
   isCurrency?: boolean;
   mono?: boolean;
@@ -84,6 +85,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null); // ID si estamos editando, null si es nuevo
 
+  type CrudTable = 'annual2026' | 'payments' | 'invoices' | 'compranet' | 'pendingOct';
+
+  interface CrudContextState {
+    table: CrudTable | null;
+    supabaseTable: string;
+    label: string;
+    columns: string[];
+    formData: Record<string, any>;
+    editingId: string | number | null;
+    fieldMeta: Record<string, 'string' | 'number' | 'boolean'>;
+    primaryKey: string;
+  }
+
+  const [isCrudModalOpen, setIsCrudModalOpen] = useState(false);
+  const [isCrudSubmitting, setIsCrudSubmitting] = useState(false);
+  const [crudContext, setCrudContext] = useState<CrudContextState>({
+    table: null,
+    supabaseTable: '',
+    label: '',
+    columns: [],
+    formData: {},
+    editingId: null,
+    fieldMeta: {},
+    primaryKey: 'id',
+  });
+
   // Initial state matches the columns of your table
   const initialFormState = {
     "No.": '',
@@ -106,6 +133,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     
     if (paasResults) setPaasData(paasResults);
     if (paasError) console.error("Error fetching PAAS:", paasError.message);
+  };
+
+  const fetchAnnual2026Data = async () => {
+    const { data: annualData, error: annualError } = await supabase
+      .from('año_2026')
+      .select('*');
+
+    if (annualData) setAnnual2026Data(annualData);
+    if (annualError) console.error('Error fetching año_2026:', annualError.message);
   };
 
   const fetchPaymentsData = async () => {
@@ -137,6 +173,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (compranetError) console.error('Error fetching procedimientos_compranet:', compranetError.message);
   };
 
+  const fetchInvoicesData = async () => {
+    const { data: invoices, error: invoicesError } = await supabase
+      .from('estatus_facturas')
+      .select('*');
+
+    if (invoices) setInvoicesData(invoices);
+    if (invoicesError) console.error('Error fetching estatus_facturas:', invoicesError.message);
+  };
+
   useEffect(() => {
     const fetchAllData = async () => {
       try {
@@ -160,12 +205,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         else setCommercialSpaces(MOCK_SPACES);
 
         // 3. Fetch Annual 2026 Data
-        const { data: annualData, error: annualError } = await supabase
-          .from('año_2026')
-          .select('*');
-
-        if (annualData) setAnnual2026Data(annualData);
-        if (annualError) console.error('Error fetching año_2026:', annualError.message);
+        await fetchAnnual2026Data();
 
         // 4. Fetch PAAS Data
         await fetchPaasData();
@@ -174,12 +214,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         await fetchPaymentsData();
 
         // 6. Fetch Invoices Data
-        const { data: invoices, error: invoicesError } = await supabase
-          .from('estatus_facturas')
-          .select('*');
-
-        if (invoices) setInvoicesData(invoices);
-        if (invoicesError) console.error('Error fetching estatus_facturas:', invoicesError.message);
+        await fetchInvoicesData();
 
         // 7. Fetch Procedimientos en Compranet
         await fetchCompranetData();
@@ -295,7 +330,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
 
   // === HANDLE DELETE ===
-  const handleDeleteRecord = async (id: number) => {
+  const handleDeletePaasRecord = async (id: number) => {
     if (!window.confirm("¿Está seguro que desea eliminar este registro? Esta acción no se puede deshacer.")) {
       return;
     }
@@ -313,6 +348,71 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       console.error("Error deleting:", error);
       alert("Error al eliminar: " + error.message);
     }
+  };
+
+  const pickRowId = (row: Record<string, any>, preferredKey = 'id') => {
+    const fallbackKeys = [preferredKey, 'id', 'ID', 'Id', 'uuid', 'UUID'];
+    for (const key of fallbackKeys) {
+      if (row && Object.prototype.hasOwnProperty.call(row, key) && row[key] !== null && row[key] !== undefined) {
+        return row[key];
+      }
+    }
+    return null;
+  };
+
+  const deriveFieldMeta = (columns: string[], rows: Record<string, any>[]) => {
+    const meta: Record<string, 'string' | 'number' | 'boolean'> = {};
+    columns.forEach((column) => {
+      meta[column] = 'string';
+      for (const row of rows) {
+        const value = row[column];
+        if (value === null || value === undefined || value === '') continue;
+        if (typeof value === 'number') {
+          meta[column] = 'number';
+          break;
+        }
+        if (typeof value === 'boolean') {
+          meta[column] = 'boolean';
+          break;
+        }
+        const numericCandidate = Number(value);
+        if (!Number.isNaN(numericCandidate) && value !== true && value !== false) {
+          meta[column] = 'number';
+          break;
+        }
+        break;
+      }
+    });
+    return meta;
+  };
+
+  const sanitizeCrudValue = (value: any, metaType: 'string' | 'number' | 'boolean') => {
+    if (value === '' || value === null || value === undefined) return null;
+    if (metaType === 'number') {
+      const parsed = typeof value === 'number' ? value : Number(String(value).replace(/,/g, ''));
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    if (metaType === 'boolean') {
+      if (typeof value === 'boolean') return value;
+      const normalized = String(value).trim().toLowerCase();
+      return normalized === '1' || normalized === 'true' || normalized === 'sí' || normalized === 'si';
+    }
+    return typeof value === 'string' ? value : String(value);
+  };
+
+  const filterEditableColumns = (columns: string[]) => (
+    columns.filter((column) => {
+      const normalized = normalizeAnnualKey(column);
+      if (normalized === 'id') return false;
+      if (normalized.endsWith(' id')) return false;
+      if (normalized.includes('created') || normalized.includes('updated')) return false;
+      return true;
+    })
+  );
+
+  const shouldUseTextareaField = (normalizedKey: string) => {
+    const keywords = ['descripcion', 'observacion', 'comentario', 'detalle', 'justificacion', 'objeto', 'nota', 'descripcion del servicio'];
+    return keywords.some((fragment) => normalizedKey.includes(fragment));
   };
 
   // Calculos para Gráficas Generales
@@ -638,30 +738,40 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const paasTableConfig = useMemo(() => {
     const columns: TableColumnConfig[] = [
-      { key: 'No.', label: 'No.', sticky: true, width: 88, align: 'center', className: 'text-slate-500 font-semibold' },
-      { key: 'Clave cucop', label: 'Clave CUCOP', sticky: true, width: 180, align: 'center', mono: true, className: 'text-slate-600 uppercase tracking-wide text-[11px]' },
-      { key: 'Nombre del Servicio.', label: 'Nombre del Servicio', sticky: true, width: 280, align: 'left', className: 'text-slate-800 font-semibold' },
+      { key: 'No.', label: 'No.', sticky: true, stickySide: 'left', width: 88, align: 'center', className: 'text-slate-500 font-semibold' },
+      { key: 'Clave cucop', label: 'Clave CUCOP', sticky: true, stickySide: 'left', width: 180, align: 'center', mono: true, className: 'text-slate-600 uppercase tracking-wide text-[11px]' },
+      { key: 'Nombre del Servicio.', label: 'Nombre del Servicio', sticky: true, stickySide: 'left', width: 280, align: 'left', className: 'text-slate-800 font-semibold' },
       { key: 'Gerencia', label: 'Gerencia', align: 'left', className: 'text-slate-500 text-xs' },
       { key: 'Monto solicitado anteproyecto 2026', label: 'Monto Solicitado', align: 'right', isCurrency: true, mono: true, className: 'text-slate-800 font-semibold' },
       { key: 'Modificado', label: 'Modificado', align: 'right', isCurrency: true, mono: true, className: 'text-slate-600' },
       { key: 'Justificación', label: 'Justificación', align: 'left', className: 'text-slate-600 text-xs whitespace-pre-wrap break-words leading-relaxed' },
-      { key: '__actions', label: 'Acciones', align: 'center', width: 150 },
+      { key: '__actions', label: 'Acciones', align: 'center', width: 150, sticky: true, stickySide: 'right' },
     ];
 
-    let runningLeft = 0;
-    const stickyMeta = new Map<string, { left: number; width: number }>();
-    let lastStickyKey: string | null = null;
+    let leftOffset = 0;
+    let rightOffset = 0;
+    const stickyMeta = new Map<string, { side: 'left' | 'right'; offset: number; width: number }>();
+    let lastLeftStickyKey: string | null = null;
+    let lastRightStickyKey: string | null = null;
 
     columns.forEach((column) => {
       if (column.sticky) {
         const width = column.width ?? 180;
-        stickyMeta.set(column.key, { left: runningLeft, width });
-        runningLeft += width;
-        lastStickyKey = column.key;
+        const side = column.stickySide ?? 'left';
+
+        if (side === 'left') {
+          stickyMeta.set(column.key, { side, offset: leftOffset, width });
+          leftOffset += width;
+          lastLeftStickyKey = column.key;
+        } else {
+          stickyMeta.set(column.key, { side, offset: rightOffset, width });
+          rightOffset += width;
+          lastRightStickyKey = column.key;
+        }
       }
     });
 
-    return { columns, stickyMeta, lastStickyKey };
+    return { columns, stickyMeta, lastLeftStickyKey, lastRightStickyKey };
   }, []);
 
   const DeltaIcon = useMemo(() => {
@@ -715,6 +825,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const companyChartHeight = topProcedureCompanies.length ? Math.max(320, topProcedureCompanies.length * 68) : 280;
   const procedureCategoryColors = ['#B38E5D', '#0F4C3A', '#9E1B32', '#2563EB', '#7C3AED', '#F97316', '#64748B'];
 
+  const pendingCrudColumns = useMemo(() => {
+    const base = ['contrato', 'descripcion', 'empresa', 'mes_factura_nota', 'observacion_pago'];
+    const available = new Set<string>();
+    procedureStatuses.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        const normalized = key.toLowerCase();
+        if (normalized === 'id' || normalized.endsWith('_id')) return;
+        if (normalized === 'created_at' || normalized === 'updated_at') return;
+        available.add(key);
+      });
+    });
+    const columns: string[] = [];
+    base.forEach((key) => {
+      if (!columns.includes(key)) columns.push(key);
+      available.delete(key);
+    });
+    const remaining = Array.from(available).sort((a, b) => a.localeCompare(b));
+    columns.push(...remaining);
+    return columns;
+  }, [procedureStatuses]);
+
   // Helper para mapear meses dinámicamente
   const monthsConfig = [
       { key: 'ene', label: 'Ene.' },
@@ -730,6 +861,46 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       { key: 'nov', label: 'Nov.' },
       { key: 'dic', label: 'Dic.' },
   ];
+
+  const paymentsCrudColumns = useMemo(() => {
+    if (!paymentsData.length) return [] as string[];
+
+    const ignoredFragments = ['id', 'created_at', 'updated_at'];
+    const available = new Set<string>();
+    paymentsData.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        const normalized = key.toLowerCase();
+        if (ignoredFragments.some(fragment => normalized === fragment || normalized.endsWith(`_${fragment}`))) return;
+        if (normalized.endsWith('_id')) return;
+        available.add(key);
+      });
+    });
+
+    const ordered: string[] = [];
+    const pushIfAvailable = (key: string) => {
+      if (available.has(key)) {
+        ordered.push(key);
+        available.delete(key);
+      }
+    };
+
+    ['no_contrato', 'objeto_del_contrato', 'proveedor', 'tipo_de_contrato', 'fecha_de_inicio', 'fecha_de_termino', 'mont_max'].forEach(pushIfAvailable);
+
+    monthsConfig.forEach((month) => {
+      const baseKey = month.key === 'sep' ? 'sept' : month.key;
+      pushIfAvailable(baseKey);
+      const prefix = month.dbPrefix || month.key;
+      pushIfAvailable(`${prefix}_preventivos`);
+      pushIfAvailable(`${prefix}_correctivos`);
+      pushIfAvailable(`${prefix}_nota_de_credito`);
+    });
+
+    ['monto_maximo_contrato', 'monto_ejercido', 'facturas_devengadas', 'observaciones'].forEach(pushIfAvailable);
+
+    const remaining = Array.from(available).sort((a, b) => a.localeCompare(b));
+    ordered.push(...remaining);
+    return ordered;
+  }, [paymentsData, monthsConfig]);
 
   const annualNumericTotals = useMemo(() => {
     if (!annual2026Data.length) return [] as { key: string; label: string; value: number }[];
@@ -1236,6 +1407,186 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     : 0;
   const compranetStickyWidths = [220, 260];
 
+  const crudConfigs = useMemo(() => {
+    return {
+      annual2026: {
+        supabaseTable: 'año_2026',
+        label: 'registro del Año 2026',
+        columns: filterEditableColumns(annualTableColumns),
+        primaryKey: 'id',
+        data: annual2026Data,
+      },
+      payments: {
+        supabaseTable: 'control_pagos',
+        label: 'registro de pago',
+        columns: filterEditableColumns(paymentsCrudColumns),
+        primaryKey: 'id',
+        data: paymentsData,
+      },
+      invoices: {
+        supabaseTable: 'estatus_facturas',
+        label: 'registro de factura',
+        columns: filterEditableColumns(invoicesTableColumns),
+        primaryKey: 'id',
+        data: invoicesData,
+      },
+      compranet: {
+        supabaseTable: 'procedimientos_compranet',
+        label: 'procedimiento Compranet',
+        columns: filterEditableColumns(compranetTableColumns),
+        primaryKey: 'id',
+        data: compranetData,
+      },
+      pendingOct: {
+        supabaseTable: 'estatus_procedimiento',
+        label: 'observación de pago',
+        columns: filterEditableColumns(pendingCrudColumns),
+        primaryKey: 'id',
+        data: procedureStatuses,
+      },
+    } as Record<CrudTable, { supabaseTable: string; label: string; columns: string[]; primaryKey: string; data: Record<string, any>[] }>;
+  }, [annual2026Data, annualTableColumns, paymentsCrudColumns, paymentsData, invoicesData, invoicesTableColumns, compranetData, compranetTableColumns, pendingCrudColumns, procedureStatuses]);
+
+  const refreshDataForTable = async (table: CrudTable) => {
+    switch (table) {
+      case 'annual2026':
+        await fetchAnnual2026Data();
+        break;
+      case 'payments':
+        await fetchPaymentsData();
+        break;
+      case 'invoices':
+        await fetchInvoicesData();
+        break;
+      case 'compranet':
+        await fetchCompranetData();
+        break;
+      case 'pendingOct':
+        await fetchProcedureStatusData();
+        break;
+      default:
+        break;
+    }
+  };
+
+  const openCrudModal = (table: CrudTable, record?: Record<string, any>) => {
+    const config = crudConfigs[table];
+    if (!config) return;
+    if (!config.columns.length) {
+      alert('No hay columnas configuradas para este registro.');
+      return;
+    }
+
+    const fieldMeta = deriveFieldMeta(config.columns, config.data);
+    const formData = config.columns.reduce<Record<string, any>>((acc, column) => {
+      const rawValue = record ? record[column] : '';
+      if (fieldMeta[column] === 'boolean') {
+        if (rawValue === '' || rawValue === null || rawValue === undefined) {
+          acc[column] = false;
+        } else if (typeof rawValue === 'boolean') {
+          acc[column] = rawValue;
+        } else {
+          const normalized = String(rawValue).trim().toLowerCase();
+          acc[column] = normalized === '1' || normalized === 'true' || normalized === 'sí' || normalized === 'si';
+        }
+      } else {
+        acc[column] = rawValue === null || rawValue === undefined ? '' : rawValue;
+      }
+      return acc;
+    }, {});
+
+    setCrudContext({
+      table,
+      supabaseTable: config.supabaseTable,
+      label: config.label,
+      columns: config.columns,
+      formData,
+      editingId: record ? pickRowId(record, config.primaryKey) : null,
+      fieldMeta,
+      primaryKey: config.primaryKey,
+    });
+    setIsCrudModalOpen(true);
+  };
+
+  const closeCrudModal = () => {
+    setIsCrudModalOpen(false);
+    setIsCrudSubmitting(false);
+  };
+
+  const handleCrudFieldChange = (column: string, value: any) => {
+    setCrudContext((prev) => ({
+      ...prev,
+      formData: {
+        ...prev.formData,
+        [column]: value,
+      },
+    }));
+  };
+
+  const handleCrudSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!crudContext.table) return;
+
+    setIsCrudSubmitting(true);
+    try {
+      const payload = crudContext.columns.reduce<Record<string, any>>((acc, column) => {
+        const metaType = crudContext.fieldMeta[column] ?? 'string';
+        const rawValue = crudContext.formData[column];
+        acc[column] = sanitizeCrudValue(rawValue, metaType);
+        return acc;
+      }, {});
+
+      if (crudContext.editingId !== null && crudContext.editingId !== undefined) {
+        const { error } = await supabase
+          .from(crudContext.supabaseTable)
+          .update(payload)
+          .eq(crudContext.primaryKey, crudContext.editingId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from(crudContext.supabaseTable)
+          .insert([payload]);
+        if (error) throw error;
+      }
+
+      await refreshDataForTable(crudContext.table);
+      setIsCrudModalOpen(false);
+    } catch (error: any) {
+      console.error('Error al guardar registro:', error);
+      alert(`Error al guardar registro: ${error?.message ?? error}`);
+    } finally {
+      setIsCrudSubmitting(false);
+    }
+  };
+
+  const handleCrudDelete = async (table: CrudTable, record: Record<string, any>) => {
+    const config = crudConfigs[table];
+    if (!config) return;
+    const rowId = pickRowId(record, config.primaryKey);
+    if (rowId === null) {
+      alert('No se pudo identificar el registro a eliminar.');
+      return;
+    }
+
+    if (!window.confirm(`¿Eliminar definitivamente este ${config.label}?`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from(config.supabaseTable)
+        .delete()
+        .eq(config.primaryKey, rowId);
+
+      if (error) throw error;
+
+      await refreshDataForTable(table);
+    } catch (error: any) {
+      console.error('Error al eliminar registro:', error);
+      alert(`Error al eliminar registro: ${error?.message ?? error}`);
+    }
+  };
+
   return (
     <div className="relative h-screen bg-slate-50 overflow-hidden font-sans">
       {isSidebarOpen && (
@@ -1650,6 +2001,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {annual2026Data.length > 0 && (
                           <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {annualTableColumns.length}</span>
                         )}
+                        <div className="flex justify-end w-full sm:w-auto">
+                          <button
+                            onClick={() => openCrudModal('annual2026')}
+                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Nuevo registro
+                          </button>
+                        </div>
                       </div>
                       <div className="overflow-auto h-[68vh] relative">
                         <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
@@ -1689,16 +2049,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   </th>
                                 );
                               })}
+                              <th
+                                className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                style={{
+                                  position: 'sticky',
+                                  top: 0,
+                                  right: 0,
+                                  zIndex: 65,
+                                  backgroundColor: '#0F3F2E',
+                                  minWidth: '160px',
+                                  boxShadow: '-6px 0 10px -4px rgba(15,63,46,0.35)'
+                                }}
+                              >
+                                Acciones
+                              </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white">
                             {loadingData ? (
                               <tr>
-                                <td colSpan={Math.max(annualTableColumns.length, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
+                                <td colSpan={Math.max(annualTableColumns.length, 1) + 1} className="text-center py-10 text-slate-500">Cargando registros...</td>
                               </tr>
                             ) : !annual2026Data.length ? (
                               <tr>
-                                <td colSpan={Math.max(annualTableColumns.length, 1)} className="text-center py-10 text-slate-500">Conecta registros en la tabla `año_2026` para mostrarlos aquí.</td>
+                                <td colSpan={Math.max(annualTableColumns.length, 1) + 1} className="text-center py-10 text-slate-500">Conecta registros en la tabla `año_2026` para mostrarlos aquí.</td>
                               </tr>
                             ) : (
                               annual2026Data.map((row, rowIndex) => {
@@ -1743,6 +2117,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         </td>
                                       );
                                     })}
+                                    <td
+                                      className="px-5 py-4 text-center align-top bg-white/90"
+                                      style={{ position: 'sticky', right: 0, minWidth: '160px', backgroundColor: zebraBackground, boxShadow: '-6px 0 8px -4px rgba(15,63,46,0.28)', zIndex: 40 }}
+                                    >
+                                      <div className="flex items-center justify-center gap-2">
+                                        <button
+                                          onClick={() => openCrudModal('annual2026', row)}
+                                          className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                          title="Editar registro"
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleCrudDelete('annual2026', row)}
+                                          className="inline-flex items-center justify-center rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-500 hover:bg-red-50 transition-colors"
+                                          title="Eliminar registro"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    </td>
                                   </tr>
                                 );
                               })
@@ -1941,13 +2336,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                                   if (!stickyInfo) {
                                     headerStyle.backgroundImage = 'linear-gradient(135deg, #124836 0%, #0A3224 100%)';
-                                  }
+                                  } else {
+                                    const pixelWidth = `${stickyInfo.width}px`;
+                                    headerStyle.width = pixelWidth;
 
-                                  if (stickyInfo) {
-                                    headerStyle.left = stickyInfo.left;
-                                    headerStyle.width = `${stickyInfo.width}px`;
-                                    if (paasTableConfig.lastStickyKey === column.key) {
-                                      headerStyle.boxShadow = '6px 0 10px -4px rgba(15,76,58,0.22)';
+                                    if (stickyInfo.side === 'left') {
+                                      headerStyle.left = stickyInfo.offset;
+                                      if (paasTableConfig.lastLeftStickyKey === column.key) {
+                                        headerStyle.boxShadow = '6px 0 10px -4px rgba(15,76,58,0.22)';
+                                      }
+                                    } else {
+                                      headerStyle.right = stickyInfo.offset;
+                                      if (paasTableConfig.lastRightStickyKey === column.key) {
+                                        headerStyle.boxShadow = '-6px 0 10px -4px rgba(15,76,58,0.22)';
+                                      }
                                     }
                                   }
 
@@ -2000,12 +2402,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                                         if (stickyInfo) {
                                           cellStyle.position = 'sticky';
-                                          cellStyle.left = stickyInfo.left;
                                           cellStyle.width = `${stickyInfo.width}px`;
                                           cellStyle.zIndex = 30;
                                           cellStyle.backgroundColor = rowBackground;
-                                          if (paasTableConfig.lastStickyKey === column.key) {
-                                            cellStyle.boxShadow = '6px 0 8px -4px rgba(15,76,58,0.18)';
+
+                                          if (stickyInfo.side === 'left') {
+                                            cellStyle.left = stickyInfo.offset;
+                                            if (paasTableConfig.lastLeftStickyKey === column.key) {
+                                              cellStyle.boxShadow = '6px 0 8px -4px rgba(15,76,58,0.18)';
+                                            }
+                                          } else {
+                                            cellStyle.right = stickyInfo.offset;
+                                            if (paasTableConfig.lastRightStickyKey === column.key) {
+                                              cellStyle.boxShadow = '-6px 0 8px -4px rgba(15,76,58,0.18)';
+                                            }
                                           }
                                         }
 
@@ -2023,7 +2433,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 <Pencil className="h-4 w-4" />
                                               </button>
                                               <button
-                                                onClick={() => handleDeleteRecord(item.id)}
+                                                onClick={() => handleDeletePaasRecord(item.id)}
                                                 className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
                                                 title="Eliminar"
                                               >
@@ -2117,8 +2527,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
                     </div>
 
-                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
-                     {/* Contenedor con Scroll Horizontal y Altura Fija */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
+                    <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                          <FileSpreadsheet className="h-5 w-5 text-slate-400" /> Detalle de pagos controlados
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">Registros provenientes de `control_pagos` con edición directa.</p>
+                      </div>
+                      <button
+                        onClick={() => openCrudModal('payments')}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Nuevo registro
+                      </button>
+                    </div>
+                    {/* Contenedor con Scroll Horizontal y Altura Fija */}
                      <div className="overflow-auto h-[70vh] relative">
                        <table className="text-sm text-center w-max min-w-full border-collapse">
                          <thead className="text-white uppercase tracking-wider">
@@ -2149,13 +2574,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                              <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>Monto Ejercido</th>
                              <th className="px-6 py-4 font-bold text-center border-b border-white/20 bg-[#1B4D3E]" style={{ position: 'sticky', top: 0, minWidth: '200px', zIndex: 50 }}>Facturas Devengadas (%)</th>
                              <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '300px', zIndex: 50 }}>Observaciones</th>
+                             <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, right: 0, minWidth: '160px', zIndex: 55, boxShadow: '-6px 0 10px -4px rgba(27,77,62,0.28)' }}>Acciones</th>
                            </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-200 bg-white">
                            {loadingData ? (
-                             <tr><td colSpan={60} className="text-center py-8">Cargando Pagos...</td></tr>
+                            <tr><td colSpan={61} className="text-center py-8">Cargando Pagos...</td></tr>
                            ) : paymentsData.length === 0 ? (
-                              <tr><td colSpan={60} className="text-center py-8 text-slate-500">No hay registros de pagos.</td></tr>
+                             <tr><td colSpan={61} className="text-center py-8 text-slate-500">No hay registros de pagos.</td></tr>
                            ) : paymentsData.map((item, idx) => (
                              <tr key={item.id} className={`hover:bg-slate-50 transition-colors group ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
                                
@@ -2208,7 +2634,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     </span>
                                   </div>
                                </td>
-                               <td className="px-6 py-4 text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center">{item.observaciones || '-'}</td>
+                              <td className="px-6 py-4 text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center" style={{ minWidth: '300px' }}>{item.observaciones || '-'}</td>
+                              <td className="px-6 py-4 border-b border-slate-200" style={{ position: 'sticky', right: 0, minWidth: '160px', backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc', boxShadow: '-6px 0 8px -4px rgba(27,77,62,0.18)', zIndex: 45 }}>
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    onClick={() => openCrudModal('payments', item as Record<string, any>)}
+                                    className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                    title="Editar registro"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleCrudDelete('payments', item as Record<string, any>)}
+                                    className="inline-flex items-center justify-center rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-500 hover:bg-red-50 transition-colors"
+                                    title="Eliminar registro"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
                              </tr>
                            ))}
                          </tbody>
@@ -2318,14 +2762,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
 
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-slate-800">Detalle de Facturas</h3>
-                          <p className="text-sm text-slate-500 mt-1">Tabla completa con los campos detectados en `estatus_facturas`.</p>
+                      <div className="p-6 border-b border-slate-100">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800">Detalle de Facturas</h3>
+                            <p className="text-sm text-slate-500 mt-1">Tabla completa con los campos detectados en `estatus_facturas`.</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => openCrudModal('invoices')}
+                              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Nuevo registro
+                            </button>
+                            {invoicesData.length > 0 && (
+                              <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {invoicesTableColumns.length}</span>
+                            )}
+                          </div>
                         </div>
-                        {invoicesData.length > 0 && (
-                          <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {invoicesTableColumns.length}</span>
-                        )}
                       </div>
                       <div className="overflow-auto h-[68vh] relative">
                         <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
@@ -2363,16 +2818,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   </th>
                                 );
                               })}
+                              <th
+                                className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                style={{
+                                  position: 'sticky',
+                                  top: 0,
+                                  right: 0,
+                                  zIndex: 65,
+                                  backgroundColor: '#0F3F2E',
+                                  minWidth: '160px',
+                                  boxShadow: '-6px 0 10px -4px rgba(15,63,46,0.35)',
+                                }}
+                              >
+                                Acciones
+                              </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white">
                             {loadingData ? (
                               <tr>
-                                <td colSpan={Math.max(invoicesTableColumns.length, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
+                                <td colSpan={Math.max(invoicesTableColumns.length, 1) + 1} className="text-center py-10 text-slate-500">Cargando registros...</td>
                               </tr>
                             ) : !invoicesData.length ? (
                               <tr>
-                                <td colSpan={Math.max(invoicesTableColumns.length, 1)} className="text-center py-10 text-slate-500">Conecta datos en `estatus_facturas` para mostrarlos aquí.</td>
+                                <td colSpan={Math.max(invoicesTableColumns.length, 1) + 1} className="text-center py-10 text-slate-500">Conecta datos en `estatus_facturas` para mostrarlos aquí.</td>
                               </tr>
                             ) : (
                               invoicesData.map((row, rowIndex) => {
@@ -2416,6 +2885,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         </td>
                                       );
                                     })}
+                                    <td
+                                      className="px-5 py-4 border-b border-slate-100"
+                                      style={{
+                                        position: 'sticky',
+                                        right: 0,
+                                        minWidth: '160px',
+                                        backgroundColor: zebraBackground,
+                                        boxShadow: '-6px 0 8px -4px rgba(15,60,40,0.25)',
+                                        zIndex: 45,
+                                      }}
+                                    >
+                                      <div className="flex items-center justify-center gap-2">
+                                        <button
+                                          onClick={() => openCrudModal('invoices', row as Record<string, any>)}
+                                          className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                          title="Editar registro"
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleCrudDelete('invoices', row as Record<string, any>)}
+                                          className="inline-flex items-center justify-center rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-500 hover:bg-red-50 transition-colors"
+                                          title="Eliminar registro"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    </td>
                                   </tr>
                                 );
                               })
@@ -2606,6 +3103,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
 
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
+                        <div className="p-6 border-b border-slate-100">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            <div>
+                              <h3 className="text-lg font-bold text-slate-800">Detalle de procedimientos</h3>
+                              <p className="text-sm text-slate-500 mt-1">Campos expuestos desde `procedimientos_compranet`.</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={() => openCrudModal('compranet')}
+                                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                              >
+                                <Plus className="h-4 w-4" />
+                                Nuevo registro
+                              </button>
+                              {compranetTableColumns.length > 0 && (
+                                <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {compranetTableColumns.length}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                         <div className="overflow-auto max-h-[70vh] relative">
                           <table className="min-w-full text-sm text-center border-collapse">
                             <thead className="uppercase tracking-wider text-white">
@@ -2641,18 +3158,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     </th>
                                   );
                                 })}
+                                <th
+                                  className="px-5 py-4 font-semibold whitespace-nowrap border-b border-white/20 text-center"
+                                  style={{
+                                    position: 'sticky',
+                                    top: 0,
+                                    right: 0,
+                                    zIndex: 65,
+                                    backgroundColor: '#0F4C3A',
+                                    minWidth: '160px',
+                                    boxShadow: '-6px 0 10px -4px rgba(15,76,58,0.25)',
+                                  }}
+                                >
+                                  Acciones
+                                </th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                               {loadingData ? (
                                 <tr>
-                                  <td colSpan={Math.max(compranetTableColumns.length, 1)} className="text-center py-10 text-slate-500">
+                                  <td colSpan={Math.max(compranetTableColumns.length, 1) + 1} className="text-center py-10 text-slate-500">
                                     Cargando procedimientos...
                                   </td>
                                 </tr>
                               ) : !compranetData.length ? (
                                 <tr>
-                                  <td colSpan={Math.max(compranetTableColumns.length, 1)} className="text-center py-10 text-slate-500">
+                                  <td colSpan={Math.max(compranetTableColumns.length, 1) + 1} className="text-center py-10 text-slate-500">
                                     No hay registros de procedimientos en Compranet.
                                   </td>
                                 </tr>
@@ -2693,6 +3224,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           </td>
                                         );
                                       })}
+                                      <td
+                                        className="px-5 py-3 border-b border-slate-100"
+                                        style={{
+                                          position: 'sticky',
+                                          right: 0,
+                                          minWidth: '160px',
+                                          backgroundColor: isStriped ? '#ffffff' : '#f8fafc',
+                                          boxShadow: '-6px 0 8px -4px rgba(15,76,58,0.2)',
+                                          zIndex: 40,
+                                        }}
+                                      >
+                                        <div className="flex items-center justify-center gap-2">
+                                          <button
+                                            onClick={() => openCrudModal('compranet', row as Record<string, any>)}
+                                            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                            title="Editar registro"
+                                          >
+                                            <Pencil className="h-4 w-4" />
+                                          </button>
+                                          <button
+                                            onClick={() => handleCrudDelete('compranet', row as Record<string, any>)}
+                                            className="inline-flex items-center justify-center rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-500 hover:bg-red-50 transition-colors"
+                                            title="Eliminar registro"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </button>
+                                        </div>
+                                      </td>
                                     </tr>
                                   );
                                 })
@@ -2819,13 +3378,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
 
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                        <AlertCircle className="h-4 w-4 text-[#B38E5D]" />
-                        Observaciones a servicios pendientes de pago (Octubre)
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        Total registros: <span className="font-semibold text-slate-700">{procedureStatuses.length}</span>
+                    <div className="p-6 border-b border-slate-100">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <AlertCircle className="h-4 w-4 text-[#B38E5D]" />
+                          Observaciones a servicios pendientes de pago (Octubre)
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                          <span className="text-xs text-slate-500">
+                            Total registros: <span className="font-semibold text-slate-700">{procedureStatuses.length}</span>
+                          </span>
+                          <button
+                            onClick={() => openCrudModal('pendingOct')}
+                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Nuevo registro
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <div className="overflow-x-auto">
@@ -2838,13 +3408,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <th className="px-6 py-3 font-semibold text-center">Empresa</th>
                             <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">Mes factura / nota</th>
                             <th className="px-6 py-3 font-semibold text-center">Observación de Pago</th>
+                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">Acciones</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {loadingData ? (
-                            <tr><td colSpan={6} className="text-center py-8">Cargando observaciones...</td></tr>
+                            <tr><td colSpan={7} className="text-center py-8">Cargando observaciones...</td></tr>
                           ) : procedureStatuses.length === 0 ? (
-                            <tr><td colSpan={6} className="text-center py-8 text-slate-500">No hay observaciones registradas.</td></tr>
+                            <tr><td colSpan={7} className="text-center py-8 text-slate-500">No hay observaciones registradas.</td></tr>
                           ) : procedureStatuses.map((item) => (
                             <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                               <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap text-center">{formatDateTime(item.created_at)}</td>
@@ -2853,6 +3424,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.empresa || '-'}</td>
                               <td className="px-6 py-4 text-slate-500 text-xs whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.mes_factura_nota)}</td>
                               <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.observacion_pago)}</td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    onClick={() => openCrudModal('pendingOct', item as Record<string, any>)}
+                                    className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:border-[#B38E5D]/60 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                    title="Editar registro"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleCrudDelete('pendingOct', item as Record<string, any>)}
+                                    className="inline-flex items-center justify-center rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-500 hover:bg-red-50 transition-colors"
+                                    title="Eliminar registro"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -2997,6 +3586,119 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === MODAL GENÉRICO PARA CRUD === */}
+      {isCrudModalOpen && crudContext.table && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                {crudContext.editingId ? <Pencil className="h-5 w-5 text-[#B38E5D]" /> : <Plus className="h-5 w-5 text-[#B38E5D]" />}
+                {crudContext.editingId ? `Editar ${crudContext.label}` : `Nuevo ${crudContext.label}`}
+              </h3>
+              <button
+                onClick={closeCrudModal}
+                className="text-slate-400 hover:text-slate-600"
+                disabled={isCrudSubmitting}
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              {crudContext.columns.length === 0 ? (
+                <div className="text-sm text-slate-500">
+                  No se detectaron columnas editables para este registro. Revisa la configuración en Supabase.
+                </div>
+              ) : (
+                <form onSubmit={handleCrudSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {crudContext.columns.map((column, index) => {
+                    const normalized = normalizeAnnualKey(column);
+                    const metaType = crudContext.fieldMeta[column] ?? 'string';
+                    const rawValue = crudContext.formData[column];
+                    const textValue = rawValue === null || rawValue === undefined
+                      ? ''
+                      : typeof rawValue === 'string'
+                        ? rawValue
+                        : String(rawValue);
+                    const isTextarea = metaType === 'string' && (shouldUseTextareaField(normalized) || textValue.length > 120);
+                    const fieldId = `crud-field-${index}`;
+                    const containerClass = isTextarea ? 'md:col-span-2' : 'md:col-span-1';
+
+                    if (metaType === 'boolean') {
+                      return (
+                        <div key={column} className="md:col-span-1">
+                          <p className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                            {humanizeKey(column)}
+                          </p>
+                          <label htmlFor={fieldId} className="mt-3 flex items-center gap-2">
+                            <input
+                              id={fieldId}
+                              type="checkbox"
+                              checked={Boolean(rawValue)}
+                              onChange={(event) => handleCrudFieldChange(column, event.target.checked)}
+                              className="h-4 w-4 rounded border-slate-300 text-[#B38E5D] focus:ring-[#B38E5D]"
+                              disabled={isCrudSubmitting}
+                            />
+                            <span className="text-sm text-slate-600">{Boolean(rawValue) ? 'Sí' : 'No'}</span>
+                          </label>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={column} className={containerClass}>
+                        <label htmlFor={fieldId} className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          {humanizeKey(column)}
+                        </label>
+                        {isTextarea ? (
+                          <textarea
+                            id={fieldId}
+                            value={textValue}
+                            onChange={(event) => handleCrudFieldChange(column, event.target.value)}
+                            rows={Math.min(Math.max(Math.ceil(textValue.length / 120), 4), 8)}
+                            className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#B38E5D]/40 resize-y min-h-[120px]"
+                            placeholder="Ingresa el texto..."
+                            disabled={isCrudSubmitting}
+                          />
+                        ) : (
+                          <input
+                            id={fieldId}
+                            type={metaType === 'number' ? 'number' : 'text'}
+                            step={metaType === 'number' ? 'any' : undefined}
+                            value={textValue}
+                            onChange={(event) => handleCrudFieldChange(column, event.target.value)}
+                            className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#B38E5D]/40"
+                            placeholder="Ingresa el valor..."
+                            disabled={isCrudSubmitting}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div className="md:col-span-2 flex justify-end gap-3 pt-4">
+                    <button
+                      type="button"
+                      onClick={closeCrudModal}
+                      className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition-colors"
+                      disabled={isCrudSubmitting}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isCrudSubmitting}
+                      className="px-6 py-2 bg-[#B38E5D] hover:bg-[#9c7a4d] text-white font-bold rounded-lg shadow-lg transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {isCrudSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Guardar cambios
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         </div>
