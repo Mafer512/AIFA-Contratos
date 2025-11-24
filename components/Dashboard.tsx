@@ -13,42 +13,14 @@ import { OperationData, User, Contract, CommercialSpace, PaasItem, PaymentContro
 import { generateOperationalInsight } from '../services/geminiService';
 import { supabase } from '../services/supabaseClient';
 
-// === COMPONENTE DE LOGO SVG PERSONALIZADO (VERSIÓN COMPACTA) ===
+// === COMPONENTE DE LOGO (IMAGEN PNG) ===
 const AifaLogo = ({ className = "h-10 w-auto" }: { className?: string }) => (
-  <svg viewBox="0 0 240 120" className={className} xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="goldGradSmall" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#C5A065" />
-        <stop offset="100%" stopColor="#997842" />
-      </linearGradient>
-      <linearGradient id="greenGradSmall" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stopColor="#0F4C3A" />
-        <stop offset="100%" stopColor="#082E23" />
-      </linearGradient>
-    </defs>
-
-    {/* Documento/Contrato Base */}
-    <path 
-      d="M60 20 H 100 L 120 40 V 100 A 5 5 0 0 1 115 105 H 60 A 5 5 0 0 1 55 100 V 25 A 5 5 0 0 1 60 20" 
-      fill="white" 
-      stroke="url(#greenGradSmall)" 
-      strokeWidth="4"
-    />
-    <path d="M100 20 V 40 H 120" fill="#E2E8F0" stroke="none" />
-    
-    {/* Avión Estilizado */}
-    <path 
-      d="M 90 90 C 110 90, 140 60, 160 50 L 190 45 L 180 55 L 165 60 L 195 75 L 185 85 L 150 75 C 130 85, 110 100, 90 90 Z" 
-      fill="url(#goldGradSmall)" 
-      stroke="white" 
-      strokeWidth="2"
-    />
-    {/* Estela */}
-    <path d="M 40 100 Q 80 100 110 80" fill="none" stroke="#9E1B32" strokeWidth="3" strokeLinecap="round" strokeDasharray="4 4"/>
-    
-    {/* Texto minimalista para dashboard */}
-    <text x="135" y="105" fontSize="24" fontWeight="800" fontFamily="Arial" fill="#334155">AIFA</text>
-  </svg>
+  <img
+    src="/images/aifa-logo.png"
+    alt="Logotipo AIFA"
+    className={className}
+    loading="lazy"
+  />
 );
 
 // === DATOS MOCK DE RESPALDO (FALLBACK) ===
