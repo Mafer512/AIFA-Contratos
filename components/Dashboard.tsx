@@ -1,20 +1,23 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Plane, LayoutDashboard, Users, Bell, Search, 
+import {
+  LayoutDashboard, Bell, Search,
   LogOut, AlertCircle,
-  Sparkles, X, Send, FileText, Briefcase, Shield,
-  DollarSign, Calendar, Store, PieChart as PieChartIcon,
+  Sparkles, X, Send, FileText, Briefcase,
+  DollarSign, PieChart as PieChartIcon,
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
-  CreditCard, Wallet
+  CreditCard, Calendar, FileSpreadsheet, Menu
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { OperationData, User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem } from '../types';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line } from 'recharts';
+import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem } from '../types';
 import { generateOperationalInsight } from '../services/geminiService';
 import { supabase } from '../services/supabaseClient';
 
-// === COMPONENTE DE LOGO (IMAGEN PNG) ===
-const AifaLogo = ({ className = "h-10 w-auto" }: { className?: string }) => (
+const chartPalette = ['#B38E5D', '#2563EB', '#0F4C3A', '#9E1B32', '#7C3AED', '#F97316', '#14B8A6', '#64748B'];
+const invoicesPalette = ['#0F4C3A', '#B38E5D', '#2563EB', '#F97316', '#9E1B32', '#7C3AED', '#14B8A6', '#64748B'];
+
+// Reuse the PNG logo within the dashboard shell.
+const AifaLogo = ({ className = 'h-32 w-auto' }: { className?: string }) => (
   <img
     src="/images/aifa-logo.png"
     alt="Logotipo AIFA"
@@ -22,6 +25,17 @@ const AifaLogo = ({ className = "h-10 w-auto" }: { className?: string }) => (
     loading="lazy"
   />
 );
+
+interface TableColumnConfig {
+  key: string;
+  label: string;
+  width?: number;
+  sticky?: boolean;
+  align?: 'left' | 'center' | 'right';
+  isCurrency?: boolean;
+  mono?: boolean;
+  className?: string;
+}
 
 // === DATOS MOCK DE RESPALDO (FALLBACK) ===
 const MOCK_CONTRACTS: Contract[] = [
@@ -44,30 +58,24 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-// Datos de Vuelos (Mock para Operaciones en tiempo real)
-const FLIGHT_DATA: OperationData[] = [
-  { id: '1', flightNumber: 'AM-492', status: 'On Time', destination: 'Cancún (CUN)', gate: 'B12', time: '14:30', passengerCount: 142 },
-  { id: '2', flightNumber: 'VB-201', status: 'Delayed', destination: 'Monterrey (MTY)', gate: 'A04', time: '14:45', passengerCount: 189 },
-  { id: '3', flightNumber: 'Y4-882', status: 'Boarding', destination: 'Tijuana (TIJ)', gate: 'C01', time: '15:00', passengerCount: 165 },
-  { id: '4', flightNumber: 'DL-120', status: 'On Time', destination: 'Atlanta (ATL)', gate: 'B08', time: '15:15', passengerCount: 210 },
-  { id: '5', flightNumber: 'AM-500', status: 'Cancelled', destination: 'Guadalajara (GDL)', gate: '-', time: '15:30', passengerCount: 0 },
-  { id: '6', flightNumber: 'UA-773', status: 'Arrived', destination: 'Houston (IAH)', gate: 'B10', time: '14:10', passengerCount: 150 },
-];
-
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview');
-  const [activeContractSubTab, setActiveContractSubTab] = useState<'general' | 'paas' | 'payments' | 'pendingOct'>('general'); 
+  const [activeContractSubTab, setActiveContractSubTab] = useState<'annual2026' | 'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct'>('annual2026'); 
   
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [aiQuery, setAiQuery] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [isAiThinking, setIsAiThinking] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Database State
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [commercialSpaces, setCommercialSpaces] = useState<CommercialSpace[]>([]);
+  const [annual2026Data, setAnnual2026Data] = useState<Record<string, any>[]>([]);
   const [paasData, setPaasData] = useState<PaasItem[]>([]);
   const [paymentsData, setPaymentsData] = useState<PaymentControlItem[]>([]);
+  const [invoicesData, setInvoicesData] = useState<Record<string, any>[]>([]);
+  const [compranetData, setCompranetData] = useState<Record<string, any>[]>([]);
   const [procedureStatuses, setProcedureStatuses] = useState<ProcedureStatusItem[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
@@ -120,6 +128,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (procedureError) console.error("Error fetching Procedure Status:", procedureError.message);
   };
 
+  const fetchCompranetData = async () => {
+    const { data: compranetResults, error: compranetError } = await supabase
+      .from('procedimientos_compranet')
+      .select('*');
+
+    if (compranetResults) setCompranetData(compranetResults);
+    if (compranetError) console.error('Error fetching procedimientos_compranet:', compranetError.message);
+  };
+
   useEffect(() => {
     const fetchAllData = async () => {
       try {
@@ -142,13 +159,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         if (spacesData) setCommercialSpaces(spacesData);
         else setCommercialSpaces(MOCK_SPACES);
 
-        // 3. Fetch PAAS Data
+        // 3. Fetch Annual 2026 Data
+        const { data: annualData, error: annualError } = await supabase
+          .from('año_2026')
+          .select('*');
+
+        if (annualData) setAnnual2026Data(annualData);
+        if (annualError) console.error('Error fetching año_2026:', annualError.message);
+
+        // 4. Fetch PAAS Data
         await fetchPaasData();
 
-        // 4. Fetch Payments Data
+        // 5. Fetch Payments Data
         await fetchPaymentsData();
 
-        // 5. Fetch Pending October Payments Observations
+        // 6. Fetch Invoices Data
+        const { data: invoices, error: invoicesError } = await supabase
+          .from('estatus_facturas')
+          .select('*');
+
+        if (invoices) setInvoicesData(invoices);
+        if (invoicesError) console.error('Error fetching estatus_facturas:', invoicesError.message);
+
+        // 7. Fetch Procedimientos en Compranet
+        await fetchCompranetData();
+
+        // 8. Fetch Pending October Payments Observations
         await fetchProcedureStatusData();
 
       } catch (e) {
@@ -354,6 +390,65 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return value.replace(/\s+/g, ' ').trim();
   };
 
+  const formatNumber = (val: number | null | undefined) => {
+    if (val === null || val === undefined || Number.isNaN(val)) return '--';
+    if (!Number.isFinite(val)) return String(val);
+    return new Intl.NumberFormat('es-MX', { maximumFractionDigits: 2 }).format(val);
+  };
+
+  const shouldFormatAsCurrency = (key: string) => {
+    const normalized = key.toLowerCase();
+    return ['monto', 'importe', 'total', 'presupuesto', 'costo', 'valor', 'ejercido', 'pagado'].some(fragment => normalized.includes(fragment));
+  };
+
+  const formatMetricValue = (key: string, value: number | null | undefined) => {
+    if (value === null || value === undefined) return '--';
+    return shouldFormatAsCurrency(key) ? formatCurrency(value) : formatNumber(value);
+  };
+
+  const formatPercent = (value: number) => {
+    const normalized = Number.isFinite(value) ? Math.max(-1, value) : 0;
+    return new Intl.NumberFormat('es-MX', { style: 'percent', maximumFractionDigits: 1 }).format(normalized);
+  };
+
+  const humanizeKey = (rawKey: string) => (
+    rawKey
+      .replace(/_/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (letter) => letter.toUpperCase())
+  );
+
+  const formatTableValue = (key: string, value: any) => {
+    if (value === null || value === undefined || value === '') return '-';
+    if (typeof value === 'number') return formatMetricValue(key, value);
+    if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+    if (value instanceof Date) return formatDateTime(value.toISOString());
+    return normalizeWhitespace(String(value));
+  };
+
+  const parseNumericValue = (value: any) => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const sanitized = value.replace(/[^0-9\-.,]/g, '').replace(/,/g, '');
+      const parsed = parseFloat(sanitized);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  };
+
+  const normalizeAnnualKey = (key: string) => key
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[()]/g, '')
+    .replace(/[\.\-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[º°#]/g, '')
+    .trim();
+
   const categorizeObservation = (value: string | null | undefined) => {
     if (!value) return 'Sin observación';
     const text = value.toLowerCase();
@@ -363,6 +458,45 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (text.includes('prefactura')) return 'Sin prefactura';
     if (text.includes('pago')) return 'Pendiente de pago';
     return 'Otro';
+  };
+
+  const findColumnByFragments = (columns: string[], fragments: string[]) => {
+    if (!columns.length) return null;
+    const normalizedFragments = fragments.map(fragment => fragment.toLowerCase());
+    for (const column of columns) {
+      const normalized = normalizeAnnualKey(column);
+      if (normalizedFragments.some(fragment => normalized.includes(fragment))) {
+        return column;
+      }
+    }
+    return null;
+  };
+
+  const parsePotentialDate = (value: any) => {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+
+      const direct = new Date(trimmed);
+      if (!Number.isNaN(direct.getTime())) return direct;
+
+      const normalized = trimmed.replace(/-/g, '/');
+      const fallback = new Date(normalized);
+      if (!Number.isNaN(fallback.getTime())) return fallback;
+
+      const match = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+      if (match) {
+        const day = parseInt(match[1], 10);
+        const month = parseInt(match[2], 10) - 1;
+        const yearFragment = match[3];
+        const year = yearFragment.length === 2 ? parseInt(`20${yearFragment}`, 10) : parseInt(yearFragment, 10);
+        const candidate = new Date(year, month, day);
+        if (!Number.isNaN(candidate.getTime())) return candidate;
+      }
+    }
+    return null;
   };
 
   const renderCompanyTick = ({ x, y, payload }: { x: number; y: number; payload: { value: string } }) => {
@@ -382,6 +516,161 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     );
   };
 
+  const paasSummary = useMemo(() => {
+    if (!paasData.length) {
+      return {
+        totalRequested: 0,
+        totalModified: 0,
+        delta: 0,
+        averageRequested: 0,
+        gerenciasCount: 0,
+        progress: 0,
+        topService: null as PaasItem | null,
+        topGerencia: paasByGerencia[0] ?? null,
+      };
+    }
+
+    const totalRequested = paasData.reduce((acc, item) => acc + (item["Monto solicitado anteproyecto 2026"] || 0), 0);
+    const totalModified = paasData.reduce((acc, item) => acc + (item["Modificado"] || 0), 0);
+    const averageRequested = totalRequested / paasData.length;
+    const topService = [...paasData]
+      .sort((a, b) => ((b["Monto solicitado anteproyecto 2026"] || 0) - (a["Monto solicitado anteproyecto 2026"] || 0)))[0] ?? null;
+    const gerenciasCount = paasByGerencia.filter(entry => (entry.value ?? 0) > 0).length || paasByGerencia.length;
+
+    return {
+      totalRequested,
+      totalModified,
+      delta: totalModified - totalRequested,
+      averageRequested,
+      gerenciasCount,
+      progress: totalRequested > 0 ? totalModified / totalRequested : 0,
+      topService,
+      topGerencia: paasByGerencia[0] ?? null,
+    };
+  }, [paasData, paasByGerencia]);
+
+  const paasTopServices = useMemo(() => {
+    if (!paasData.length) return [] as PaasItem[];
+    return [...paasData]
+      .sort((a, b) => ((b["Monto solicitado anteproyecto 2026"] || 0) - (a["Monto solicitado anteproyecto 2026"] || 0)))
+      .slice(0, 5);
+  }, [paasData]);
+
+  const paasProgressPercent = useMemo(() => {
+    const raw = (paasSummary.progress || 0) * 100;
+    if (!Number.isFinite(raw)) return 0;
+    return Math.max(0, Math.min(160, raw));
+  }, [paasSummary.progress]);
+
+  const paasInsightItems = useMemo(() => {
+    const items: { label: string; value: string; description: string }[] = [];
+
+    if (paasSummary.topService) {
+      items.push({
+        label: 'Servicio destacado',
+        value: normalizeWhitespace(paasSummary.topService["Nombre del Servicio."] || 'Sin nombre'),
+        description: `Solicitado: ${formatCurrency(paasSummary.topService["Monto solicitado anteproyecto 2026"] || 0)}`,
+      });
+    }
+
+    if (paasSummary.topGerencia) {
+      items.push({
+        label: 'Gerencia con mayor demanda',
+        value: normalizeWhitespace(paasSummary.topGerencia.name || 'Sin asignar'),
+        description: `Total: ${formatCurrency(paasSummary.topGerencia.value || 0)}`,
+      });
+    }
+
+    items.push({
+      label: 'Ticket promedio solicitado',
+      value: formatCurrency(paasSummary.averageRequested || 0),
+      description: `${paasData.length} partida${paasData.length === 1 ? '' : 's'} registradas`,
+    });
+
+    items.push({
+      label: 'Modificado vs solicitado',
+      value: formatPercent(Math.max(0, Math.min(paasSummary.progress || 0, 2))),
+      description: `Modificado: ${formatCurrency(paasSummary.totalModified || 0)}`,
+    });
+
+    return items;
+  }, [paasData.length, paasSummary]);
+
+  const paasDeltaClasses = useMemo(() => {
+    const delta = paasSummary.delta || 0;
+
+    if (delta > 0) {
+      return {
+        title: 'Incremento neto',
+        valueClass: 'text-emerald-600',
+        badgeClass: 'bg-emerald-500/10 text-emerald-500 border border-emerald-400/40',
+        description: `El modificado supera al solicitado por ${formatCurrency(delta)}.`,
+        iconWrapper: 'bg-emerald-500/10 text-emerald-500'
+      } as const;
+    }
+
+    if (delta < 0) {
+      return {
+        title: 'Reducción neta',
+        valueClass: 'text-rose-600',
+        badgeClass: 'bg-rose-500/10 text-rose-500 border border-rose-400/40',
+        description: `Ajuste a la baja de ${formatCurrency(Math.abs(delta))}.`,
+        iconWrapper: 'bg-rose-500/10 text-rose-500'
+      } as const;
+    }
+
+    return {
+      title: 'Sin variación',
+      valueClass: 'text-slate-600',
+      badgeClass: 'bg-slate-500/10 text-slate-500 border border-slate-400/40',
+      description: 'Modificado y solicitado están alineados.',
+      iconWrapper: 'bg-slate-500/10 text-slate-500'
+    } as const;
+  }, [paasSummary.delta]);
+
+  const paasProgressDisplay = useMemo(() => (
+    formatPercent(Math.max(0, Math.min(paasSummary.progress || 0, 2)))
+  ), [paasSummary.progress]);
+
+  const paasProgressBarWidth = useMemo(() => (
+    Math.max(0, Math.min(100, paasProgressPercent))
+  ), [paasProgressPercent]);
+
+  const paasTableConfig = useMemo(() => {
+    const columns: TableColumnConfig[] = [
+      { key: 'No.', label: 'No.', sticky: true, width: 88, align: 'center', className: 'text-slate-500 font-semibold' },
+      { key: 'Clave cucop', label: 'Clave CUCOP', sticky: true, width: 180, align: 'center', mono: true, className: 'text-slate-600 uppercase tracking-wide text-[11px]' },
+      { key: 'Nombre del Servicio.', label: 'Nombre del Servicio', sticky: true, width: 280, align: 'left', className: 'text-slate-800 font-semibold' },
+      { key: 'Gerencia', label: 'Gerencia', align: 'left', className: 'text-slate-500 text-xs' },
+      { key: 'Monto solicitado anteproyecto 2026', label: 'Monto Solicitado', align: 'right', isCurrency: true, mono: true, className: 'text-slate-800 font-semibold' },
+      { key: 'Modificado', label: 'Modificado', align: 'right', isCurrency: true, mono: true, className: 'text-slate-600' },
+      { key: 'Justificación', label: 'Justificación', align: 'left', className: 'text-slate-600 text-xs whitespace-pre-wrap break-words leading-relaxed' },
+      { key: '__actions', label: 'Acciones', align: 'center', width: 150 },
+    ];
+
+    let runningLeft = 0;
+    const stickyMeta = new Map<string, { left: number; width: number }>();
+    let lastStickyKey: string | null = null;
+
+    columns.forEach((column) => {
+      if (column.sticky) {
+        const width = column.width ?? 180;
+        stickyMeta.set(column.key, { left: runningLeft, width });
+        runningLeft += width;
+        lastStickyKey = column.key;
+      }
+    });
+
+    return { columns, stickyMeta, lastStickyKey };
+  }, []);
+
+  const DeltaIcon = useMemo(() => {
+    const delta = paasSummary.delta || 0;
+    if (delta > 0) return TrendingUp;
+    if (delta < 0) return AlertCircle;
+    return Sparkles;
+  }, [paasSummary.delta]);
+
   const procedureByCompany = useMemo(() => {
     if (!procedureStatuses.length) return [] as { name: string; value: number }[];
     const counts = procedureStatuses.reduce<Record<string, number>>((acc, item) => {
@@ -396,6 +685,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [procedureStatuses]);
 
   const topProcedureCompanies = useMemo(() => procedureByCompany.slice(0, 8), [procedureByCompany]);
+
+  const handleSidebarSelection = (tabId: string) => {
+    setActiveTab(tabId);
+    setIsSidebarOpen(false);
+  };
 
   const procedureByCategory = useMemo(() => {
     if (!procedureStatuses.length) return [] as { name: string; value: number }[];
@@ -437,11 +731,526 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       { key: 'dic', label: 'Dic.' },
   ];
 
+  const annualNumericTotals = useMemo(() => {
+    if (!annual2026Data.length) return [] as { key: string; label: string; value: number }[];
+
+    const totals: Record<string, number> = {};
+    annual2026Data.forEach((row) => {
+      Object.entries(row).forEach(([key, value]) => {
+        const normalizedKey = key.toLowerCase();
+        if (normalizedKey === 'id' || normalizedKey.endsWith('_id')) return;
+        if (typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)) return;
+        totals[key] = (totals[key] ?? 0) + value;
+      });
+    });
+
+    return Object.entries(totals)
+      .map(([key, value]) => ({ key, label: humanizeKey(key), value }))
+      .sort((a, b) => b.value - a.value);
+  }, [annual2026Data]);
+
+  const annualPrimaryMetric = annualNumericTotals[0];
+  const annualSecondaryMetric = annualNumericTotals[1];
+
+  const annualCategoryField = useMemo(() => {
+    if (!annual2026Data.length) return null as string | null;
+
+    const candidates: { key: string; uniqueCount: number }[] = [];
+    const keys = Object.keys(annual2026Data[0]);
+
+    keys.forEach((key) => {
+      const normalizedKey = key.toLowerCase();
+      if (normalizedKey === 'id' || normalizedKey.endsWith('_id') || normalizedKey.includes('fecha') || normalizedKey.includes('created') || normalizedKey.includes('updated')) return;
+
+      const values = annual2026Data
+        .map((row) => row[key])
+        .filter((value) => value !== null && value !== undefined && value !== '' && typeof value !== 'number');
+
+      if (!values.length) return;
+
+      const normalizedValues = values
+        .map((value) => String(value).replace(/\s+/g, ' ').trim())
+        .filter((value) => value.length > 0);
+
+      const uniqueCount = new Set(normalizedValues).size;
+      if (uniqueCount < 2 || uniqueCount > 12) return;
+
+      candidates.push({ key, uniqueCount });
+    });
+
+    if (!candidates.length) return null;
+
+    candidates.sort((a, b) => a.uniqueCount - b.uniqueCount);
+    return candidates[0].key;
+  }, [annual2026Data]);
+
+  const annualCategoryMetadata = useMemo(() => {
+    if (!annual2026Data.length || !annualCategoryField) return null as { key: string; uniqueCount: number } | null;
+
+    const values = annual2026Data
+      .map((row) => row[annualCategoryField])
+      .filter((value) => value !== null && value !== undefined && value !== '');
+
+    const normalizedValues = values
+      .map((value) => String(value).replace(/\s+/g, ' ').trim())
+      .filter((value) => value.length > 0);
+
+    const uniqueCount = new Set(normalizedValues).size;
+
+    return {
+      key: annualCategoryField,
+      uniqueCount,
+    };
+  }, [annual2026Data, annualCategoryField]);
+
+  const annualCategoryBreakdown = useMemo(() => {
+    if (!annual2026Data.length) return [] as { name: string; value: number }[];
+    const primaryKey = annualNumericTotals[0]?.key;
+    if (!primaryKey || !annualCategoryField) return [];
+
+    const totals: Record<string, number> = {};
+
+    annual2026Data.forEach((row) => {
+      const categoryRaw = row[annualCategoryField];
+      const value = row[primaryKey];
+      if (categoryRaw === null || categoryRaw === undefined || categoryRaw === '') return;
+      if (typeof value !== 'number' || Number.isNaN(value)) return;
+      const label = String(categoryRaw).replace(/\s+/g, ' ').trim();
+      if (!label.length) return;
+      totals[label] = (totals[label] ?? 0) + value;
+    });
+
+    return Object.entries(totals)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+  }, [annual2026Data, annualCategoryField, annualNumericTotals]);
+
+  const annualPieSlices = useMemo(() => (
+    annualNumericTotals.slice(0, 5).map((item) => ({
+      key: item.key,
+      name: item.label,
+      value: item.value,
+    }))
+  ), [annualNumericTotals]);
+
+  const annualCategoryChartHeight = useMemo(() => {
+    if (!annualCategoryBreakdown.length) return 260;
+    return Math.min(Math.max(annualCategoryBreakdown.length * 56, 240), 420);
+  }, [annualCategoryBreakdown]);
+
+  const annualPieChartHeight = useMemo(() => {
+    if (!annualPieSlices.length) return 260;
+    return Math.min(Math.max(annualPieSlices.length * 38 + 140, 260), 340);
+  }, [annualPieSlices]);
+
+  const annualSharedChartHeight = useMemo(
+    () => Math.max(annualCategoryChartHeight, annualPieChartHeight),
+    [annualCategoryChartHeight, annualPieChartHeight]
+  );
+
+  const annualPreferredOrder = [
+    'no', 'no.', '#',
+    'clave cucop',
+    'nombre del servicio',
+    'monto solicitado anteproyecto 2026',
+    'monto maximo 2024',
+    'fase',
+    'documentacion soporte',
+    'estatus',
+    'fecha de remision de investigacion de mercado',
+    'comentarios',
+  ];
+
+  const invoicesPreferredOrder = [
+    'no contrato', 'numero contrato', 'numero de contrato', 'no.', '#',
+    'objeto del contrato', 'objeto', 'descripcion', 'concepto',
+    'monto maximo', 'monto máximo', 'monto total',
+    'monto minimo', 'monto mínimo',
+    'inicio del servicio', 'fecha inicio', 'fecha de inicio',
+    'conclusion del servicio', 'fecha conclusion', 'fecha de conclusion', 'fecha termino', 'fecha de termino',
+    'tipo', 'tipo de contrato',
+    'fecha de correo', 'fecha envio', 'fecha de envio',
+    'estatus', 'status', 'fase',
+    'proveedor', 'razon social', 'empresa',
+    'observaciones', 'comentarios'
+  ];
+
+  const invoicesStickyDefinitions = [
+    { id: 'contract', match: ['no contrato', 'numero contrato', 'numero de contrato', '#', 'no.'], width: 190 },
+    { id: 'object', match: ['objeto del contrato', 'objeto', 'descripcion', 'concepto', 'servicio'], width: 460 },
+  ];
+
+  const invoicesTableColumns = useMemo(() => {
+    if (!invoicesData.length) return [] as string[];
+    const seen = new Set<string>();
+    const collected: string[] = [];
+    invoicesData.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        if (seen.has(key)) return;
+        const normalized = normalizeAnnualKey(key);
+        if (normalized === 'id' || normalized.endsWith(' id') || normalized.includes('created') || normalized.includes('updated')) return;
+        seen.add(key);
+        collected.push(key);
+      });
+    });
+
+    return collected.sort((a, b) => {
+      const normalizedA = normalizeAnnualKey(a);
+      const normalizedB = normalizeAnnualKey(b);
+      const priorityA = invoicesPreferredOrder.findIndex((target) => normalizedA === target);
+      const priorityB = invoicesPreferredOrder.findIndex((target) => normalizedB === target);
+      const safePriorityA = priorityA === -1 ? Number.MAX_SAFE_INTEGER : priorityA;
+      const safePriorityB = priorityB === -1 ? Number.MAX_SAFE_INTEGER : priorityB;
+      if (safePriorityA !== safePriorityB) return safePriorityA - safePriorityB;
+      return normalizedA.localeCompare(normalizedB);
+    });
+  }, [invoicesData]);
+
+  const invoicesStatusSummary = useMemo(() => {
+    if (!invoicesData.length) return [] as { name: string; value: number }[];
+    const statusCounts = invoicesData.reduce<Record<string, number>>((acc, row) => {
+      const rawStatus = row.estatus ?? row.status ?? row.estado ?? 'Sin estatus';
+      const label = normalizeWhitespace(String(rawStatus || 'Sin estatus'));
+      acc[label] = (acc[label] ?? 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(statusCounts)
+      .map(([name, value]) => ({ name, value: Number(value) || 0 }))
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  }, [invoicesData]);
+
+  const invoicesProviderSummary = useMemo(() => {
+    if (!invoicesData.length) return [] as { name: string; value: number }[];
+    const counts = invoicesData.reduce<Record<string, number>>((acc, row) => {
+      const rawProvider = row.proveedor ?? row.proveedor_nombre ?? row.razon_social ?? row.proveedor_name ?? 'Sin proveedor';
+      const label = normalizeWhitespace(String(rawProvider || 'Sin proveedor'));
+      acc[label] = (acc[label] ?? 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value: Number(value) || 0 }))
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+      .slice(0, 8);
+  }, [invoicesData]);
+
+  const invoicesProviderChartHeight = useMemo(() => {
+    if (!invoicesProviderSummary.length) return 260;
+    return Math.min(Math.max(invoicesProviderSummary.length * 52, 240), 420);
+  }, [invoicesProviderSummary]);
+
+  const invoicesAmountTotals = useMemo(() => {
+    if (!invoicesData.length) return { total: 0, paid: 0, pending: 0 };
+    return invoicesData.reduce((acc, row) => {
+      const total = parseNumericValue(row.monto_total ?? row.monto_maximo ?? row.total);
+      const pagado = parseNumericValue(row.monto_pagado ?? row.pagado ?? row.monto_pagado_parcial);
+      return {
+        total: acc.total + total,
+        paid: acc.paid + pagado,
+        pending: acc.pending + Math.max(0, total - pagado),
+      };
+    }, { total: 0, paid: 0, pending: 0 });
+  }, [invoicesData]);
+
+  const annualTableColumns = useMemo(() => {
+    if (!annual2026Data.length) return [] as string[];
+    const seen = new Set<string>();
+    const allColumns: string[] = [];
+    annual2026Data.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        if (!seen.has(key)) {
+          seen.add(key);
+          allColumns.push(key);
+        }
+      });
+    });
+
+    const ordered = [...allColumns].sort((a, b) => {
+      const normalizedA = normalizeAnnualKey(a);
+      const normalizedB = normalizeAnnualKey(b);
+      const priorityA = annualPreferredOrder.findIndex((target) => normalizedA === target);
+      const priorityB = annualPreferredOrder.findIndex((target) => normalizedB === target);
+      const safePriorityA = priorityA === -1 ? Number.MAX_SAFE_INTEGER : priorityA;
+      const safePriorityB = priorityB === -1 ? Number.MAX_SAFE_INTEGER : priorityB;
+      if (safePriorityA !== safePriorityB) return safePriorityA - safePriorityB;
+      return normalizedA.localeCompare(normalizedB);
+    });
+
+    return ordered;
+  }, [annual2026Data]);
+
+  const annualStickyInfo = useMemo(() => {
+    const definitions: Array<{ id: string; match: string[]; width: number }> = [
+      { id: 'no', match: ['no', 'no.', '#', 'n'], width: 80 },
+      { id: 'clave', match: ['clave cucop', 'clave cucop (dn 10)', 'clave cucop dn10'], width: 160 },
+      { id: 'servicio', match: ['nombre del servicio', 'nombre del servicio.', 'servicio'], width: 380 },
+    ];
+
+    const meta = new Map<string, { left: number; width: number }>();
+    const order: string[] = [];
+    let left = 0;
+
+    definitions.forEach((definition) => {
+      const matchedColumn = annualTableColumns.find((column) => {
+        const normalized = normalizeAnnualKey(column);
+        return definition.match.some((target) => normalized === target);
+      });
+
+      if (matchedColumn) {
+        meta.set(matchedColumn, { left, width: definition.width });
+        order.push(matchedColumn);
+        left += definition.width;
+      }
+    });
+
+    return { meta, order };
+  }, [annualTableColumns]);
+
+  const annualLastStickyKey = annualStickyInfo.order[annualStickyInfo.order.length - 1];
+
+  const invoicesStickyInfo = useMemo(() => {
+    const meta = new Map<string, { left: number; width: number }>();
+    const order: string[] = [];
+    let left = 0;
+
+    invoicesStickyDefinitions.forEach((definition) => {
+      const matchedColumn = invoicesTableColumns.find((column) => {
+        const normalized = normalizeAnnualKey(column);
+        return definition.match.some((target) => normalized === target);
+      });
+
+      if (matchedColumn) {
+        meta.set(matchedColumn, { left, width: definition.width });
+        order.push(matchedColumn);
+        left += definition.width;
+      }
+    });
+
+    return { meta, order };
+  }, [invoicesTableColumns]);
+
+  const invoicesLastStickyKey = invoicesStickyInfo.order[invoicesStickyInfo.order.length - 1];
+
+  const compranetPreferredOrder = [
+    'id',
+    'numero de procedimiento',
+    'procedimiento',
+    'titulo',
+    'descripcion',
+    'proveedor',
+    'empresa',
+    'dependencia',
+    'unidad solicitante',
+    'area contratante',
+    'tipo de procedimiento',
+    'modalidad',
+    'tipo de contratacion',
+    'estatus',
+    'estado',
+    'numero de contrato',
+    'fecha publicacion',
+    'fecha de publicacion',
+    'fecha apertura',
+    'fecha fallo',
+    'monto estimado',
+    'monto adjudicado',
+    'monto contratado',
+    'monto',
+    'importe',
+    'total',
+    'observaciones',
+    'comentarios'
+  ];
+
+  const compranetTableColumns = useMemo(() => {
+    if (!compranetData.length) return [] as string[];
+    const columns = new Set<string>();
+    compranetData.forEach((row) => {
+      Object.keys(row || {}).forEach((key) => {
+        if (key) columns.add(key);
+      });
+    });
+
+    return Array.from(columns).sort((a, b) => {
+      const normalizedA = normalizeAnnualKey(a);
+      const normalizedB = normalizeAnnualKey(b);
+      const priorityA = compranetPreferredOrder.findIndex((target) => normalizedA === target);
+      const priorityB = compranetPreferredOrder.findIndex((target) => normalizedB === target);
+
+      if (priorityA !== -1 && priorityB !== -1) return priorityA - priorityB;
+      if (priorityA !== -1) return -1;
+      if (priorityB !== -1) return 1;
+      return normalizedA.localeCompare(normalizedB);
+    });
+  }, [compranetData]);
+
+  const compranetStatusKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['estatus', 'status', 'estado']),
+    [compranetTableColumns]
+  );
+
+  const compranetDependencyKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['dependencia', 'unidad', 'area', 'direccion', 'departamento']),
+    [compranetTableColumns]
+  );
+
+  const compranetAmountKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['monto', 'importe', 'total', 'valor', 'presupuesto', 'estimado', 'contratado', 'adjudicado']),
+    [compranetTableColumns]
+  );
+
+  const compranetTypeKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['tipo de procedimiento', 'modalidad', 'tipo de contratacion', 'tipo']),
+    [compranetTableColumns]
+  );
+
+  const compranetDateKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['fecha publicacion', 'fecha de publicacion', 'fecha', 'publicacion', 'apertura', 'acto', 'fallo', 'adjudicacion']),
+    [compranetTableColumns]
+  );
+
+  const compranetTotalAmount = useMemo(() => {
+    if (!compranetAmountKey) return 0;
+    return compranetData.reduce((acc, row) => acc + parseNumericValue(row[compranetAmountKey]), 0);
+  }, [compranetAmountKey, compranetData]);
+
+  const compranetUniqueDependencies = useMemo(() => {
+    if (!compranetDependencyKey) return 0;
+    const unique = new Set<string>();
+    compranetData.forEach((row) => {
+      const raw = row[compranetDependencyKey];
+      const label = normalizeWhitespace(
+        typeof raw === 'string' ? raw : raw !== null && raw !== undefined ? String(raw) : null
+      );
+      unique.add(label);
+    });
+    unique.delete('-');
+    return unique.size;
+  }, [compranetDependencyKey, compranetData]);
+
+  const compranetUniqueTypes = useMemo(() => {
+    if (!compranetTypeKey) return 0;
+    const unique = new Set<string>();
+    compranetData.forEach((row) => {
+      const raw = row[compranetTypeKey];
+      const label = normalizeWhitespace(
+        typeof raw === 'string' ? raw : raw !== null && raw !== undefined ? String(raw) : null
+      );
+      unique.add(label);
+    });
+    unique.delete('-');
+    return unique.size;
+  }, [compranetTypeKey, compranetData]);
+
+  const compranetStatusDistribution = useMemo(() => {
+    if (!compranetStatusKey) return [] as { name: string; value: number }[];
+    const counts = compranetData.reduce<Record<string, number>>((acc, row) => {
+      const label = normalizeWhitespace(
+        typeof row[compranetStatusKey] === 'string'
+          ? (row[compranetStatusKey] as string)
+          : row[compranetStatusKey] !== null && row[compranetStatusKey] !== undefined
+            ? String(row[compranetStatusKey])
+            : null
+      );
+      const key = label === '-' ? 'Sin dato' : label;
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value: Number(value) }))
+      .sort((a, b) => b.value - a.value);
+  }, [compranetData, compranetStatusKey]);
+
+  const compranetCategorySeries = useMemo(() => {
+    if (!compranetDependencyKey) return [] as { name: string; value: number }[];
+    const useAmount = Boolean(compranetAmountKey);
+    const totals = compranetData.reduce<Record<string, number>>((acc, row) => {
+      const raw = row[compranetDependencyKey];
+      const label = normalizeWhitespace(
+        typeof raw === 'string' ? raw : raw !== null && raw !== undefined ? String(raw) : null
+      );
+      const key = label === '-' ? 'Sin dato' : label;
+      const increment = useAmount && compranetAmountKey
+        ? parseNumericValue(row[compranetAmountKey])
+        : 1;
+      acc[key] = (acc[key] ?? 0) + increment;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return Object.entries(totals)
+      .map(([name, value]) => ({ name, value: Number(value) }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+  }, [compranetAmountKey, compranetData, compranetDependencyKey]);
+
+  const compranetTimeline = useMemo(() => {
+    if (!compranetDateKey) return [] as { name: string; count: number; amount: number }[];
+    const buckets = new Map<string, { name: string; count: number; amount: number; timestamp: number }>();
+
+    compranetData.forEach((row) => {
+      const raw = row[compranetDateKey];
+      const parsedDate = parsePotentialDate(raw);
+      if (!parsedDate) return;
+
+      const key = `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}`;
+      const label = parsedDate
+        .toLocaleDateString('es-MX', { month: 'short', year: 'numeric' })
+        .replace('.', '');
+
+      const bucket = buckets.get(key) ?? {
+        name: label,
+        count: 0,
+        amount: 0,
+        timestamp: parsedDate.getTime(),
+      };
+
+      bucket.count += 1;
+      if (compranetAmountKey) {
+        bucket.amount += parseNumericValue(row[compranetAmountKey]);
+      }
+      bucket.timestamp = Math.min(bucket.timestamp, parsedDate.getTime());
+
+      buckets.set(key, bucket);
+    });
+
+    return Array.from(buckets.values())
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map(({ name, count, amount }) => ({ name, count, amount }));
+  }, [compranetAmountKey, compranetData, compranetDateKey]);
+
+  const compranetCategoryUsesAmount = Boolean(compranetAmountKey);
+  const compranetTimelineHasAmount = useMemo(
+    () => Boolean(compranetAmountKey && compranetTimeline.some(item => (item.amount ?? 0) > 0)),
+    [compranetAmountKey, compranetTimeline]
+  );
+
+  const compranetStatusTitle = compranetStatusKey ? humanizeKey(compranetStatusKey) : 'Estatus';
+  const compranetCategoryTitle = compranetDependencyKey ? humanizeKey(compranetDependencyKey) : 'Categoría';
+  const compranetDateTitle = compranetDateKey ? humanizeKey(compranetDateKey) : 'Fecha';
+  const compranetAmountTitle = compranetAmountKey ? humanizeKey(compranetAmountKey) : 'Monto';
+  const compranetCategoryMetricLabel = compranetCategoryUsesAmount ? 'Monto acumulado' : 'Procedimientos';
+  const compranetTopStatus = compranetStatusDistribution[0];
+  const compranetTopStatusShare = compranetTopStatus && compranetData.length > 0
+    ? Math.round((compranetTopStatus.value / compranetData.length) * 100)
+    : 0;
+  const compranetStickyWidths = [220, 260];
+
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-      
+    <div className="relative h-screen bg-slate-50 overflow-hidden font-sans">
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 z-10 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar Navigation */}
-      <aside className="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col z-20">
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 flex h-full w-64 flex-col bg-white border-r border-slate-200 shadow-lg transition-transform duration-300 md:shadow-none ${
+          isSidebarOpen ? 'translate-x-0 md:translate-x-0' : '-translate-x-full md:-translate-x-full'
+        }`}
+      >
         <div className="h-20 flex items-center px-6 border-b border-slate-100">
            <AifaLogo className="h-10 w-auto mr-3" />
           <div className="flex flex-col">
@@ -450,16 +1259,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           </div>
         </div>
 
-        <nav className="flex-1 py-6 px-3 space-y-1">
+        <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
           {[
             { id: 'overview', icon: LayoutDashboard, label: 'Resumen' },
-            { id: 'contracts', icon: FileText, label: 'Gestión Contratos' },
-            { id: 'commercial', icon: Store, label: 'Área Comercial' },
-            { id: 'flights', icon: Plane, label: 'Operaciones Aéreas' },
+            { id: 'contracts', icon: FileText, label: 'Gestión Contratos' }
           ].map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => handleSidebarSelection(item.id)}
               className={`w-full flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-colors ${
                 activeTab === item.id
                   ? 'bg-slate-100 text-[#B38E5D]'
@@ -493,12 +1300,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-full relative overflow-y-auto">
-        
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10">
-          <div className="flex items-center md:hidden">
-            <AifaLogo className="h-8 w-auto mr-2" />
-            <span className="font-bold text-slate-800">AIFA CONTRATOS</span>
+      <main
+        className={`flex h-full flex-col transition-all duration-300 ${
+          isSidebarOpen ? 'md:ml-64' : 'md:ml-0'
+        }`}
+      >
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-20">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen((prev) => !prev)}
+              className="inline-flex items-center justify-center rounded-lg border border-transparent p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1"
+              aria-label="Alternar menú"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="flex items-center md:hidden">
+              <AifaLogo className="h-8 w-auto mr-2" />
+              <span className="font-bold text-slate-800">AIFA CONTRATOS</span>
+            </div>
           </div>
 
           <div className="hidden md:flex items-center max-w-md w-full bg-slate-100 rounded-lg px-3 py-2 border border-slate-200 focus-within:border-[#B38E5D] focus-within:ring-1 focus-within:ring-[#B38E5D] transition-all">
@@ -524,7 +1344,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           </div>
         </header>
 
-        <div className="p-4 sm:p-8 space-y-8">
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4 sm:p-8 space-y-8">
           
           {/* === CONTENIDO DINÁMICO SEGÚN TAB === */}
           
@@ -639,13 +1460,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                </div>
 
                {/* Sub-Tabs Navigation */}
-               <div className="flex border-b border-slate-200 mb-6 overflow-x-auto">
-                  <button 
-                    onClick={() => setActiveContractSubTab('general')}
-                    className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'general' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                  >
-                    Listado General
-                  </button>
+              <div className="flex border-b border-slate-200 mb-6 overflow-x-auto">
+                <button 
+                  onClick={() => setActiveContractSubTab('annual2026')}
+                  className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'annual2026' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                >
+                  <div className="flex items-center gap-2">
+                   <Calendar className="h-4 w-4" />
+                   Análisis Año 2026
+                  </div>
+                </button>
                   <button 
                      onClick={() => setActiveContractSubTab('paas')}
                      className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'paas' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
@@ -665,55 +1489,270 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
                   </button>
                   <button 
+                     onClick={() => setActiveContractSubTab('invoices')}
+                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'invoices' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileSpreadsheet className="h-4 w-4" />
+                      Facturas
+                    </div>
+                  </button>
+                  <button 
+                     onClick={() => setActiveContractSubTab('compranet')}
+                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'compranet' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="h-4 w-4" />
+                      Procedimientos Compranet
+                    </div>
+                  </button>
+                  <button 
                      onClick={() => setActiveContractSubTab('pendingOct')}
                      className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'pendingOct' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                   >
                     <div className="flex items-center gap-2">
                       <AlertCircle className="h-4 w-4" />
-                      OBSERV A SERV PENDTE DE PAGO OCT.
+                      Observaciones de Pago (Octubre)
                     </div>
                   </button>
                </div>
-               
-               {/* === CONTRACTS: GENERAL LIST === */}
-               {activeContractSubTab === 'general' && (
-                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
-                          <tr>
-                            <th className="px-6 py-4 font-semibold">Proveedor</th>
-                            <th className="px-6 py-4 font-semibold">Concepto</th>
-                            <th className="px-6 py-4 font-semibold">Monto (MXN)</th>
-                            <th className="px-6 py-4 font-semibold">Vigencia</th>
-                            <th className="px-6 py-4 font-semibold">Área</th>
-                            <th className="px-6 py-4 font-semibold">Estatus</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
+
+               {/* === CONTRACTS: ANÁLISIS AÑO 2026 === */}
+               {activeContractSubTab === 'annual2026' && (
+                 <div className="animate-fade-in space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div className="absolute right-0 top-0 p-4 opacity-10">
+                          <Calendar className="h-16 w-16 text-slate-400" />
+                        </div>
+                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Registros Totales</p>
+                        <h3 className="text-3xl font-bold text-slate-900 mt-1">{loadingData ? '...' : annual2026Data.length}</h3>
+                        <p className="text-xs text-slate-400 mt-2">Fuente: tabla `año_2026`.</p>
+                      </div>
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div className="absolute right-0 top-0 p-4 opacity-10">
+                          <PieChartIcon className="h-16 w-16 text-[#B38E5D]" />
+                        </div>
+                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Campo Dominante</p>
+                        <h3 className="text-2xl font-bold text-slate-900 mt-1">
+                          {annualPrimaryMetric ? formatMetricValue(annualPrimaryMetric.key, annualPrimaryMetric.value) : '--'}
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-2">
+                          {annualPrimaryMetric ? humanizeKey(annualPrimaryMetric.key) : 'Agrega valores numéricos para analizarlos.'}
+                        </p>
+                      </div>
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div className="absolute right-0 top-0 p-4 opacity-10">
+                          <BarChart2 className="h-16 w-16 text-blue-400" />
+                        </div>
+                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Columnas Numéricas</p>
+                        <h3 className="text-2xl font-bold text-slate-900 mt-1">{annualNumericTotals.length}</h3>
+                        <p className="text-xs text-slate-400 mt-2">
+                          {annualCategoryMetadata ? `Agrupación sugerida: ${humanizeKey(annualCategoryMetadata.key)} (${annualCategoryMetadata.uniqueCount} grupos)` : 'Añade un campo categórico para segmentar visualizaciones.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[22rem]">
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800">
+                              Distribución por {annualCategoryMetadata ? humanizeKey(annualCategoryMetadata.key) : 'categoría'}
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                              {annualPrimaryMetric ? `Se muestra la suma de ${humanizeKey(annualPrimaryMetric.key)} por segmento.` : 'Conecta un valor numérico para graficar la distribución.'}
+                            </p>
+                          </div>
+                          {annualCategoryMetadata && (
+                            <span className="text-xs font-semibold bg-slate-100 text-slate-600 px-3 py-1 rounded-full">
+                              {annualCategoryMetadata.uniqueCount} categorías
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <div style={{ height: annualSharedChartHeight }}>
                           {loadingData ? (
-                            <tr><td colSpan={6} className="text-center py-8">Cargando datos...</td></tr>
-                          ) : contracts.map((contract) => (
-                            <tr key={contract.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-6 py-4 font-medium text-slate-900">{contract.provider_name}<br/><span className="text-xs text-slate-400 font-normal">{contract.contract_number}</span></td>
-                              <td className="px-6 py-4 text-slate-600">{contract.service_concept}</td>
-                              <td className="px-6 py-4 font-mono text-slate-700">{formatCurrency(contract.amount_mxn || 0)}</td>
-                              <td className="px-6 py-4 text-slate-500">
-                                  <div className="flex items-center gap-1"><Calendar className="h-3 w-3"/> {contract.end_date}</div>
-                              </td>
-                              <td className="px-6 py-4 text-slate-600">{contract.area}</td>
-                              <td className="px-6 py-4">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                                    ${contract.status === 'ACTIVO' ? 'bg-green-100 text-green-800' : 
-                                      contract.status === 'POR VENCER' ? 'bg-orange-100 text-orange-800' :
-                                      'bg-red-100 text-red-800'}`}>
-                                    {contract.status}
-                                  </span>
-                              </td>
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm">
+                              Cargando información...
+                            </div>
+                          ) : annualCategoryBreakdown.length ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={annualCategoryBreakdown} layout="vertical" margin={{ top: 8, right: 24, left: 0, bottom: 8 }} barCategoryGap={18}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                <XAxis type="number" hide domain={[0, 'dataMax']} allowDecimals={false} />
+                                <YAxis type="category" dataKey="name" width={240} tick={renderCompanyTick} />
+                                <Tooltip formatter={(value: number | string) => {
+                                  const numericValue = typeof value === 'number' ? value : Number(value);
+                                  return annualPrimaryMetric ? formatMetricValue(annualPrimaryMetric.key, numericValue) : formatNumber(numericValue);
+                                }} />
+                                <Bar dataKey="value" fill="#B38E5D" radius={[0, 6, 6, 0]} barSize={26} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-6">
+                              Define un campo categórico (por ejemplo, área, proveedor o gerencia) en la tabla para visualizar su distribución.
+                            </div>
+                          )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[22rem]">
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">Composición de métricas numéricas</h3>
+                        <p className="text-xs text-slate-500 mb-4">Comparativa de los principales campos cuantitativos cargados en Supabase.</p>
+                        <div className="relative flex-1" style={{ minHeight: annualSharedChartHeight }}>
+                          {loadingData ? (
+                            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm">
+                              Preparando gráfico...
+                            </div>
+                          ) : annualPieSlices.length ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart margin={{ top: 8, right: 8, left: 8, bottom: 36 }}>
+                                <Pie data={annualPieSlices} dataKey="value" nameKey="name" innerRadius={58} outerRadius={100} paddingAngle={4}>
+                                  {annualPieSlices.map((entry, index) => (
+                                    <Cell key={entry.key} fill={chartPalette[index % chartPalette.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(value: number | string, _name: string, payload: any) => {
+                                  const numericValue = typeof value === 'number' ? value : Number(value);
+                                  const key = payload?.payload?.key as string | undefined;
+                                  const label = payload?.payload?.name as string | undefined;
+                                  return [formatMetricValue(key ?? '', numericValue), label ?? ''];
+                                }} />
+                                <Legend
+                                  layout="horizontal"
+                                  verticalAlign="bottom"
+                                  align="center"
+                                  iconType="circle"
+                                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm text-center px-6">
+                              Añade columnas numéricas (por ejemplo, montos o porcentajes) para obtener una lectura visual instantánea.
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-500">
+                          {annualSecondaryMetric ? `Segundo indicador: ${humanizeKey(annualSecondaryMetric.key)} — ${formatMetricValue(annualSecondaryMetric.key, annualSecondaryMetric.value)}` : 'Registra métricas adicionales para enriquecer este análisis.'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-800">Detalle de Registros</h3>
+                          <p className="text-sm text-slate-500 mt-1">Visualización directa de los campos almacenados en la tabla `año_2026` con navegación horizontal similar al módulo de Pagos.</p>
+                        </div>
+                        {annual2026Data.length > 0 && (
+                          <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {annualTableColumns.length}</span>
+                        )}
+                      </div>
+                      <div className="overflow-auto h-[68vh] relative">
+                        <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
+                          <thead className="uppercase tracking-wider text-white">
+                            <tr className="h-14">
+                              {(annualTableColumns.length ? annualTableColumns : ['sin_datos']).map((column) => {
+                                const stickyMeta = annualTableColumns.length ? annualStickyInfo.meta.get(column) : undefined;
+                                const isSticky = Boolean(stickyMeta);
+                                const isLastSticky = isSticky && annualLastStickyKey === column;
+                                const baseColor = '#14532d';
+                                const stickyColor = '#0F3F2E';
+                                const headerStyle: React.CSSProperties = {
+                                  position: 'sticky',
+                                  top: 0,
+                                  zIndex: isSticky ? 60 : 50,
+                                  backgroundColor: isSticky ? stickyColor : baseColor,
+                                  color: '#fff',
+                                  minWidth: stickyMeta ? `${stickyMeta.width}px` : '200px',
+                                };
+
+                                if (stickyMeta) {
+                                  headerStyle.left = stickyMeta.left;
+                                  headerStyle.width = `${stickyMeta.width}px`;
+                                }
+
+                                if (isLastSticky) {
+                                  headerStyle.boxShadow = '6px 0 10px -4px rgba(0,0,0,0.3)';
+                                }
+
+                                return (
+                                  <th
+                                    key={column}
+                                    className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                    style={headerStyle}
+                                  >
+                                    {annualTableColumns.length ? humanizeKey(column) : 'Sin datos'}
+                                  </th>
+                                );
+                              })}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="bg-white">
+                            {loadingData ? (
+                              <tr>
+                                <td colSpan={Math.max(annualTableColumns.length, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
+                              </tr>
+                            ) : !annual2026Data.length ? (
+                              <tr>
+                                <td colSpan={Math.max(annualTableColumns.length, 1)} className="text-center py-10 text-slate-500">Conecta registros en la tabla `año_2026` para mostrarlos aquí.</td>
+                              </tr>
+                            ) : (
+                              annual2026Data.map((row, rowIndex) => {
+                                const rowKey = row.id ?? row.ID ?? row.Id ?? `annual-row-${rowIndex}`;
+                                const zebraBackground = rowIndex % 2 === 0 ? 'white' : '#f8fafc';
+                                return (
+                                  <tr key={rowKey} className={`group transition-colors ${rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} hover:bg-emerald-50/60`}>
+                                    {annualTableColumns.map((column) => {
+                                      const stickyMeta = annualStickyInfo.meta.get(column);
+                                      const isSticky = Boolean(stickyMeta);
+                                      const isLastSticky = isSticky && annualLastStickyKey === column;
+                                      const cellStyle: React.CSSProperties = {
+                                        minWidth: stickyMeta ? `${stickyMeta.width}px` : '200px',
+                                      };
+
+                                      if (stickyMeta) {
+                                        cellStyle.position = 'sticky';
+                                        cellStyle.left = stickyMeta.left;
+                                        cellStyle.width = `${stickyMeta.width}px`;
+                                        cellStyle.zIndex = 40;
+                                        cellStyle.backgroundColor = zebraBackground;
+                                      }
+
+                                      if (isLastSticky) {
+                                        cellStyle.boxShadow = '6px 0 8px -4px rgba(15,60,40,0.25)';
+                                      }
+
+                                      const normalizedColumn = normalizeAnnualKey(column);
+                                      const rawValue = row[column];
+                                      const isNumericCell = typeof rawValue === 'number';
+                                      const isCurrencyColumn = normalizedColumn.includes('monto') || normalizedColumn.includes('importe') || normalizedColumn.includes('total');
+                                      const alignmentClass = 'text-center';
+                                      const fontClass = isNumericCell || isCurrencyColumn ? 'font-mono' : '';
+
+                                      return (
+                                        <td
+                                          key={column}
+                                          className={`px-5 py-4 text-slate-600 align-top whitespace-pre-wrap break-words ${alignmentClass} ${fontClass}`}
+                                          style={cellStyle}
+                                        >
+                                          {formatTableValue(column, rawValue)}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="p-3 bg-slate-50 text-[11px] text-slate-400 border-t border-slate-100 text-center">
+                        Desplázate horizontalmente para revisar todas las columnas del anteproyecto 2026. Las tres primeras permanecen fijas para mantener el contexto.
+                      </div>
                     </div>
                  </div>
                )}
@@ -722,28 +1761,75 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                {activeContractSubTab === 'paas' && (
                  <div className="animate-fade-in space-y-6">
                     {/* PAAS Stats Header */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                           <div className="absolute right-0 top-0 p-4 opacity-10"><DollarSign className="h-16 w-16 text-slate-400"/></div>
-                           <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Solicitado 2026</p>
-                           <h3 className="text-2xl font-bold text-slate-900 mt-1">
-                             {formatCurrency(paasData.reduce((a, b) => a + (b["Monto solicitado anteproyecto 2026"] || 0), 0))}
-                           </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[#B38E5D]/10" />
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Solicitado 2026</p>
+                            <h3 className="text-2xl font-bold text-slate-900 mt-1">
+                              {formatCurrency(paasSummary.totalRequested)}
+                            </h3>
+                          </div>
+                          <div className="p-3 rounded-full bg-[#B38E5D]/10 text-[#B38E5D]">
+                            <DollarSign className="h-6 w-6" />
+                          </div>
                         </div>
-                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                           <div className="absolute right-0 top-0 p-4 opacity-10"><Briefcase className="h-16 w-16 text-[#B38E5D]"/></div>
-                           <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Total Modificado</p>
-                           <h3 className="text-2xl font-bold text-[#B38E5D] mt-1">
-                             {formatCurrency(paasData.reduce((a, b) => a + (b["Modificado"] || 0), 0))}
-                           </h3>
+                        <p className="text-[11px] text-slate-400 mt-4">Promedio por partida: {formatCurrency(paasSummary.averageRequested || 0)}</p>
+                      </div>
+
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-slate-500/10" />
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Total Modificado</p>
+                            <h3 className="text-2xl font-bold text-slate-900 mt-1">
+                              {formatCurrency(paasSummary.totalModified)}
+                            </h3>
+                          </div>
+                          <div className="p-3 rounded-full bg-slate-100 text-slate-600">
+                            <Briefcase className="h-6 w-6" />
+                          </div>
                         </div>
-                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                           <div className="absolute right-0 top-0 p-4 opacity-10"><FileText className="h-16 w-16 text-blue-400"/></div>
-                           <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Partidas Totales</p>
-                           <h3 className="text-3xl font-bold text-slate-900 mt-1">
+                        <p className="text-[11px] text-slate-400 mt-4">Cobertura: {paasSummary.gerenciasCount} gerencia{paasSummary.gerenciasCount === 1 ? '' : 's'}.</p>
+                      </div>
+
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-emerald-500/10" />
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Variación neta</p>
+                            <h3 className={`text-2xl font-bold mt-1 ${paasDeltaClasses.valueClass}`}>
+                              {formatCurrency(paasSummary.delta || 0)}
+                            </h3>
+                          </div>
+                          <div className={`p-3 rounded-full ${paasDeltaClasses.iconWrapper}`}>
+                            <DeltaIcon className="h-6 w-6" />
+                          </div>
+                        </div>
+                        <div className="mt-4 flex items-start gap-2">
+                          <span className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${paasDeltaClasses.badgeClass}`}>
+                            {paasDeltaClasses.title}
+                          </span>
+                          <span className="text-[11px] text-slate-400 flex-1">{paasDeltaClasses.description}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-blue-500/10" />
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Partidas registradas</p>
+                            <h3 className="text-3xl font-bold text-slate-900 mt-1">
                               {paasData.length}
-                           </h3>
+                            </h3>
+                          </div>
+                          <div className="p-3 rounded-full bg-blue-100 text-blue-500">
+                            <FileText className="h-6 w-6" />
+                          </div>
                         </div>
+                        <p className="text-[11px] text-slate-400 mt-4">Gerencias activas: {paasSummary.gerenciasCount || 0}.</p>
+                      </div>
                     </div>
 
                     {/* Graphic Section */}
@@ -763,75 +1849,218 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
                       </div>
                       
-                      <div className="bg-slate-900 rounded-xl shadow-lg p-6 text-white flex flex-col justify-between">
-                        <div>
-                          <h3 className="text-lg font-bold mb-2">Control Presupuestal</h3>
-                          <p className="text-slate-400 text-sm mb-6">Visualización basada en la tabla `balance_paas_2026`.</p>
+                      <div className="bg-slate-900 rounded-xl shadow-lg p-6 text-white flex flex-col">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h3 className="text-lg font-bold mb-1">Control Presupuestal</h3>
+                            <p className="text-slate-400 text-sm">Seguimiento del balance PAAS 2026.</p>
+                          </div>
+                          <div className="text-3xl font-bold text-emerald-300">
+                            {paasProgressDisplay}
+                          </div>
                         </div>
-                        <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
-                             <div className="text-xs text-slate-400">
-                                Se muestran los montos solicitados para el anteproyecto 2026 desglosados por Clave Cucop y Servicio.
-                             </div>
+                        <div className="mt-6">
+                          <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                            <div
+                              className="h-2 rounded-full bg-emerald-400 transition-all duration-500"
+                              style={{ width: `${paasProgressBarWidth}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-white/70 mt-3">
+                            Modificado: {formatCurrency(paasSummary.totalModified || 0)} vs {formatCurrency(paasSummary.totalRequested || 0)} solicitado.
+                          </p>
+                        </div>
+                        <div className="mt-6 space-y-4">
+                          {paasInsightItems.map((item, idx) => (
+                            <div key={`${item.label}-${idx}`} className="pt-4 border-t border-white/10 first:pt-0 first:border-t-0">
+                              <p className="text-[11px] uppercase tracking-wider text-white/50">{item.label}</p>
+                              <p className="text-sm font-semibold text-white mt-1">{item.value}</p>
+                              <p className="text-xs text-white/60 mt-1">{item.description}</p>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>
 
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                      <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <FileSpreadsheet className="h-5 w-5 text-slate-400" /> Top servicios por monto solicitado
+                      </h3>
+                      {loadingData ? (
+                        <div className="h-24 flex items-center justify-center text-slate-400 text-sm">Cargando ranking...</div>
+                      ) : paasTopServices.length === 0 ? (
+                        <div className="h-24 flex items-center justify-center text-slate-500 text-sm">No hay información registrada en el PAAS 2026.</div>
+                      ) : (
+                        <div className="space-y-4">
+                          {paasTopServices.map((service, idx) => (
+                            <div
+                              key={service.id ?? idx}
+                              className="flex items-start justify-between gap-4 p-4 rounded-lg border border-slate-100 hover:border-[#B38E5D]/40 hover:bg-[#B38E5D]/5 transition-colors"
+                            >
+                              <div className="flex-1">
+                                <p className="text-[11px] uppercase tracking-wider text-slate-400">
+                                  #{idx + 1} · {normalizeWhitespace(service["Clave cucop"] || 'Sin clave')}
+                                </p>
+                                <p className="text-sm font-semibold text-slate-800 mt-1">
+                                  {normalizeWhitespace(service["Nombre del Servicio."] || 'Sin nombre')}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {normalizeWhitespace(service["Gerencia"] || 'Sin gerencia')}
+                                </p>
+                              </div>
+                              <div className="text-right min-w-[120px]">
+                                <p className="text-xs text-slate-400 uppercase">Solicitado</p>
+                                <p className="text-sm font-bold text-slate-700">{formatCurrency(service["Monto solicitado anteproyecto 2026"] || 0)}</p>
+                                {service["Modificado"] ? (
+                                  <p className="text-xs text-emerald-600 mt-1">Modificado: {formatCurrency(service["Modificado"] || 0)}</p>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Table Section */}
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                       <div className="overflow-x-auto">
-                          <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
-                              <tr>
-                                <th className="px-4 py-3 font-semibold w-16">No.</th>
-                                <th className="px-4 py-3 font-semibold">Clave CUCOP</th>
-                                <th className="px-4 py-3 font-semibold">Nombre del Servicio</th>
-                                <th className="px-4 py-3 font-semibold">Gerencia</th>
-                                <th className="px-4 py-3 font-semibold text-right">Monto Solicitado</th>
-                                <th className="px-4 py-3 font-semibold text-right">Modificado</th>
-                                <th className="px-4 py-3 font-semibold">Justificación</th>
-                                <th className="px-4 py-3 font-semibold text-center">Acciones</th>
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="overflow-auto max-h-[70vh] relative">
+                          <table className="min-w-full text-sm text-center border-collapse">
+                            <thead>
+                              <tr className="uppercase tracking-wider text-white">
+                                {paasTableConfig.columns.map((column) => {
+                                  const stickyInfo = paasTableConfig.stickyMeta.get(column.key);
+                                  const minWidth = column.width ?? 200;
+                                  const headerStyle: React.CSSProperties = {
+                                    position: 'sticky',
+                                    top: 0,
+                                    zIndex: stickyInfo ? 60 : 40,
+                                    minWidth: `${minWidth}px`,
+                                    color: '#fff',
+                                    backgroundColor: stickyInfo ? '#0F4C3A' : '#124836',
+                                  };
+
+                                  if (!stickyInfo) {
+                                    headerStyle.backgroundImage = 'linear-gradient(135deg, #124836 0%, #0A3224 100%)';
+                                  }
+
+                                  if (stickyInfo) {
+                                    headerStyle.left = stickyInfo.left;
+                                    headerStyle.width = `${stickyInfo.width}px`;
+                                    if (paasTableConfig.lastStickyKey === column.key) {
+                                      headerStyle.boxShadow = '6px 0 10px -4px rgba(15,76,58,0.22)';
+                                    }
+                                  }
+
+                                  return (
+                                    <th
+                                      key={column.key}
+                                      className="px-5 py-4 text-xs font-semibold border-b border-white/10 text-center"
+                                      style={headerStyle}
+                                    >
+                                      {column.label}
+                                    </th>
+                                  );
+                                })}
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                               {loadingData ? (
-                                <tr><td colSpan={8} className="text-center py-8">Cargando PAAS...</td></tr>
+                                <tr>
+                                  <td colSpan={paasTableConfig.columns.length} className="py-8 text-center text-slate-500">Cargando PAAS...</td>
+                                </tr>
                               ) : paasData.length === 0 ? (
-                                <tr><td colSpan={8} className="text-center py-8 text-slate-500">No hay registros en el PAAS 2026.</td></tr>
-                              ) : paasData.map((item) => (
-                                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                    <td className="px-4 py-3 text-slate-500">{item["No."]}</td>
-                                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{item["Clave cucop"]}</td>
-                                    <td className="px-4 py-3 text-slate-800 font-medium">{item["Nombre del Servicio."]}</td>
-                                    <td className="px-4 py-3 text-slate-600 text-xs">{item["Gerencia"]}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-slate-700">
-                                       {formatCurrency(item["Monto solicitado anteproyecto 2026"])}
-                                    </td>
-                                    <td className="px-4 py-3 text-right font-mono text-slate-500">
-                                       {formatCurrency(item["Modificado"])}
-                                    </td>
-                                    <td className="px-4 py-3 text-slate-600 text-xs whitespace-pre-wrap break-words max-w-xs">
-                                       {item["Justificación"] || '-'}
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      <div className="flex justify-center gap-2">
-                                        <button 
-                                          onClick={() => openEditRecordModal(item)}
-                                          className="p-1.5 text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 rounded-md transition-colors"
-                                          title="Editar"
-                                        >
-                                          <Pencil className="h-4 w-4" />
-                                        </button>
-                                        <button 
-                                          onClick={() => handleDeleteRecord(item.id)}
-                                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                                          title="Eliminar"
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                              ))}
+                                <tr>
+                                  <td colSpan={paasTableConfig.columns.length} className="py-8 text-center text-slate-500">No hay registros en el PAAS 2026.</td>
+                                </tr>
+                              ) : (
+                                paasData.map((item, rowIndex) => {
+                                  const isStriped = rowIndex % 2 === 0;
+                                  const rowBackground = isStriped ? '#ffffff' : '#f8fafc';
+
+                                  return (
+                                    <tr
+                                      key={item.id}
+                                      className={`${isStriped ? 'bg-white' : 'bg-slate-50'} hover:bg-[#B38E5D]/10 transition-colors`}
+                                    >
+                                      {paasTableConfig.columns.map((column) => {
+                                        const stickyInfo = paasTableConfig.stickyMeta.get(column.key);
+                                        const minWidth = column.width ?? 200;
+                                        const alignClass = column.align === 'right'
+                                          ? 'text-right'
+                                          : column.align === 'left'
+                                            ? 'text-left'
+                                            : 'text-center';
+                                        const cellClasses = ['px-4', 'py-3', 'text-sm', 'align-top', alignClass, 'transition-colors'];
+                                        if (column.mono || column.isCurrency) cellClasses.push('font-mono');
+                                        if (column.className) cellClasses.push(column.className);
+
+                                        const cellStyle: React.CSSProperties = {
+                                          minWidth: `${minWidth}px`,
+                                        };
+
+                                        if (stickyInfo) {
+                                          cellStyle.position = 'sticky';
+                                          cellStyle.left = stickyInfo.left;
+                                          cellStyle.width = `${stickyInfo.width}px`;
+                                          cellStyle.zIndex = 30;
+                                          cellStyle.backgroundColor = rowBackground;
+                                          if (paasTableConfig.lastStickyKey === column.key) {
+                                            cellStyle.boxShadow = '6px 0 8px -4px rgba(15,76,58,0.18)';
+                                          }
+                                        }
+
+                                        const rawValue = (item as Record<string, any>)[column.key];
+                                        let displayValue: React.ReactNode;
+
+                                        if (column.key === '__actions') {
+                                          displayValue = (
+                                            <div className="flex justify-center gap-2">
+                                              <button
+                                                onClick={() => openEditRecordModal(item)}
+                                                className="p-1.5 text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 rounded-md transition-colors"
+                                                title="Editar"
+                                              >
+                                                <Pencil className="h-4 w-4" />
+                                              </button>
+                                              <button
+                                                onClick={() => handleDeleteRecord(item.id)}
+                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                                title="Eliminar"
+                                              >
+                                                <Trash2 className="h-4 w-4" />
+                                              </button>
+                                            </div>
+                                          );
+                                        } else if (column.isCurrency) {
+                                          const numericValue = typeof rawValue === 'number' ? rawValue : Number(rawValue) || 0;
+                                          displayValue = formatCurrency(numericValue);
+                                        } else if (column.key === 'Justificación') {
+                                          const textValue = typeof rawValue === 'string' ? rawValue.trim() : rawValue ? String(rawValue) : '';
+                                          displayValue = textValue ? textValue : '-';
+                                        } else if (column.mono) {
+                                          displayValue = rawValue !== null && rawValue !== undefined && rawValue !== ''
+                                            ? String(rawValue)
+                                            : '-';
+                                        } else if (typeof rawValue === 'number') {
+                                          displayValue = rawValue.toLocaleString('es-MX');
+                                        } else {
+                                          displayValue = normalizeWhitespace(typeof rawValue === 'string' ? rawValue : rawValue ? String(rawValue) : '-');
+                                        }
+
+                                        return (
+                                          <td
+                                            key={column.key}
+                                            className={cellClasses.join(' ')}
+                                            style={cellStyle}
+                                          >
+                                            {displayValue}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  );
+                                })
+                              )}
                             </tbody>
                           </table>
                        </div>
@@ -891,35 +2120,35 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
                      {/* Contenedor con Scroll Horizontal y Altura Fija */}
                      <div className="overflow-auto h-[70vh] relative">
-                       <table className="text-sm text-left w-max min-w-full border-collapse">
+                       <table className="text-sm text-center w-max min-w-full border-collapse">
                          <thead className="text-white uppercase tracking-wider">
                            <tr className="h-14">
                              {/* COLUMNAS FIJAS - CORNER LOCKING (TOP & LEFT) */}
-                             <th className="px-6 py-4 font-bold border-b border-white/20" style={{ position: 'sticky', left: 0, top: 0, width: '150px', minWidth: '150px', zIndex: 60, backgroundColor: '#1B4D3E' }}>No. Contrato</th>
-                             <th className="px-6 py-4 font-bold border-b border-white/20" style={{ position: 'sticky', left: '150px', top: 0, width: '350px', minWidth: '350px', zIndex: 60, backgroundColor: '#1B4D3E' }}>Objeto del Contrato</th>
-                             <th className="px-6 py-4 font-bold border-b border-white/20 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.3)]" style={{ position: 'sticky', left: '500px', top: 0, width: '250px', minWidth: '250px', zIndex: 60, backgroundColor: '#1B4D3E' }}>Proveedor</th>
+                             <th className="px-6 py-4 font-bold border-b border-white/20 text-center" style={{ position: 'sticky', left: 0, top: 0, width: '150px', minWidth: '150px', zIndex: 60, backgroundColor: '#1B4D3E' }}>No. Contrato</th>
+                             <th className="px-6 py-4 font-bold border-b border-white/20 text-center" style={{ position: 'sticky', left: '150px', top: 0, width: '350px', minWidth: '350px', zIndex: 60, backgroundColor: '#1B4D3E' }}>Objeto del Contrato</th>
+                             <th className="px-6 py-4 font-bold border-b border-white/20 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.3)] text-center" style={{ position: 'sticky', left: '500px', top: 0, width: '250px', minWidth: '250px', zIndex: 60, backgroundColor: '#1B4D3E' }}>Proveedor</th>
                              
                              {/* COLUMNAS EN ORDEN DE BASE DE DATOS - STICKY TOP ONLY */}
-                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50, backgroundColor: '#1B4D3E' }}>Tipo de Contrato</th>
-                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20" style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#1B4D3E' }}>Fecha Inicio</th>
-                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20" style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#1B4D3E' }}>Fecha Término</th>
-                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20" style={{ position: 'sticky', top: 0, minWidth: '150px', zIndex: 50, backgroundColor: '#1B4D3E' }}>Monto Máx.</th>
+                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50, backgroundColor: '#1B4D3E' }}>Tipo de Contrato</th>
+                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#1B4D3E' }}>Fecha Inicio</th>
+                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#1B4D3E' }}>Fecha Término</th>
+                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '150px', zIndex: 50, backgroundColor: '#1B4D3E' }}>Monto Máx.</th>
                              
                              {/* COLUMNAS MENSUALES (GENERADAS DINÁMICAMENTE) - STICKY TOP ONLY */}
                              {monthsConfig.map(m => (
                                <React.Fragment key={m.key}>
                                  <th className="px-4 py-4 font-bold text-white border-l border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#2D6A4F' }}>{m.label}</th>
-                                 <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>Preventivos</th>
-                                 <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>Correctivos</th>
-                                 <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>Nota C.</th>
+                                 <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>Preventivos</th>
+                                 <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>Correctivos</th>
+                                 <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>Nota C.</th>
                                </React.Fragment>
                              ))}
 
                              {/* TOTALES FINALES - STICKY TOP ONLY */}
-                             <th className="px-6 py-4 font-bold border-l border-white/20 bg-[#1B4D3E]" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>Monto Máximo Contrato</th>
-                             <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E]" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>Monto Ejercido</th>
+                             <th className="px-6 py-4 font-bold border-l border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>Monto Máximo Contrato</th>
+                             <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>Monto Ejercido</th>
                              <th className="px-6 py-4 font-bold text-center border-b border-white/20 bg-[#1B4D3E]" style={{ position: 'sticky', top: 0, minWidth: '200px', zIndex: 50 }}>Facturas Devengadas (%)</th>
-                             <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E]" style={{ position: 'sticky', top: 0, minWidth: '300px', zIndex: 50 }}>Observaciones</th>
+                             <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '300px', zIndex: 50 }}>Observaciones</th>
                            </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-200 bg-white">
@@ -931,21 +2160,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                              <tr key={item.id} className={`hover:bg-slate-50 transition-colors group ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
                                
                                {/* CELDAS FIJAS - 3 PRIMERAS COLUMNAS */}
-                               <td className="px-6 py-4 font-bold text-slate-800 border-b border-slate-200" style={{ position: 'sticky', left: 0, width: '150px', minWidth: '150px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
+                               <td className="px-6 py-4 font-bold text-slate-800 border-b border-slate-200 text-center" style={{ position: 'sticky', left: 0, width: '150px', minWidth: '150px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
                                   {item.no_contrato || '-'}
                                </td>
-                               <td className="px-6 py-4 text-slate-600 border-b border-slate-200 whitespace-pre-wrap break-words" style={{ position: 'sticky', left: '150px', width: '350px', minWidth: '350px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
+                               <td className="px-6 py-4 text-slate-600 border-b border-slate-200 whitespace-pre-wrap break-words text-center" style={{ position: 'sticky', left: '150px', width: '350px', minWidth: '350px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
                                   {item.objeto_del_contrato || '-'}
                                </td>
-                               <td className="px-6 py-4 text-slate-600 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.1)] border-b border-slate-200 whitespace-pre-wrap break-words border-r border-slate-300" style={{ position: 'sticky', left: '500px', width: '250px', minWidth: '250px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
+                               <td className="px-6 py-4 text-slate-600 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.1)] border-b border-slate-200 whitespace-pre-wrap break-words border-r border-slate-300 text-center" style={{ position: 'sticky', left: '500px', width: '250px', minWidth: '250px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
                                   {item.proveedor || '-'}
                                </td>
 
                                {/* CELDAS GENERALES */}
-                               <td className="px-6 py-4 text-slate-600 border-b border-slate-200">{item.tipo_de_contrato || '-'}</td>
-                               <td className="px-6 py-4 font-mono text-xs border-b border-slate-200">{item.fecha_de_inicio || '-'}</td>
-                               <td className="px-6 py-4 font-mono text-xs border-b border-slate-200">{item.fecha_de_termino || '-'}</td>
-                               <td className="px-6 py-4 font-mono border-b border-slate-200">{formatCurrency(item.mont_max)}</td>
+                               <td className="px-6 py-4 text-slate-600 border-b border-slate-200 text-center">{item.tipo_de_contrato || '-'}</td>
+                               <td className="px-6 py-4 font-mono text-xs border-b border-slate-200 text-center">{item.fecha_de_inicio || '-'}</td>
+                               <td className="px-6 py-4 font-mono text-xs border-b border-slate-200 text-center">{item.fecha_de_termino || '-'}</td>
+                               <td className="px-6 py-4 font-mono border-b border-slate-200 text-center">{formatCurrency(item.mont_max)}</td>
 
                                {/* CELDAS MENSUALES */}
                                {monthsConfig.map((m) => {
@@ -955,18 +2184,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                  
                                  return (
                                   <React.Fragment key={m.key}>
-                                    <td className="px-4 py-4 font-mono font-bold text-slate-700 border-l border-slate-200 bg-emerald-50/30">{formatCurrency(baseVal)}</td>
-                                    <td className="px-4 py-4 font-mono text-xs text-slate-500 bg-emerald-50/30">{formatCurrency(row[`${prefix}_preventivos`])}</td>
-                                    <td className="px-4 py-4 font-mono text-xs text-slate-500 bg-emerald-50/30">{formatCurrency(row[`${prefix}_correctivos`])}</td>
-                                    <td className="px-4 py-4 font-mono text-xs text-red-400 bg-emerald-50/30">{formatCurrency(row[`${prefix}_nota_de_credito`])}</td>
+                                    <td className="px-4 py-4 font-mono font-bold text-slate-700 border-l border-slate-200 bg-emerald-50/30 text-center">{formatCurrency(baseVal)}</td>
+                                    <td className="px-4 py-4 font-mono text-xs text-slate-500 bg-emerald-50/30 text-center">{formatCurrency(row[`${prefix}_preventivos`])}</td>
+                                    <td className="px-4 py-4 font-mono text-xs text-slate-500 bg-emerald-50/30 text-center">{formatCurrency(row[`${prefix}_correctivos`])}</td>
+                                    <td className="px-4 py-4 font-mono text-xs text-red-400 bg-emerald-50/30 text-center">{formatCurrency(row[`${prefix}_nota_de_credito`])}</td>
                                   </React.Fragment>
                                  );
                                })}
 
                                {/* TOTALES */}
-                               <td className="px-6 py-4 font-mono text-slate-500 border-l border-slate-300 bg-slate-100">{formatCurrency(item.monto_maximo_contrato)}</td>
-                               <td className="px-6 py-4 font-mono font-bold text-slate-800 bg-slate-100">{formatCurrency(item.monto_ejercido)}</td>
-                               <td className="px-6 py-4 bg-slate-100">
+                               <td className="px-6 py-4 font-mono text-slate-500 border-l border-slate-300 bg-slate-100 text-center">{formatCurrency(item.monto_maximo_contrato)}</td>
+                               <td className="px-6 py-4 font-mono font-bold text-slate-800 bg-slate-100 text-center">{formatCurrency(item.monto_ejercido)}</td>
+                               <td className="px-6 py-4 bg-slate-100 text-center">
                                   <div className="flex items-center gap-2 justify-center">
                                     <div className="w-24 h-2 bg-slate-200 rounded-full overflow-hidden">
                                       <div 
@@ -979,7 +2208,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     </span>
                                   </div>
                                </td>
-                               <td className="px-6 py-4 text-xs text-slate-500 whitespace-pre-wrap max-w-xs">{item.observaciones || '-'}</td>
+                               <td className="px-6 py-4 text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center">{item.observaciones || '-'}</td>
                              </tr>
                            ))}
                          </tbody>
@@ -991,6 +2220,492 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                    </div>
                  </div>
                )}
+
+                {activeContractSubTab === 'invoices' && (
+                  <div className="animate-fade-in space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                        <div className="absolute right-0 top-0 p-4 opacity-10">
+                          <FileSpreadsheet className="h-16 w-16 text-[#0F4C3A]" />
+                        </div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Facturas Registradas</p>
+                        <h3 className="text-3xl font-bold text-slate-900 mt-1">{loadingData ? '...' : invoicesData.length}</h3>
+                        <p className="text-xs text-slate-400 mt-2">Información obtenida de la tabla `estatus_facturas`.</p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                        <div className="absolute right-0 top-0 p-4 opacity-10">
+                          <PieChartIcon className="h-16 w-16 text-[#B38E5D]" />
+                        </div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Monto Pagado</p>
+                        <h3 className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(invoicesAmountTotals.paid)}</h3>
+                        <p className="text-xs text-slate-400 mt-2">Total registrado como cubierto en la base de facturas.</p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                        <div className="absolute right-0 top-0 p-4 opacity-10">
+                          <AlertCircle className="h-16 w-16 text-red-400" />
+                        </div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Monto Pendiente</p>
+                        <h3 className="text-2xl font-bold text-red-500 mt-1">{formatCurrency(invoicesAmountTotals.pending)}</h3>
+                        <p className="text-xs text-slate-400 mt-2">Diferencia entre el monto total y el pagado por factura.</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[22rem]">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <PieChartIcon className="h-5 w-5 text-slate-400" /> Distribución por Estatus
+                          </h3>
+                          {invoicesStatusSummary.length > 0 && (
+                            <span className="text-xs text-slate-400">{invoicesStatusSummary.length} categorías</span>
+                          )}
+                        </div>
+                        <div className="relative flex-1" style={{ minHeight: 260 }}>
+                          {loadingData ? (
+                            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm">Preparando gráfico...</div>
+                          ) : invoicesStatusSummary.length ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart margin={{ top: 8, right: 8, left: 8, bottom: 36 }}>
+                                <Pie data={invoicesStatusSummary} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={4}>
+                                  {invoicesStatusSummary.map((entry, index) => (
+                                    <Cell key={`${entry.name}-${index}`} fill={invoicesPalette[index % invoicesPalette.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(value: number | string, _name: string, payload: any) => {
+                                  const numericValue = typeof value === 'number' ? value : Number(value);
+                                  return [numericValue.toLocaleString('es-MX'), payload?.payload?.name ?? ''];
+                                }} />
+                                <Legend layout="horizontal" verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm text-center px-6">
+                              Agrega estatus en Supabase para visualizar la distribución.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[22rem]">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <BarChart2 className="h-5 w-5 text-slate-400" /> Principales Proveedores
+                          </h3>
+                          {invoicesProviderSummary.length > 0 && (
+                            <span className="text-xs text-slate-400">Top {Math.min(invoicesProviderSummary.length, 8)}</span>
+                          )}
+                        </div>
+                        <div style={{ height: invoicesProviderChartHeight }}>
+                          {loadingData ? (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                          ) : invoicesProviderSummary.length ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={invoicesProviderSummary} layout="vertical" margin={{ top: 8, right: 24, left: 0, bottom: 8 }} barCategoryGap={18}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                <XAxis type="number" hide allowDecimals={false} domain={[0, 'dataMax']} />
+                                <YAxis type="category" dataKey="name" width={260} tick={renderCompanyTick} />
+                                <Tooltip formatter={(value: number | string) => (typeof value === 'number' ? value : Number(value)).toLocaleString('es-MX')} />
+                                <Bar dataKey="value" fill="#0F4C3A" radius={[0, 6, 6, 0]} barSize={24} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-6">
+                              Registra proveedores para destacar los más frecuentes.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-800">Detalle de Facturas</h3>
+                          <p className="text-sm text-slate-500 mt-1">Tabla completa con los campos detectados en `estatus_facturas`.</p>
+                        </div>
+                        {invoicesData.length > 0 && (
+                          <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {invoicesTableColumns.length}</span>
+                        )}
+                      </div>
+                      <div className="overflow-auto h-[68vh] relative">
+                        <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
+                          <thead className="uppercase tracking-wider text-white">
+                            <tr className="h-14">
+                              {(invoicesTableColumns.length ? invoicesTableColumns : ['sin_datos']).map((column) => {
+                                const stickyMeta = invoicesTableColumns.length ? invoicesStickyInfo.meta.get(column) : undefined;
+                                const isSticky = Boolean(stickyMeta);
+                                const isLastSticky = isSticky && invoicesLastStickyKey === column;
+                                const headerStyle: React.CSSProperties = {
+                                  position: 'sticky',
+                                  top: 0,
+                                  zIndex: isSticky ? 60 : 50,
+                                  backgroundColor: isSticky ? '#0F3F2E' : '#14532d',
+                                  color: '#fff',
+                                  minWidth: stickyMeta ? `${stickyMeta.width}px` : '220px',
+                                };
+
+                                if (stickyMeta) {
+                                  headerStyle.left = stickyMeta.left;
+                                  headerStyle.width = `${stickyMeta.width}px`;
+                                }
+
+                                if (isLastSticky) {
+                                  headerStyle.boxShadow = '6px 0 10px -4px rgba(0,0,0,0.3)';
+                                }
+
+                                return (
+                                  <th
+                                    key={column}
+                                    className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                    style={headerStyle}
+                                  >
+                                    {invoicesTableColumns.length ? humanizeKey(column) : 'Sin datos'}
+                                  </th>
+                                );
+                              })}
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white">
+                            {loadingData ? (
+                              <tr>
+                                <td colSpan={Math.max(invoicesTableColumns.length, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
+                              </tr>
+                            ) : !invoicesData.length ? (
+                              <tr>
+                                <td colSpan={Math.max(invoicesTableColumns.length, 1)} className="text-center py-10 text-slate-500">Conecta datos en `estatus_facturas` para mostrarlos aquí.</td>
+                              </tr>
+                            ) : (
+                              invoicesData.map((row, rowIndex) => {
+                                const rowKey = row.id ?? row.ID ?? row.Id ?? row.numero ?? `invoice-row-${rowIndex}`;
+                                const zebraBackground = rowIndex % 2 === 0 ? 'white' : '#f8fafc';
+                                return (
+                                  <tr key={rowKey} className={`group transition-colors ${rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} hover:bg-emerald-50/60`}>
+                                    {invoicesTableColumns.map((column) => {
+                                      const stickyMeta = invoicesStickyInfo.meta.get(column);
+                                      const isSticky = Boolean(stickyMeta);
+                                      const isLastSticky = isSticky && invoicesLastStickyKey === column;
+                                      const normalizedColumn = normalizeAnnualKey(column);
+                                      const rawValue = row[column];
+                                      const isNumericCell = typeof rawValue === 'number';
+                                      const isCurrencyColumn = normalizedColumn.includes('monto') || normalizedColumn.includes('importe') || normalizedColumn.includes('total');
+                                      const alignmentClass = 'text-center';
+                                      const fontClass = isNumericCell || isCurrencyColumn ? 'font-mono' : '';
+                                      const cellStyle: React.CSSProperties = {
+                                        minWidth: stickyMeta ? `${stickyMeta.width}px` : '220px',
+                                      };
+
+                                      if (stickyMeta) {
+                                        cellStyle.position = 'sticky';
+                                        cellStyle.left = stickyMeta.left;
+                                        cellStyle.width = `${stickyMeta.width}px`;
+                                        cellStyle.zIndex = 40;
+                                        cellStyle.backgroundColor = zebraBackground;
+                                      }
+
+                                      if (isLastSticky) {
+                                        cellStyle.boxShadow = '6px 0 8px -4px rgba(15,60,40,0.25)';
+                                      }
+
+                                      return (
+                                        <td
+                                          key={column}
+                                          className={`px-5 py-4 text-slate-600 align-top whitespace-pre-wrap break-words border-b border-slate-100 ${alignmentClass} ${fontClass}`}
+                                          style={cellStyle}
+                                        >
+                                          {formatTableValue(column, rawValue)}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="p-3 bg-slate-50 text-[11px] text-slate-400 border-t border-slate-100 text-center">
+                        Desplázate horizontalmente para explorar el detalle completo de cada factura.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                  {activeContractSubTab === 'compranet' && (
+                    <div className="animate-fade-in space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                          <div className="absolute right-0 top-0 p-4 opacity-10">
+                            <Briefcase className="h-16 w-16 text-[#0F4C3A]" />
+                          </div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Procedimientos cargados</p>
+                          <h3 className="text-3xl font-bold text-slate-900 mt-1">
+                            {loadingData ? '...' : compranetData.length}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-2">Fuente: tabla `procedimientos_compranet`.</p>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                          <div className="absolute right-0 top-0 p-4 opacity-10">
+                            <BarChart2 className="h-16 w-16 text-[#B38E5D]" />
+                          </div>
+                          {compranetAmountKey ? (
+                            <>
+                              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Total {compranetAmountTitle}</p>
+                              <h3 className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(compranetTotalAmount)}</h3>
+                              <p className="text-xs text-slate-400 mt-2">Suma del campo `{compranetAmountTitle}` detectado.</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Dependencias activas</p>
+                              <h3 className="text-2xl font-bold text-slate-900 mt-1">{compranetUniqueDependencies}</h3>
+                              <p className="text-xs text-slate-400 mt-2">Agrupadas por `{compranetCategoryTitle}`.</p>
+                            </>
+                          )}
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                          <div className="absolute right-0 top-0 p-4 opacity-10">
+                            <PieChartIcon className="h-16 w-16 text-slate-400" />
+                          </div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Principal {compranetStatusTitle}</p>
+                          <h3 className="text-xl font-bold text-slate-900 mt-1 truncate">
+                            {loadingData ? '...' : (compranetTopStatus ? compranetTopStatus.name : 'Sin dato')}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-2">
+                            {loadingData || !compranetTopStatus
+                              ? 'A la espera de registros en Supabase.'
+                              : `${compranetTopStatus.value} registros (${compranetTopStatusShare}% del total)`}
+                          </p>
+                          {compranetUniqueTypes > 0 && (
+                            <p className="text-[11px] text-slate-400 mt-1">Modalidades activas: {compranetUniqueTypes}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[22rem]">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                              <PieChartIcon className="h-5 w-5 text-slate-400" /> Distribución por {compranetStatusTitle}
+                            </h3>
+                            {compranetStatusDistribution.length > 0 && (
+                              <span className="text-xs text-slate-400">{compranetStatusDistribution.length} categorías</span>
+                            )}
+                          </div>
+                          <div className="relative flex-1" style={{ minHeight: 260 }}>
+                            {loadingData ? (
+                              <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm">Preparando gráfico...</div>
+                            ) : compranetStatusDistribution.length ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart margin={{ top: 8, right: 8, left: 8, bottom: 36 }}>
+                                  <Pie data={compranetStatusDistribution} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={4}>
+                                    {compranetStatusDistribution.map((entry, index) => (
+                                      <Cell key={`${entry.name}-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip formatter={(value: number | string, _name: string, payload: any) => {
+                                    const numericValue = typeof value === 'number' ? value : Number(value);
+                                    return [numericValue.toLocaleString('es-MX'), payload?.payload?.name ?? ''];
+                                  }} />
+                                  <Legend layout="horizontal" verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm text-center px-6">
+                                Registra estatus en Supabase para analizar la distribución.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[22rem]">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                              <BarChart2 className="h-5 w-5 text-slate-400" /> Top {compranetCategoryTitle}
+                            </h3>
+                            {compranetCategorySeries.length > 0 && (
+                              <span className="text-xs text-slate-400">Top {Math.min(compranetCategorySeries.length, 8)}</span>
+                            )}
+                          </div>
+                          <div className="relative flex-1" style={{ minHeight: 260 }}>
+                            {loadingData ? (
+                              <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                            ) : compranetCategorySeries.length ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={compranetCategorySeries} layout="vertical" margin={{ top: 8, right: 32, left: 0, bottom: 8 }} barCategoryGap={18}>
+                                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                  <XAxis type="number" hide domain={[0, 'dataMax']} />
+                                  <YAxis type="category" dataKey="name" width={260} tick={{ fontSize: 11 }} />
+                                  <Tooltip formatter={(value: number | string) => (
+                                    compranetCategoryUsesAmount
+                                      ? formatCurrency(typeof value === 'number' ? value : Number(value))
+                                      : (typeof value === 'number' ? value : Number(value)).toLocaleString('es-MX')
+                                  )} labelFormatter={(label) => label} />
+                                  <Bar dataKey="value" fill="#0F4C3A" radius={[0, 6, 6, 0]} barSize={24} name={compranetCategoryMetricLabel} />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm text-center px-6">
+                                Integra datos de `{compranetCategoryTitle}` para visualizar los principales actores.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                              <TrendingUp className="h-5 w-5 text-slate-400" /> Ritmo temporal por {compranetDateTitle}
+                            </h3>
+                            <p className="text-xs text-slate-400 mt-1">
+                              {compranetTimelineHasAmount
+                                ? `Se comparan registros y ${compranetAmountTitle.toLowerCase()} agregados por periodo.`
+                                : 'Evolución del número de procedimientos publicados.'}
+                            </p>
+                          </div>
+                          {compranetTimeline.length > 0 && (
+                            <span className="text-xs uppercase tracking-wider text-slate-400">Periodos detectados: {compranetTimeline.length}</span>
+                          )}
+                        </div>
+                        <div className="h-72">
+                          {loadingData ? (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm">Calculando series...</div>
+                          ) : compranetTimeline.length ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={compranetTimeline} margin={{ top: 16, right: 32, left: 0, bottom: 8 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                                <YAxis yAxisId="left" allowDecimals={false} width={48} />
+                                {compranetTimelineHasAmount && (
+                                  <YAxis
+                                    yAxisId="right"
+                                    orientation="right"
+                                    tickFormatter={(value) => formatCurrency(typeof value === 'number' ? value : Number(value))}
+                                    width={80}
+                                  />
+                                )}
+                                <Tooltip formatter={(value: number | string, name: string) => (
+                                  name === 'Registros'
+                                    ? [(typeof value === 'number' ? value : Number(value)).toLocaleString('es-MX'), 'Registros']
+                                    : [formatCurrency(typeof value === 'number' ? value : Number(value)), compranetAmountTitle]
+                                )} />
+                                <Bar yAxisId="left" dataKey="count" name="Registros" fill="#2563EB" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                                {compranetTimelineHasAmount && (
+                                  <Line yAxisId="right" type="monotone" dataKey="amount" name={compranetAmountTitle} stroke="#B38E5D" strokeWidth={2} dot={false} />
+                                )}
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-6">
+                              Agrega un campo de fecha para construir la línea temporal.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
+                        <div className="overflow-auto max-h-[70vh] relative">
+                          <table className="min-w-full text-sm text-center border-collapse">
+                            <thead className="uppercase tracking-wider text-white">
+                              <tr className="h-14">
+                                {(compranetTableColumns.length ? compranetTableColumns : ['sin_datos']).map((column, index) => {
+                                  const isSticky = index < compranetStickyWidths.length;
+                                  const leftOffset = isSticky
+                                    ? compranetStickyWidths.slice(0, index).reduce((acc, width) => acc + width, 0)
+                                    : 0;
+                                  const minWidth = isSticky ? compranetStickyWidths[index] : 180;
+                                  const headerStyle: React.CSSProperties = {
+                                    position: 'sticky',
+                                    top: 0,
+                                    zIndex: isSticky ? 60 : 50,
+                                    backgroundColor: '#0F4C3A',
+                                    minWidth: `${minWidth}px`,
+                                  };
+
+                                  if (isSticky) {
+                                    headerStyle.left = leftOffset;
+                                    headerStyle.boxShadow = index === compranetStickyWidths.length - 1
+                                      ? '6px 0 10px -4px rgba(15,76,58,0.2)'
+                                      : undefined;
+                                  }
+
+                                  return (
+                                    <th
+                                      key={column}
+                                      className="px-5 py-4 font-semibold whitespace-nowrap border-b border-white/20 text-center"
+                                      style={headerStyle}
+                                    >
+                                      {compranetTableColumns.length ? humanizeKey(column) : 'Sin datos'}
+                                    </th>
+                                  );
+                                })}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {loadingData ? (
+                                <tr>
+                                  <td colSpan={Math.max(compranetTableColumns.length, 1)} className="text-center py-10 text-slate-500">
+                                    Cargando procedimientos...
+                                  </td>
+                                </tr>
+                              ) : !compranetData.length ? (
+                                <tr>
+                                  <td colSpan={Math.max(compranetTableColumns.length, 1)} className="text-center py-10 text-slate-500">
+                                    No hay registros de procedimientos en Compranet.
+                                  </td>
+                                </tr>
+                              ) : (
+                                compranetData.map((row, rowIndex) => {
+                                  const rowKey = row.id ?? `compranet-row-${rowIndex}`;
+                                  const isStriped = rowIndex % 2 === 0;
+                                  return (
+                                    <tr key={rowKey} className={isStriped ? 'bg-white hover:bg-emerald-50/40 transition-colors' : 'bg-slate-50 hover:bg-emerald-50/40 transition-colors'}>
+                                      {compranetTableColumns.map((column, colIndex) => {
+                                        const value = row[column];
+                                        const isSticky = colIndex < compranetStickyWidths.length;
+                                        const leftOffset = isSticky
+                                          ? compranetStickyWidths.slice(0, colIndex).reduce((acc, width) => acc + width, 0)
+                                          : 0;
+                                        const minWidth = isSticky ? compranetStickyWidths[colIndex] : 180;
+                                        const numeric = typeof value === 'number' || shouldFormatAsCurrency(column);
+                                        const cellClasses = numeric
+                                          ? 'px-5 py-3 text-center font-mono text-slate-600 align-top'
+                                          : 'px-5 py-3 text-center text-slate-700 align-top whitespace-pre-wrap break-words';
+                                        const stickyStyle: React.CSSProperties = {
+                                          minWidth: `${minWidth}px`,
+                                        };
+
+                                        if (isSticky) {
+                                          stickyStyle.position = 'sticky';
+                                          stickyStyle.left = leftOffset;
+                                          stickyStyle.backgroundColor = isStriped ? '#ffffff' : '#f8fafc';
+                                          stickyStyle.zIndex = 30;
+                                          if (colIndex === compranetStickyWidths.length - 1) {
+                                            stickyStyle.boxShadow = '6px 0 10px -4px rgba(15,76,58,0.18)';
+                                          }
+                                        }
+
+                                        return (
+                                          <td key={column} className={cellClasses} style={stickyStyle}>
+                                            {formatTableValue(column, value)}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="p-3 bg-slate-50 text-xs text-slate-400 border-t border-slate-100 text-center">
+                          Deslice horizontalmente para consultar todos los campos cargados en Compranet.
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
               {activeContractSubTab === 'pendingOct' && (
                 <div className="animate-fade-in space-y-6">
@@ -1114,15 +2829,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-left">
+                      <table className="w-full text-sm text-center">
                         <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
                           <tr>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap">Registro</th>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap">Contrato</th>
-                            <th className="px-6 py-3 font-semibold">Descripción del Servicio</th>
-                            <th className="px-6 py-3 font-semibold">Empresa</th>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap">Mes factura / nota</th>
-                            <th className="px-6 py-3 font-semibold">Observación de Pago</th>
+                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">Registro</th>
+                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">Contrato</th>
+                            <th className="px-6 py-3 font-semibold text-center">Descripción del Servicio</th>
+                            <th className="px-6 py-3 font-semibold text-center">Empresa</th>
+                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">Mes factura / nota</th>
+                            <th className="px-6 py-3 font-semibold text-center">Observación de Pago</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -1132,12 +2847,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <tr><td colSpan={6} className="text-center py-8 text-slate-500">No hay observaciones registradas.</td></tr>
                           ) : procedureStatuses.map((item) => (
                             <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap">{formatDateTime(item.created_at)}</td>
-                              <td className="px-6 py-4 text-slate-700 font-semibold">{item.contrato || '-'}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words">{item.descripcion || '-'}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words">{item.empresa || '-'}</td>
-                              <td className="px-6 py-4 text-slate-500 text-xs whitespace-pre-wrap break-words">{normalizeWhitespace(item.mes_factura_nota)}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words">{normalizeWhitespace(item.observacion_pago)}</td>
+                              <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap text-center">{formatDateTime(item.created_at)}</td>
+                              <td className="px-6 py-4 text-slate-700 font-semibold text-center">{item.contrato || '-'}</td>
+                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.descripcion || '-'}</td>
+                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.empresa || '-'}</td>
+                              <td className="px-6 py-4 text-slate-500 text-xs whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.mes_factura_nota)}</td>
+                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.observacion_pago)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1150,44 +2865,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             </div>
           )}
 
-          {/* Flights Tab (Fallback to static data for now) */}
-          {activeTab === 'flights' && (
-            <div>
-                <h1 className="text-2xl font-bold text-slate-900 mb-6">Operaciones del Día</h1>
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                    <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-500">
-                      <tr>
-                        <th className="px-6 py-3">Vuelo</th>
-                        <th className="px-6 py-3">Estado</th>
-                        <th className="px-6 py-3">Destino</th>
-                        <th className="px-6 py-3">Puerta</th>
-                        <th className="px-6 py-3">Hora</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {FLIGHT_DATA.map((flight) => (
-                        <tr key={flight.id}>
-                          <td className="px-6 py-4 font-medium">{flight.flightNumber}</td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium
-                              ${flight.status === 'On Time' ? 'bg-green-100 text-green-700' : 
-                                flight.status === 'Delayed' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100'}`}>
-                              {flight.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">{flight.destination}</td>
-                          <td className="px-6 py-4">{flight.gate}</td>
-                          <td className="px-6 py-4">{flight.time}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-            </div>
-          )}
-
         </div>
+      </div>
       </main>
 
       {/* === MODAL PARA NUEVO/EDITAR REGISTRO PAAS === */}

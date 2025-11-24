@@ -11,73 +11,35 @@ const AIFA_ASSETS = {
   badge: "https://via.placeholder.com/150/000000/FFFFFF/?text=SLOTS" 
 };
 
-// === COMPONENTE DE LOGO SVG PERSONALIZADO (CONTRATO + AVIÓN) ===
+// === COMPONENTE DE LOGO (IMAGEN PNG) ===
 const AifaLogo = ({ className = "h-32 w-auto" }: { className?: string }) => (
-  <svg viewBox="0 0 240 120" className={className} xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#C5A065" />
-        <stop offset="100%" stopColor="#997842" />
-      </linearGradient>
-      <linearGradient id="greenGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stopColor="#0F4C3A" />
-        <stop offset="100%" stopColor="#082E23" />
-      </linearGradient>
-    </defs>
-
-    {/* Documento/Contrato Base */}
-    <path 
-      d="M60 20 H 100 L 120 40 V 100 A 5 5 0 0 1 115 105 H 60 A 5 5 0 0 1 55 100 V 25 A 5 5 0 0 1 60 20" 
-      fill="white" 
-      stroke="url(#greenGradient)" 
-      strokeWidth="3"
-      className="drop-shadow-md"
-    />
-    {/* Líneas de texto del contrato */}
-    <rect x="65" y="35" width="30" height="2" rx="1" fill="#CBD5E1" />
-    <rect x="65" y="45" width="40" height="2" rx="1" fill="#CBD5E1" />
-    <rect x="65" y="55" width="40" height="2" rx="1" fill="#CBD5E1" />
-    <rect x="65" y="65" width="25" height="2" rx="1" fill="#CBD5E1" />
-
-    {/* Esquina doblada */}
-    <path d="M100 20 V 40 H 120" fill="#E2E8F0" stroke="none" />
-
-    {/* Avión Estilizado Despegando (Cruzando el contrato) */}
-    <path 
-      d="M 90 90 
-         C 110 90, 140 60, 160 50 
-         L 190 45 
-         L 180 55 
-         L 165 60 
-         L 195 75 
-         L 185 85 
-         L 150 75 
-         C 130 85, 110 100, 90 90 Z" 
-      fill="url(#goldGradient)" 
-      stroke="white" 
-      strokeWidth="1.5"
-      filter="drop-shadow(0px 4px 4px rgba(0,0,0,0.2))"
-    />
-    
-    {/* Estela de vuelo dinámica */}
-    <path 
-      d="M 40 100 Q 80 100 110 80" 
-      fill="none" 
-      stroke="#9E1B32" 
-      strokeWidth="3" 
-      strokeLinecap="round"
-      strokeDasharray="4 4"
-    />
-
-    {/* Texto AIFA */}
-    <text x="130" y="110" fontSize="14" fontWeight="800" fontFamily="Arial, sans-serif" fill="#334155" letterSpacing="1">
-      AIFA
-    </text>
-    <text x="170" y="110" fontSize="14" fontWeight="300" fontFamily="Arial, sans-serif" fill="#B38E5D" letterSpacing="0.5">
-      CONTRATOS
-    </text>
-  </svg>
+  <img
+    src="/images/aifa-logo.png"
+    alt="Logotipo AIFA"
+    className={className}
+    loading="lazy"
+  />
 );
+
+type HighlightItem = {
+  icon: React.ElementType;
+  title: string;
+};
+
+const LOGIN_HIGHLIGHTS: HighlightItem[] = [
+  {
+    icon: ShieldCheck,
+    title: 'Control Estratégico'
+  },
+  {
+    icon: CheckCircle,
+    title: 'Procesos Integrados'
+  },
+  {
+    icon: Info,
+    title: 'Insights Inteligentes'
+  }
+];
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -171,7 +133,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-200 p-4 md:p-0 font-sans">
-      <div className="flex w-full max-w-6xl bg-white rounded-3xl shadow-2xl overflow-hidden h-[800px] md:h-[750px]">
+      <div className="flex w-full max-w-6xl bg-white rounded-3xl shadow-2xl overflow-hidden min-h-[760px] md:min-h-[720px]">
         
         {/* Left Side - AIFA BRANDING */}
         <div className="hidden md:flex w-1/2 relative flex-col items-center justify-center text-white text-center overflow-hidden bg-slate-900">
@@ -204,28 +166,34 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             </div>
 
             {/* Center Badge/Message */}
-            <div className="flex flex-col items-center gap-4 my-8">
-              <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-[#B38E5D] to-[#9E1B32] rounded-full blur opacity-25 group-hover:opacity-75 transition duration-1000 group-hover:duration-200"></div>
-                <div className="relative h-32 w-32 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-2xl">
-                   {AIFA_ASSETS.badge.includes('placeholder') ? (
-                      <ShieldCheck className="h-16 w-16 text-[#B38E5D]" />
-                   ) : (
-                      <img src={AIFA_ASSETS.badge} alt="Badge Slots" className="h-28 w-28 object-contain rounded-full" referrerPolicy="no-referrer" />
-                   )}
-                </div>
+            <div className="flex flex-col items-center gap-8 my-10 w-full">
+              <div className="flex flex-wrap items-center justify-center gap-6 w-full max-w-sm">
+                {LOGIN_HIGHLIGHTS.map((item, idx) => (
+                  <div key={item.title} className="flex flex-col items-center gap-3 text-center">
+                    <div className="h-16 w-16 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center shadow-[0_10px_25px_rgba(0,0,0,0.25)] backdrop-blur-md">
+                      <item.icon className="h-8 w-8 text-[#B38E5D]" />
+                    </div>
+                    <span className="text-[11px] uppercase tracking-[0.35em] text-white/85 font-semibold max-w-[8rem] leading-snug">
+                      {item.title}
+                    </span>
+                  </div>
+                ))}
               </div>
-              <div className="backdrop-blur-sm bg-black/30 px-6 py-2 rounded-full border border-white/10">
-                <p className="text-sm font-medium tracking-widest text-[#B38E5D] uppercase">
-                  Coordinación de Slots
+
+              <div className="backdrop-blur-sm bg-black/30 px-8 py-4 rounded-2xl border border-white/10 text-center space-y-2">
+                <p className="text-sm font-semibold tracking-[0.35em] text-[#B38E5D] uppercase">
+                  Conectando Contratos Estratégicos
+                </p>
+                <p className="text-xs text-slate-200 uppercase tracking-[0.3em]">
+                  Transparencia · Control · Impacto
                 </p>
               </div>
             </div>
 
             {/* Footer Info */}
-            <div className="text-xs text-slate-400 max-w-xs leading-relaxed">
+            <div className="mt-6 text-[11px] text-slate-300/90 max-w-xs leading-relaxed space-y-1">
               <p>Aeropuerto Internacional Felipe Ángeles</p>
-              <p>Acceso exclusivo para personal acreditado.</p>
+              <p>Plataforma operativa para equipos acreditados y autorizados.</p>
             </div>
           </div>
         </div>
@@ -235,31 +203,40 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           
           <div className="max-w-md mx-auto w-full">
             {/* Mobile Logo */}
-            <div className="md:hidden flex justify-center mb-8">
-               <AifaLogo className="h-24 w-64" />
+            <div className="md:hidden flex justify-center mb-6">
+               <div className="bg-white shadow-lg rounded-2xl px-6 py-4 border border-slate-200/70">
+                 <AifaLogo className="h-20 w-52" />
+               </div>
             </div>
 
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-slate-800">
-                {isRegistering ? 'Solicitud de Acceso' : 'Iniciar Sesión'}
-              </h2>
-              <p className="text-slate-500 mt-2 text-sm">
-                {isRegistering ? 'Complete el formulario para registrar usuario' : 'Ingrese sus credenciales institucionales'}
-              </p>
+            <div className="text-center mb-10 space-y-3">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-100 text-[#B38E5D] text-xs font-semibold uppercase tracking-[0.35em]">
+                {isRegistering ? 'Registro' : 'Acceso AIFA'}
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                  {isRegistering ? 'Forma parte del sistema' : 'Bienvenido de nuevo'}
+                </h2>
+                <p className="text-slate-500 text-sm leading-relaxed max-w-sm mx-auto">
+                  {isRegistering 
+                    ? 'Solicite acceso institucional para colaborar en la gestión centralizada de contratos.'
+                    : 'Ingresa con tus credenciales para consultar contratos, pagos y observaciones a detalle.'}
+                </p>
+              </div>
             </div>
 
             {showApiKeyHelp && (
-              <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 animate-pulse">
-                <p className="font-bold flex items-center gap-2"><Key className="h-4 w-4"/> Verifique API Key</p>
-                <p className="text-xs mt-1">Asegúrese de que la clave 'Anon Public' en <code>services/supabaseClient.ts</code> sea correcta.</p>
+              <div className="mb-6 bg-gradient-to-r from-amber-50 to-amber-100 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900 shadow-sm">
+                <p className="font-semibold flex items-center gap-2 uppercase tracking-[0.2em]"><Key className="h-4 w-4"/> Verifique API Key</p>
+                <p className="text-xs mt-1 leading-snug text-amber-800/90">Asegúrese de que la clave 'Anon Public' en <code className="bg-white px-1.5 py-0.5 rounded-md border border-amber-200/70">services/supabaseClient.ts</code> sea correcta.</p>
               </div>
             )}
 
-            <form onSubmit={handleAuth} className="space-y-5">
+            <form onSubmit={handleAuth} className="space-y-6">
               
               {isRegistering && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Nombre</label>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-[0.35em] mb-2">Nombre</label>
                   <div className="relative">
                     <User className="absolute left-3 top-3.5 h-5 w-5 text-slate-400" />
                     <input
@@ -275,7 +252,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Correo Institucional</label>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-[0.35em] mb-2">Correo Institucional</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3.5 h-5 w-5 text-slate-400" />
                   <input
@@ -290,7 +267,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Contraseña</label>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-[0.35em] mb-2">Contraseña</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3.5 h-5 w-5 text-slate-400" />
                   <input
@@ -335,15 +312,20 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3.5 px-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 focus:ring-4 focus:ring-slate-200 transition-all shadow-lg flex justify-center items-center gap-2"
+                className="w-full py-3.5 px-4 bg-gradient-to-r from-[#0F4C3A] via-[#115E47] to-[#B38E5D] text-white font-semibold rounded-2xl hover:shadow-xl focus:ring-4 focus:ring-[#B38E5D]/30 transition-all shadow-lg flex justify-center items-center gap-3 uppercase tracking-[0.45em]"
               >
-                {isLoading ? <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white"></div> : (
-                  isRegistering ? <>REGISTRAR <UserPlus className="h-5 w-5"/></> : <>INGRESAR <ArrowRight className="h-5 w-5"/></>
+                {isLoading ? (
+                  <div className="flex items-center gap-3">
+                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/40 border-t-white"></div>
+                    Procesando
+                  </div>
+                ) : (
+                  isRegistering ? <>Registrar <UserPlus className="h-5 w-5"/></> : <>Ingresar <ArrowRight className="h-5 w-5"/></>
                 )}
               </button>
             </form>
 
-            <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+            <div className="mt-10 pt-6 border-t border-slate-100 text-center">
               <button 
                 onClick={() => {
                     setIsRegistering(!isRegistering);
