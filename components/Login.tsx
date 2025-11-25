@@ -85,6 +85,24 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
         if (error) throw error;
         
+        if (data.user) {
+          try {
+            await supabase
+              .schema('public')
+              .from('profiles')
+              .upsert(
+                {
+                  id: data.user.id,
+                  full_name: fullName,
+                  role: 'OPERATOR'
+                },
+                { onConflict: 'id' }
+              );
+          } catch (profileError) {
+            console.error('Error syncing profile record:', profileError);
+          }
+        }
+
         if (data.user && !data.session) {
           setSuccessMessage('¡Cuenta creada con éxito! Por favor, revise su correo electrónico (y la carpeta de Spam) para confirmar su cuenta antes de iniciar sesión.');
           setIsRegistering(false);

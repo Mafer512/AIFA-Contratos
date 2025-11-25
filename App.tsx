@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import { Screen, User, UserRole } from './types';
@@ -12,36 +13,65 @@ const App: React.FC = () => {
   useEffect(() => {
     // 1. Check active session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        updateUserFromSession(session);
-      } else {
-        setLoading(false);
-      }
+      syncSession(session);
     });
 
     // 2. Listen for auth changes (Login, Logout, Auto-refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        updateUserFromSession(session);
-      } else {
-        setCurrentUser(null);
-        setCurrentScreen(Screen.LOGIN);
-        setLoading(false);
-      }
+      syncSession(session);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const updateUserFromSession = (session: any) => {
+  const syncSession = async (session: Session | null) => {
+    if (!session) {
+      setCurrentUser(null);
+      setCurrentScreen(Screen.LOGIN);
+      setLoading(false);
+      return;
+    }
+
     const { user } = session;
-    const meta = user.user_metadata;
+    const meta = user.user_metadata ?? {};
+
+    let fullName = meta.full_name || user.email?.split('@')[0] || 'Usuario';
+    let role: UserRole = (meta.role as UserRole) || UserRole.OPERATOR;
+
+    try {
+      const { data: profile, error } = await supabase
+        .schema('public')
+        .from('profiles')
+        .select('full_name, role')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching profile data:', error.message);
+      }
+
+      if (profile) {
+        if (profile.full_name && typeof profile.full_name === 'string') {
+          fullName = profile.full_name;
+        }
+
+        if (profile.role) {
+          const normalizedRole = String(profile.role).toUpperCase();
+          const validRoles = Object.values(UserRole) as string[];
+          if (validRoles.includes(normalizedRole)) {
+            role = normalizedRole as UserRole;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Unexpected error fetching profile:', error);
+    }
 
     const appUser: User = {
       id: user.id,
       email: user.email || '',
-      name: meta.full_name || user.email?.split('@')[0] || 'Usuario',
-      role: (meta.role as UserRole) || UserRole.OPERATOR,
+      name: fullName,
+      role,
     };
 
     setCurrentUser(appUser);

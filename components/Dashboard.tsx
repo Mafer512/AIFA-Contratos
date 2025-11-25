@@ -129,6 +129,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   }, [user.role]);
 
+  const canManageRecords = useMemo(
+    () => user.role === UserRole.ADMIN,
+    [user.role]
+  );
+
+  const requireManagePermission = () => {
+    if (canManageRecords) return true;
+    alert('Tu perfil es de solo consulta. Solicita privilegios de administrador para realizar cambios.');
+    return false;
+  };
+
   // Fetch Data Function (Separated to allow refreshing)
   const fetchPaasData = async () => {
     const { data: paasResults, error: paasError } = await supabase
@@ -270,12 +281,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   // === OPEN MODAL FUNCTIONS ===
   const openNewRecordModal = () => {
+    if (!requireManagePermission()) return;
     setEditingId(null);
     setFormState(initialFormState);
     setIsModalOpen(true);
   };
 
   const openEditRecordModal = (item: PaasItem) => {
+    if (!requireManagePermission()) return;
     setEditingId(item.id);
     setFormState({
       "No.": item["No."] || '',
@@ -293,6 +306,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   // === HANDLE SUBMIT (CREATE OR UPDATE) ===
   const handleSaveRecord = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!requireManagePermission()) return;
     setIsSubmitting(true);
 
     try {
@@ -328,6 +342,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   // === HANDLE DELETE ===
   const handleDeleteRecord = async (id: number) => {
+    if (!requireManagePermission()) return;
     if (!window.confirm("¿Está seguro que desea eliminar este registro? Esta acción no se puede deshacer.")) {
       return;
     }
@@ -1561,7 +1576,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </div>
                   
                   {/* Botón para abrir Modal de Nuevo Registro PAAS */}
-                  {activeContractSubTab === 'paas' && (
+                  {activeContractSubTab === 'paas' && canManageRecords && (
                     <button 
                       onClick={openNewRecordModal}
                       className="bg-[#B38E5D] hover:bg-[#9c7a4d] text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm flex items-center gap-2"
@@ -2127,7 +2142,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         let displayValue: React.ReactNode;
 
                                         if (column.key === '__actions') {
-                                          displayValue = (
+                                          displayValue = canManageRecords ? (
                                             <div className="flex justify-center gap-2">
                                               <button
                                                 onClick={() => openEditRecordModal(item)}
@@ -2144,6 +2159,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 <Trash2 className="h-4 w-4" />
                                               </button>
                                             </div>
+                                          ) : (
+                                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Solo lectura</span>
                                           );
                                         } else if (column.isCurrency) {
                                           const numericValue = typeof rawValue === 'number' ? rawValue : Number(rawValue) || 0;
