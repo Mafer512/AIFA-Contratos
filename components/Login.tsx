@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ArrowRight, User, Lock, Mail, UserPlus, AlertTriangle, CheckCircle, Key, Eye, EyeOff, ShieldCheck, Info } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
@@ -52,6 +52,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [fullName, setFullName] = useState(''); 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  const planeGradientId = useMemo(() => `login-plane-gradient-${Math.random().toString(36).slice(2, 10)}`, []);
+  const planeGlowId = useMemo(() => `login-plane-glow-${Math.random().toString(36).slice(2, 10)}`, []);
+  const planeSparkId = useMemo(() => `login-plane-spark-${Math.random().toString(36).slice(2, 10)}`, []);
   
   // Estado para mensajes de error más detallados
   const [errorHeader, setErrorHeader] = useState('');
@@ -161,6 +165,91 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             className="absolute inset-0 bg-cover bg-center z-0 transform scale-105 transition-transform duration-[20s] hover:scale-110"
             style={{ backgroundImage: `url('${AIFA_ASSETS.background}')` }}
           ></div>
+
+          <div className="absolute inset-0 pointer-events-none overflow-hidden z-[15]">
+            <style>{`
+              @keyframes loginPlaneFlight {
+                0% { transform: translate(-58%, 30%) scale(0.7) rotate(6deg); opacity: 0; }
+                15% { transform: translate(-24%, 18%) scale(0.74) rotate(7deg); opacity: 0.85; }
+                42% { transform: translate(8%, 6%) scale(0.78) rotate(8deg); opacity: 1; }
+                68% { transform: translate(46%, -10%) scale(0.82) rotate(6deg); opacity: 0.92; }
+                88% { transform: translate(86%, -24%) scale(0.85) rotate(4deg); opacity: 0.78; }
+                100% { transform: translate(118%, -32%) scale(0.86) rotate(3deg); opacity: 0; }
+              }
+
+              @keyframes loginCloudFloat {
+                0% { transform: translateX(-10%) translateY(0); opacity: 0.6; }
+                50% { transform: translateX(10%) translateY(-4%); opacity: 0.8; }
+                100% { transform: translateX(35%) translateY(2%); opacity: 0.6; }
+              }
+
+              @keyframes loginContrailPulse {
+                0% { opacity: 0.45; }
+                50% { opacity: 0.9; }
+                100% { opacity: 0.4; }
+              }
+            `}</style>
+
+            <div
+              className="absolute bottom-[-6%] left-[-14%] w-[260px] h-[120px]"
+              style={{ animation: 'loginPlaneFlight 9s linear infinite' }}
+            >
+              <svg
+                viewBox="0 0 200 90"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-full h-full drop-shadow-[0_18px_28px_rgba(8,20,38,0.22)]"
+                style={{ transform: 'scaleX(-1)', transformOrigin: '50% 50%' }}
+              >
+                <defs>
+                  <linearGradient id={planeGradientId} x1="0" y1="45" x2="200" y2="45" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stopColor="#FFFFFF" />
+                    <stop offset="0.45" stopColor="#F4F8FF" />
+                    <stop offset="1" stopColor="#E0ECFF" />
+                  </linearGradient>
+                  <linearGradient id={planeGlowId} x1="20" y1="70" x2="180" y2="10" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stopColor="#66C2FF" stopOpacity="0.6" />
+                    <stop offset="1" stopColor="#E3F3FF" stopOpacity="0" />
+                  </linearGradient>
+                  <radialGradient id={planeSparkId} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(184 20) scale(28 18)">
+                    <stop stopColor="#FFFFFF" stopOpacity="0.9" />
+                    <stop offset="1" stopColor="#9ECFFF" stopOpacity="0" />
+                  </radialGradient>
+                </defs>
+                <path d="M12 52 L118 52 L150 34 C158 30 168 28 176 30 L156 46 C154 48 154 50 156 52 L176 68 C168 70 158 68 150 62 L118 44 L12 44 C8 44 4 48 4 52 C4 56 8 60 12 60 L50 60 L72 72 C76 74 80 74 84 72 L78 60 L118 60 L150 78 C162 86 180 84 180 84 L150 52 L180 20 C180 20 162 18 150 26 L118 44 L78 44 L82 32 C78 30 74 30 70 32 L50 44 L12 44" fill={`url(#${planeGradientId})`} stroke="rgba(45,64,89,0.22)" strokeWidth="0.9" />
+                <path d="M56 52 L76 52" stroke="#A7BFE8" strokeWidth="2.2" strokeLinecap="round" />
+                <path d="M34 50 L44 50" stroke="#A7BFE8" strokeWidth="2.2" strokeLinecap="round" />
+                <path d="M54 42 L76 42" stroke="#BDD0F0" strokeWidth="1.4" strokeLinecap="round" />
+                <path d="M80 52 L104 52" stroke="#6F90CC" strokeWidth="1.6" strokeLinecap="round" opacity="0.68" />
+                <rect x="122" y="38" width="12" height="4.5" rx="1.6" fill="#9BC1EE" />
+                <rect x="136" y="38" width="12" height="4.5" rx="1.6" fill="#9BC1EE" />
+                <rect x="150" y="38" width="12" height="4.5" rx="1.6" fill="#9BC1EE" />
+                <path d="M130 44 C134 40 138 38 142 38" stroke="#5877B2" strokeWidth="0.9" strokeLinecap="round" opacity="0.45" />
+                <ellipse cx="108" cy="60" rx="9" ry="3.6" fill="#AEC6EB" opacity="0.46" />
+                <ellipse cx="48" cy="60" rx="12" ry="4.6" fill="#AEC6EB" opacity="0.32" />
+                <path d="M120 54 C134 60 152 68 168 78" stroke={`url(#${planeGlowId})`} strokeWidth="6" strokeLinecap="round" opacity="0.24" />
+                <path d="M114 50 C132 58 148 68 162 78" stroke={`url(#${planeGlowId})`} strokeWidth="3.4" strokeLinecap="round" opacity="0.36" />
+                <path d="M100 52 C114 60 134 70 154 80" stroke="#FFFFFF" strokeOpacity="0.22" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M82 52 C96 60 122 72 140 82" stroke="#FFFFFF" strokeOpacity="0.28" strokeWidth="1.4" strokeLinecap="round" />
+                <path d="M16 52 L-44 58" stroke="#F4F8FF" strokeWidth="9" strokeLinecap="round" opacity="0.26" style={{ animation: 'loginContrailPulse 5s ease-in-out infinite' }} />
+                <path d="M24 48 L-20 52" stroke="#FFFFFF" strokeOpacity="0.18" strokeWidth="5" strokeLinecap="round" style={{ animation: 'loginContrailPulse 6s ease-in-out infinite' }} />
+                <ellipse cx="164" cy="26" rx="10" ry="6" fill={`url(#${planeSparkId})`} />
+              </svg>
+            </div>
+
+            <div
+              className="absolute top-[18%] left-[-20%] w-[320px] h-[180px] rounded-full"
+              style={{ background: 'radial-gradient(circle at 30% 40%, rgba(255,255,255,0.45), rgba(240,248,255,0.06))', filter: 'blur(60px)', animation: 'loginCloudFloat 42s ease-in-out infinite' }}
+            ></div>
+            <div
+              className="absolute top-[58%] right-[-28%] w-[360px] h-[200px] rounded-full"
+              style={{ background: 'radial-gradient(circle at 60% 50%, rgba(210,232,255,0.5), rgba(180,212,255,0.08))', filter: 'blur(68px)', animation: 'loginCloudFloat 55s ease-in-out infinite reverse' }}
+            ></div>
+            <div
+              className="absolute bottom-[12%] right-[-18%] w-[280px] h-[180px] rounded-full"
+              style={{ background: 'radial-gradient(circle at 40% 40%, rgba(255,255,255,0.4), rgba(210,220,240,0.08))', filter: 'blur(58px)', animation: 'loginCloudFloat 48s ease-in-out infinite' }}
+            ></div>
+          </div>
           
           {/* Overlay Gradients for readability */}
           <div className="absolute inset-0 bg-gradient-to-b from-slate-900/80 via-slate-900/60 to-slate-900/90 z-10"></div>

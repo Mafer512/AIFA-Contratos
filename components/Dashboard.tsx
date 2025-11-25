@@ -470,7 +470,36 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (value === null || value === undefined || value === '') return '-';
     if (typeof value === 'number') return formatMetricValue(key, value);
     if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+    if (Array.isArray(value)) {
+      if (!value.length) return '-';
+      const printableItems = value
+        .map((item) => {
+          if (item === null || item === undefined) return null;
+          if (typeof item === 'number') return formatMetricValue(key, item);
+          if (typeof item === 'boolean') return item ? 'Sí' : 'No';
+          if (typeof item === 'object') {
+            try {
+              return JSON.stringify(item, null, 2);
+            } catch (err) {
+              console.error('Error stringifying array item:', err);
+              return String(item);
+            }
+          }
+          return normalizeWhitespace(String(item));
+        })
+        .filter((item): item is string => Boolean(item && item.trim().length));
+
+      return printableItems.length ? printableItems.join('\n') : '-';
+    }
     if (value instanceof Date) return formatDateTime(value.toISOString());
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch (err) {
+        console.error('Error stringifying value:', err);
+        return String(value);
+      }
+    }
     return normalizeWhitespace(String(value));
   };
 
@@ -1143,42 +1172,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const invoicesLastStickyKey = invoicesStickyInfo.order[invoicesStickyInfo.order.length - 1];
 
-  const compranetPreferredOrder = [
-    'id',
-    'numero de procedimiento',
-    'procedimiento',
-    'titulo',
-    'descripcion',
-    'proveedor',
-    'empresa',
-    'dependencia',
-    'unidad solicitante',
-    'area contratante',
-    'tipo de procedimiento',
-    'modalidad',
-    'tipo de contratacion',
-    'estatus',
-    'estado',
-    'numero de contrato',
-    'fecha publicacion',
-    'fecha de publicacion',
-    'fecha apertura',
-    'fecha fallo',
-    'monto estimado',
-    'monto adjudicado',
-    'monto contratado',
-    'monto',
-    'importe',
-    'total',
-    'observaciones',
-    'comentarios'
+  const compranetPreferredOrderHints = [
+    ['id'],
+    ['numero de procedimiento', 'numero procedimiento', 'procedimiento numero', 'numero_de_procedimiento', 'no de procedimiento', 'no procedimiento'],
+    ['procedimiento', 'nombre del procedimiento', 'nombre procedimiento', 'procedimiento descripcion'],
+    ['titulo', 'titulo convocatoria', 'titulo del procedimiento'],
+    ['descripcion', 'descripcion del procedimiento', 'descripcion_procedimiento', 'descripcion convocatoria'],
+    ['proveedor', 'proveedor ganador', 'proveedor nombre', 'razon social', 'nombre proveedor'],
+    ['empresa', 'empresa participante', 'empresa ganadora', 'empresa proveedor'],
+    ['dependencia', 'dependencia solicitante', 'unidad solicitante', 'unidad requisitante', 'unidad contratante', 'area solicitante', 'area contratante', 'direccion solicitante'],
+    ['tipo de procedimiento', 'tipo procedimiento', 'modalidad', 'modalidad del procedimiento', 'tipo de contratacion', 'tipo contratacion'],
+    ['estatus', 'estado', 'estatus procedimiento', 'status'],
+    ['numero de contrato', 'numero contrato', 'no contrato'],
+    ['fecha publicacion', 'fecha de publicacion', 'fecha_publicacion', 'fecha apertura', 'fecha fallo', 'fecha adjudicacion', 'fecha_de_apertura'],
+    ['monto estimado', 'monto adjudicado', 'monto contratado', 'monto', 'importe', 'total', 'presupuesto', 'valor contratado', 'valor estimado'],
+    ['observaciones', 'comentarios', 'notas', 'aclaraciones']
   ];
 
   const compranetTableColumns = useMemo(() => {
     if (!compranetData.length) return [] as string[];
+
+    const priorityMap = new Map<string, number>();
+    compranetPreferredOrderHints.forEach((synonyms, index) => {
+      synonyms.forEach((label) => {
+        priorityMap.set(normalizeAnnualKey(label), index);
+      });
+    });
+
     const columns = new Set<string>();
     compranetData.forEach((row) => {
-      Object.keys(row || {}).forEach((key) => {
+      if (!row) return;
+      Object.keys(row).forEach((key) => {
         if (key) columns.add(key);
       });
     });
@@ -1186,13 +1210,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return Array.from(columns).sort((a, b) => {
       const normalizedA = normalizeAnnualKey(a);
       const normalizedB = normalizeAnnualKey(b);
-      const priorityA = compranetPreferredOrder.findIndex((target) => normalizedA === target);
-      const priorityB = compranetPreferredOrder.findIndex((target) => normalizedB === target);
+      const priorityA = priorityMap.get(normalizedA);
+      const priorityB = priorityMap.get(normalizedB);
 
-      if (priorityA !== -1 && priorityB !== -1) return priorityA - priorityB;
-      if (priorityA !== -1) return -1;
-      if (priorityB !== -1) return 1;
-      return normalizedA.localeCompare(normalizedB);
+      if (priorityA !== undefined && priorityB !== undefined && priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      if (priorityA !== undefined && priorityB === undefined) return -1;
+      if (priorityB !== undefined && priorityA === undefined) return 1;
+      return normalizedA.localeCompare(normalizedB, 'es');
     });
   }, [compranetData]);
 
