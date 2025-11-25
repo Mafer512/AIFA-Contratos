@@ -9,7 +9,7 @@ import {
   CreditCard, Calendar, FileSpreadsheet, Menu
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line } from 'recharts';
-import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem } from '../types';
+import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, UserRole } from '../types';
 import { generateOperationalInsight } from '../services/geminiService';
 import { supabase } from '../services/supabaseClient';
 
@@ -96,6 +96,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     "Justificación": ''
   };
   const [formState, setFormState] = useState(initialFormState);
+
+  const userInitials = useMemo(() => {
+    if (!user.name) return '?';
+    const segments = user.name.trim().split(/\s+/).slice(0, 2);
+    const initials = segments.map((segment) => segment.charAt(0).toUpperCase()).join('');
+    return initials || user.name.charAt(0).toUpperCase();
+  }, [user.name]);
+
+  const userRoleMeta = useMemo(() => {
+    switch (user.role) {
+      case UserRole.ADMIN:
+        return {
+          label: 'Administrador',
+          badgeClass: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+        };
+      case UserRole.OPERATOR:
+        return {
+          label: 'Operador',
+          badgeClass: 'bg-blue-100 text-blue-700 border border-blue-200',
+        };
+      case UserRole.VIEWER:
+        return {
+          label: 'Solo lectura',
+          badgeClass: 'bg-slate-100 text-slate-600 border border-slate-200',
+        };
+      default:
+        return {
+          label: 'Invitado',
+          badgeClass: 'bg-slate-100 text-slate-600 border border-slate-200',
+        };
+    }
+  }, [user.role]);
 
   // Fetch Data Function (Separated to allow refreshing)
   const fetchPaasData = async () => {
@@ -1395,8 +1427,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             />
           </div>
 
-          <div className="flex items-center gap-4">
-             <button 
+          <div className="flex items-center gap-3">
+            <div className="sm:hidden">
+              <div className="h-9 w-9 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-semibold flex items-center justify-center uppercase">
+                {userInitials}
+              </div>
+            </div>
+            <div className="hidden sm:flex items-center gap-3 rounded-full border border-slate-200 bg-white px-3 py-2 shadow-sm">
+              <div className="h-10 w-10 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-semibold flex items-center justify-center uppercase">
+                {userInitials}
+              </div>
+              <div className="flex flex-col leading-tight">
+                <span className="text-sm font-semibold text-slate-700">{user.name}</span>
+                <span className={`inline-flex items-center justify-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded-full ${userRoleMeta.badgeClass}`}>
+                  {userRoleMeta.label}
+                </span>
+              </div>
+            </div>
+            <button 
               onClick={() => setIsAiChatOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-full shadow hover:bg-slate-800 transition-all"
             >
