@@ -43,9 +43,10 @@ const LOGIN_HIGHLIGHTS: HighlightItem[] = [
 
 interface LoginProps {
   onLoginSuccess: () => void;
+  externalSuccessMessage?: string;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -62,28 +63,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [errorDetail, setErrorDetail] = useState('');
   
   const [successMessage, setSuccessMessage] = useState('');
+  const [successTitle, setSuccessTitle] = useState('Registro Exitoso');
   const [showApiKeyHelp, setShowApiKeyHelp] = useState(false);
 
   useEffect(() => {
-    const hashParams = new URLSearchParams(window.location.hash.replace('#', ''));
-    const queryParams = new URLSearchParams(window.location.search);
-    const confirmationType = hashParams.get('type') || queryParams.get('type');
-    const confirmationMessage = hashParams.get('message') || queryParams.get('message');
-
-    if (confirmationType === 'signup') {
-      setSuccessMessage('¡Tu correo fue confirmado con éxito! Ya puedes acceder al sistema.');
-      setIsRegistering(false);
-      window.setTimeout(() => {
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }, 250);
-    } else if (confirmationMessage === 'Confirmation complete') {
-      setSuccessMessage('¡Cuenta confirmada! Inicia sesión con tus credenciales.');
-      setIsRegistering(false);
-      window.setTimeout(() => {
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }, 250);
-    }
-  }, []);
+    if (!externalSuccessMessage) return;
+    setSuccessMessage(externalSuccessMessage);
+    setSuccessTitle('Cuenta confirmada');
+    setIsRegistering(false);
+    setErrorHeader('');
+    setErrorDetail('');
+    setShowApiKeyHelp(false);
+  }, [externalSuccessMessage]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,6 +120,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         }
 
         if (data.user && !data.session) {
+          setSuccessTitle('Registro enviado');
           setSuccessMessage('¡Cuenta creada con éxito! Por favor, revise su correo electrónico (y la carpeta de Spam) para confirmar su cuenta antes de iniciar sesión.');
           setIsRegistering(false);
         } else if (data.session) {
@@ -428,12 +420,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               )}
               
               {successMessage && (
-                <div className="bg-green-50 p-4 rounded-xl border border-green-200 animate-fade-in">
-                  <div className="flex items-center gap-2 text-green-800 font-bold text-sm mb-1">
-                    <CheckCircle className="h-4 w-4 flex-shrink-0" />
-                    <span>Registro Exitoso</span>
+                <div className="relative overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50 via-white to-emerald-50 p-4 shadow-sm animate-fade-in">
+                  <div className="absolute -top-10 -right-10 h-24 w-24 bg-emerald-200/40 blur-3xl" aria-hidden="true"></div>
+                  <div className="absolute -bottom-8 -left-8 h-20 w-20 bg-emerald-100/30 blur-2xl" aria-hidden="true"></div>
+                  <div className="relative flex items-start gap-3">
+                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-emerald-100 text-emerald-600 shadow-inner shadow-emerald-200/60">
+                      <CheckCircle className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-emerald-800 tracking-wide uppercase">{successTitle}</h4>
+                      <p className="text-emerald-700 text-xs leading-relaxed mt-1 max-w-sm">{successMessage}</p>
+                    </div>
                   </div>
-                  <p className="text-green-700 text-xs ml-6 leading-relaxed">{successMessage}</p>
                 </div>
               )}
 
@@ -460,6 +458,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     setErrorHeader('');
                     setErrorDetail('');
                     setSuccessMessage('');
+                    setSuccessTitle('Registro Exitoso');
                 }}
                 className="text-sm text-slate-500 hover:text-[#B38E5D] transition-colors font-medium flex items-center justify-center gap-2 mx-auto"
               >

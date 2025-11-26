@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -9,19 +9,77 @@ const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.LOGIN);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const forceLoginRef = useRef(false);
 
   useEffect(() => {
-    // 1. Check active session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let isMounted = true;
+
+    const url = new URL(window.location.href);
+    const hashParams = new URLSearchParams(url.hash.replace('#', ''));
+    const queryParams = url.searchParams;
+
+    const confirmationType = hashParams.get('type') || queryParams.get('type');
+    const confirmationMessage = hashParams.get('message') || queryParams.get('message');
+    const isSignupConfirmation = confirmationType === 'signup' || confirmationMessage === 'Confirmation complete';
+
+    if (isSignupConfirmation) {
+      forceLoginRef.current = true;
+      setAuthNotice('¡Tu correo fue confirmado con éxito! Ya puedes acceder al sistema.');
+      setCurrentScreen(Screen.LOGIN);
+      setCurrentUser(null);
+
+      const cleanUrl = `${url.origin}${url.pathname}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!isMounted) return;
+
+      if (forceLoginRef.current) {
+        if (session) {
+          try {
+            await supabase.auth.signOut();
+          } catch (error) {
+            console.error('Error closing confirmation session:', error);
+          }
+        }
+        setLoading(false);
+        forceLoginRef.current = false;
+        return;
+      }
+
+      syncSession(session);
+    };
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (forceLoginRef.current) {
+        if (session) {
+          try {
+            await supabase.auth.signOut();
+          } catch (error) {
+            console.error('Error closing confirmation session:', error);
+          }
+          return;
+        }
+        setCurrentUser(null);
+        setCurrentScreen(Screen.LOGIN);
+        setLoading(false);
+        forceLoginRef.current = false;
+        return;
+      }
+
       syncSession(session);
     });
 
-    // 2. Listen for auth changes (Login, Logout, Auto-refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      syncSession(session);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const syncSession = async (session: Session | null) => {
@@ -76,6 +134,7 @@ const App: React.FC = () => {
 
     setCurrentUser(appUser);
     setCurrentScreen(Screen.DASHBOARD);
+    setAuthNotice(null);
     setLoading(false);
   };
 
@@ -128,7 +187,7 @@ const App: React.FC = () => {
   return (
     <div className="antialiased text-slate-900">
       {currentScreen === Screen.LOGIN && (
-        <Login onLoginSuccess={handleLoginSuccess} />
+        <Login onLoginSuccess={handleLoginSuccess} externalSuccessMessage={authNotice ?? undefined} />
       )}
       {currentScreen === Screen.DASHBOARD && currentUser && (
         <Dashboard user={currentUser} onLogout={handleLogout} />
