@@ -1,50 +1,47 @@
-import { GoogleGenAI } from "@google/genai";
-
-// Helper to get the API key from Vite env values
-const getApiKey = (): string | undefined => {
-  const value = import.meta.env?.VITE_GEMINI_API_KEY;
-  if (typeof value !== 'string') {
-    return undefined;
+const resolveProxyEndpoint = (): string => {
+  const configured = import.meta.env?.VITE_AI_PROXY_URL;
+  if (typeof configured === 'string' && configured.trim().length > 0) {
+    return configured.trim();
   }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  return '/api/gemini-insight';
 };
 
 export const generateOperationalInsight = async (
   contextData: string,
   userQuery: string
 ): Promise<string> => {
-  const apiKey = getApiKey();
-  
-  if (!apiKey) {
-    return "Error: API Key no configurada.";
-  }
-
   try {
-    const ai = new GoogleGenAI({ apiKey });
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `Contexto: Eres un Asistente de Operaciones y Contratos con IA para el Aeropuerto Internacional Felipe Ángeles (AIFA).
-Resumen de Datos del Dashboard: ${contextData}
-
-Consulta del Usuario: ${userQuery}
-
-Instrucciones: Proporciona una respuesta concisa, profesional y accionable en ESPAÑOL, adecuada para un gerente de contratos u operaciones. Mantén la respuesta bajo 50 palabras a menos que se pida un análisis detallado.`
-            },
-          ],
-        },
-      ],
+    const endpoint = resolveProxyEndpoint();
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ contextData, userQuery }),
     });
 
-    return response.text ?? "No se pudo generar una respuesta.";
+    if (!response.ok) {
+      let errorMessage = 'No se pueden generar insights en este momento. Verifique la conexión.';
+      try {
+        const errorPayload = await response.json();
+        if (errorPayload?.error) {
+          errorMessage = typeof errorPayload.error === 'string'
+            ? errorPayload.error
+            : errorPayload.error.message ?? errorMessage;
+        }
+      } catch (parseError) {
+        console.error('AI proxy error payload parse', parseError);
+      }
+      return errorMessage;
+    }
+
+    const payload = await response.json();
+    if (payload?.result && typeof payload.result === 'string') {
+      return payload.result;
+    }
+    return 'No se pudo generar una respuesta.';
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    console.error("AI proxy request error:", error);
     return "No se pueden generar insights en este momento. Verifique la conexión.";
   }
 };

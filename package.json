@@ -6,15 +6,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ai-proxy": "node server/geminiProxy.js"
   },
   "dependencies": {
     "react": "^19.2.0",
     "lucide-react": "^0.554.0",
     "react-dom": "^19.2.0",
-    "@google/genai": "^1.30.0",
     "recharts": "^3.4.1",
-    "@supabase/supabase-js": "2.39.7"
+    "@supabase/supabase-js": "2.39.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

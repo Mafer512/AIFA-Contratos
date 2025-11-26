@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  LayoutDashboard, Bell, Search,
+  LayoutDashboard, Bell,
   LogOut, AlertCircle,
   Sparkles, X, Send, FileText, Briefcase,
   DollarSign, PieChart as PieChartIcon,
@@ -1724,15 +1724,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             </div>
           </div>
 
-          <div className="hidden md:flex items-center max-w-md w-full bg-slate-100 rounded-lg px-3 py-2 border border-slate-200 focus-within:border-[#B38E5D] focus-within:ring-1 focus-within:ring-[#B38E5D] transition-all">
-            <Search className="h-4 w-4 text-slate-400 mr-2" />
-            <input 
-              type="text" 
-              placeholder="Buscar..." 
-              className="bg-transparent border-none outline-none text-sm w-full text-slate-700 placeholder-slate-400"
-            />
-          </div>
-
           <div className="flex items-center gap-3">
             <div className="sm:hidden">
               <div className="h-9 w-9 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-semibold flex items-center justify-center uppercase">
@@ -1751,6 +1742,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               </div>
             </div>
             <button 
+              type="button"
               onClick={() => setIsAiChatOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-full shadow hover:bg-slate-800 transition-all"
             >
@@ -3828,9 +3820,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       {/* AI Chat Overlay */}
       {isAiChatOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end pointer-events-none">
-          <div className="absolute inset-0 bg-black/20 pointer-events-auto backdrop-blur-sm" onClick={() => setIsAiChatOpen(false)}></div>
-          <div className="w-full sm:w-96 bg-white h-[80vh] sm:h-[calc(100vh-2rem)] sm:mr-4 shadow-2xl rounded-t-2xl sm:rounded-2xl flex flex-col pointer-events-auto border border-slate-200">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setIsAiChatOpen(false)}
+          ></div>
+          <div className="relative w-full sm:w-96 bg-white h-[80vh] sm:h-[calc(100vh-2rem)] sm:mr-4 shadow-2xl rounded-t-2xl sm:rounded-2xl flex flex-col border border-slate-200">
             <div className="p-4 bg-slate-900 text-white flex justify-between items-center rounded-t-2xl">
               <h3 className="font-bold flex items-center gap-2"><Sparkles className="h-4 w-4 text-[#B38E5D]"/> Asistente</h3>
               <button onClick={() => setIsAiChatOpen(false)}><X className="h-5 w-5"/></button>

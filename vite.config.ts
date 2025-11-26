@@ -4,16 +4,23 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
+    const proxy: Record<string, any> = {};
+
+    if (env.AI_PROXY_TARGET) {
+      proxy['/api/gemini-insight'] = {
+        target: env.AI_PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+      };
+    }
+
     return {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        proxy,
       },
       plugins: [react()],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-      },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
