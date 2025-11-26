@@ -28,28 +28,20 @@ const App: React.FC = () => {
       setAuthNotice('¡Tu correo fue confirmado con éxito! Ya puedes acceder al sistema.');
       setCurrentScreen(Screen.LOGIN);
       setCurrentUser(null);
+      setLoading(false);
 
       const cleanUrl = `${url.origin}${url.pathname}`;
-      window.history.replaceState({}, document.title, cleanUrl);
+      window.setTimeout(() => {
+        window.history.replaceState({}, document.title, cleanUrl);
+      }, 0);
     }
 
     const initAuth = async () => {
+      if (forceLoginRef.current) return;
+
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!isMounted) return;
-
-      if (forceLoginRef.current) {
-        if (session) {
-          try {
-            await supabase.auth.signOut();
-          } catch (error) {
-            console.error('Error closing confirmation session:', error);
-          }
-        }
-        setLoading(false);
-        forceLoginRef.current = false;
-        return;
-      }
 
       syncSession(session);
     };

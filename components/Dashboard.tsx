@@ -84,6 +84,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null); // ID si estamos editando, null si es nuevo
 
+  type GenericRecordEditorConfig = {
+    table: string;
+    title: string;
+    isNew: boolean;
+    primaryKey?: string | null;
+    editorValue: string;
+    note?: string;
+  };
+
+  const [recordEditorConfig, setRecordEditorConfig] = useState<GenericRecordEditorConfig | null>(null);
+  const [recordEditorSaving, setRecordEditorSaving] = useState(false);
+  const [recordEditorError, setRecordEditorError] = useState<string | null>(null);
+
   // Initial state matches the columns of your table
   const initialFormState = {
     "No.": '',
@@ -96,6 +109,207 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     "Justificación": ''
   };
   const [formState, setFormState] = useState(initialFormState);
+
+  const PRIMARY_KEY_HINTS: Record<string, string> = {
+    'año_2026': 'id',
+    'balance_paas_2026': 'id',
+    'control_pagos': 'id',
+    'estatus_facturas': 'id',
+    'procedimientos_compranet': 'id',
+    'estatus_procedimiento': 'id',
+    contracts: 'id',
+    commercial_spaces: 'id',
+  };
+
+  const generateTemplateFromColumns = (columns: string[]) => {
+    const template: Record<string, any> = {};
+    columns
+      .filter((column) => column && column !== '__actions')
+      .forEach((column) => {
+        const normalized = normalizeAnnualKey(column);
+        if (['id', 'created_at', 'updated_at', 'inserted_at'].includes(normalized)) return;
+        template[column] = '';
+      });
+    return template;
+  };
+
+  const resolvePrimaryKey = (row: Record<string, any> | null | undefined, table: string, explicit?: string | null) => {
+    if (!row) return explicit ?? PRIMARY_KEY_HINTS[table] ?? null;
+    const candidateList = [explicit, PRIMARY_KEY_HINTS[table], 'id', 'ID', 'Id', `${table}_id`].filter(Boolean) as string[];
+    const lowerMap = new Map<string, string>();
+    Object.keys(row).forEach((key) => {
+      lowerMap.set(key.toLowerCase(), key);
+    });
+
+    for (const candidate of candidateList) {
+      if (!candidate) continue;
+      if (Object.prototype.hasOwnProperty.call(row, candidate) && row[candidate] !== undefined && row[candidate] !== null) {
+        return candidate;
+      }
+      const normalized = candidate.toLowerCase();
+      if (lowerMap.has(normalized)) {
+        const resolved = lowerMap.get(normalized)!;
+        if (row[resolved] !== undefined && row[resolved] !== null) {
+          return resolved;
+        }
+      }
+    }
+
+    const fallbackKey = Object.keys(row).find((key) => key.toLowerCase().endsWith('_id') && row[key] !== undefined && row[key] !== null);
+    return fallbackKey ?? null;
+  };
+
+  const buildEditorPayload = (columns: string[], row: Record<string, any> | null) => {
+    if (row && Object.keys(row).length) {
+      return row;
+    }
+    const template = generateTemplateFromColumns(columns);
+    return Object.keys(template).length ? template : {};
+  };
+
+  const refreshTable = async (table: string) => {
+    switch (table) {
+      case 'año_2026':
+        await fetchAnnual2026Data();
+        break;
+      case 'balance_paas_2026':
+        await fetchPaasData();
+        break;
+      case 'control_pagos':
+        await fetchPaymentsData();
+        break;
+      case 'estatus_facturas':
+        await fetchInvoicesData();
+        break;
+      case 'procedimientos_compranet':
+        await fetchCompranetData();
+        break;
+      case 'estatus_procedimiento':
+        await fetchProcedureStatusData();
+        break;
+      case 'contracts':
+        await fetchContractsData();
+        break;
+      case 'commercial_spaces':
+        await fetchCommercialSpacesData();
+        break;
+      default:
+        console.warn('No refresh handler registered for table', table);
+    }
+  };
+
+  const openRecordEditor = (
+    table: string,
+    title: string,
+    columns: string[],
+    row: Record<string, any> | null,
+    primaryKey?: string | null,
+    note?: string
+  ) => {
+    if (!requireManagePermission()) return;
+    const payload = buildEditorPayload(columns, row);
+    const resolvedKey = resolvePrimaryKey(row ?? payload, table, primaryKey);
+
+    setRecordEditorError(null);
+    setRecordEditorConfig({
+      table,
+      title,
+      isNew: !row,
+      primaryKey: resolvedKey,
+      editorValue: JSON.stringify(payload, null, 2),
+      note,
+    });
+  };
+
+  const handleSaveGenericRecord = async () => {
+    if (!recordEditorConfig) return;
+    if (!requireManagePermission()) return;
+
+    try {
+      setRecordEditorSaving(true);
+      setRecordEditorError(null);
+
+      const parsed = JSON.parse(recordEditorConfig.editorValue);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Proporcione un objeto JSON válido para guardar el registro.');
+      }
+
+      const table = recordEditorConfig.table;
+
+      if (recordEditorConfig.isNew) {
+        const { error } = await supabase.from(table).insert([parsed]);
+        if (error) throw error;
+      } else {
+        const resolvedKey = resolvePrimaryKey(parsed, table, recordEditorConfig.primaryKey);
+        if (!resolvedKey) {
+          throw new Error('No se encontró un campo de clave primaria en el objeto (por ejemplo "id").');
+        }
+        const resolvedValue = parsed[resolvedKey];
+        if (resolvedValue === undefined || resolvedValue === null || resolvedValue === '') {
+          throw new Error('El valor de la clave primaria no puede estar vacío.');
+        }
+
+        const { error } = await supabase
+          .from(table)
+          .update(parsed)
+          .eq(resolvedKey, resolvedValue);
+        if (error) throw error;
+      }
+
+      await refreshTable(table);
+      setRecordEditorConfig(null);
+    } catch (error: any) {
+      const message = error?.message ?? 'Ocurrió un error al guardar el registro.';
+      setRecordEditorError(message);
+    } finally {
+      setRecordEditorSaving(false);
+    }
+  };
+
+  const handleDeleteGenericRecord = async (
+    table: string,
+    row: Record<string, any>,
+    title: string,
+    primaryKey?: string | null
+  ) => {
+    if (!requireManagePermission()) return;
+    const resolvedKey = resolvePrimaryKey(row, table, primaryKey);
+    if (!resolvedKey) {
+      alert('No se pudo determinar la clave primaria del registro. Verifique que exista un campo "id" o similar.');
+      return;
+    }
+
+    const resolvedValue = row[resolvedKey];
+    if (resolvedValue === undefined || resolvedValue === null || resolvedValue === '') {
+      alert('El valor de la clave primaria es requerido para eliminar el registro.');
+      return;
+    }
+
+    const confirmed = window.confirm(`¿Eliminar el registro seleccionado de "${title}"? Esta acción no se puede deshacer.`);
+    if (!confirmed) return;
+
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq(resolvedKey, resolvedValue);
+
+    if (error) {
+      alert(`Error al eliminar: ${error.message}`);
+      return;
+    }
+
+    await refreshTable(table);
+  };
+
+  const closeRecordEditor = () => {
+    if (recordEditorSaving) return;
+    setRecordEditorConfig(null);
+  };
+
+  const updateRecordEditorValue = (value: string) => {
+    setRecordEditorError(null);
+    setRecordEditorConfig((prev) => (prev ? { ...prev, editorValue: value } : prev));
+  };
 
   const userInitials = useMemo(() => {
     if (!user.name) return '?';
@@ -141,6 +355,59 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
 
   // Fetch Data Function (Separated to allow refreshing)
+  const fetchContractsData = async () => {
+    const { data: contractsData, error } = await supabase
+      .from('contracts')
+      .select('*')
+      .order('end_date', { ascending: true });
+
+    if (error) console.error('Error fetching contracts:', error.message);
+
+    if (contractsData !== null) {
+      setContracts(contractsData ?? []);
+    } else {
+      setContracts(MOCK_CONTRACTS);
+    }
+  };
+
+  const fetchCommercialSpacesData = async () => {
+    const { data: spacesData, error } = await supabase
+      .from('commercial_spaces')
+      .select('*');
+
+    if (error) console.error('Error fetching commercial_spaces:', error.message);
+
+    if (spacesData !== null) {
+      setCommercialSpaces(spacesData ?? []);
+    } else {
+      setCommercialSpaces(MOCK_SPACES);
+    }
+  };
+
+  const fetchAnnual2026Data = async () => {
+    const { data: annualData, error } = await supabase
+      .from('año_2026')
+      .select('*');
+
+    if (error) console.error('Error fetching año_2026:', error.message);
+
+    if (annualData !== null) {
+      setAnnual2026Data(annualData ?? []);
+    }
+  };
+
+  const fetchInvoicesData = async () => {
+    const { data: invoices, error } = await supabase
+      .from('estatus_facturas')
+      .select('*');
+
+    if (error) console.error('Error fetching estatus_facturas:', error.message);
+
+    if (invoices !== null) {
+      setInvoicesData(invoices ?? []);
+    }
+  };
+
   const fetchPaasData = async () => {
     const { data: paasResults, error: paasError } = await supabase
       .from('balance_paas_2026')
@@ -185,49 +452,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       try {
         setLoadingData(true);
         
-        // 1. Fetch Contracts
-        const { data: contractsData } = await supabase
-          .from('contracts')
-          .select('*')
-          .order('end_date', { ascending: true });
-        
-        if (contractsData) setContracts(contractsData);
-        else setContracts(MOCK_CONTRACTS);
-
-        // 2. Fetch Commercial Spaces
-        const { data: spacesData } = await supabase
-          .from('commercial_spaces')
-          .select('*');
-
-        if (spacesData) setCommercialSpaces(spacesData);
-        else setCommercialSpaces(MOCK_SPACES);
-
-        // 3. Fetch Annual 2026 Data
-        const { data: annualData, error: annualError } = await supabase
-          .from('año_2026')
-          .select('*');
-
-        if (annualData) setAnnual2026Data(annualData);
-        if (annualError) console.error('Error fetching año_2026:', annualError.message);
-
-        // 4. Fetch PAAS Data
+        await fetchContractsData();
+        await fetchCommercialSpacesData();
+        await fetchAnnual2026Data();
         await fetchPaasData();
-
-        // 5. Fetch Payments Data
         await fetchPaymentsData();
-
-        // 6. Fetch Invoices Data
-        const { data: invoices, error: invoicesError } = await supabase
-          .from('estatus_facturas')
-          .select('*');
-
-        if (invoices) setInvoicesData(invoices);
-        if (invoicesError) console.error('Error fetching estatus_facturas:', invoicesError.message);
-
-        // 7. Fetch Procedimientos en Compranet
+        await fetchInvoicesData();
         await fetchCompranetData();
-
-        // 8. Fetch Pending October Payments Observations
         await fetchProcedureStatusData();
 
       } catch (e) {
@@ -852,6 +1083,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const dominantObservationShare = dominantObservationCategory && procedureStatuses.length > 0
     ? Math.round(((dominantObservationCategory?.value ?? 0) / procedureStatuses.length) * 100)
     : 0;
+  const procedureFieldList = useMemo(() => {
+    if (!procedureStatuses.length) return [] as string[];
+    const keys = new Set<string>();
+    procedureStatuses.forEach((row) => {
+      if (!row) return;
+      Object.keys(row).forEach((key) => keys.add(key));
+    });
+    return Array.from(keys);
+  }, [procedureStatuses]);
   const latestProcedureRecord = procedureStatuses[0];
   const companyChartHeight = topProcedureCompanies.length ? Math.max(320, topProcedureCompanies.length * 68) : 280;
   const procedureCategoryColors = ['#B38E5D', '#0F4C3A', '#9E1B32', '#2563EB', '#7C3AED', '#F97316', '#64748B'];
@@ -871,6 +1111,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       { key: 'nov', label: 'Nov.' },
       { key: 'dic', label: 'Dic.' },
   ];
+
+  const paymentsFieldList = useMemo(() => {
+    if (!paymentsData.length) return [] as string[];
+    const keys = new Set<string>();
+    paymentsData.forEach((row) => {
+      if (!row) return;
+      Object.keys(row).forEach((key) => keys.add(key));
+    });
+    return Array.from(keys);
+  }, [paymentsData]);
 
   const annualNumericTotals = useMemo(() => {
     if (!annual2026Data.length) return [] as { key: string; label: string; value: number }[];
@@ -1048,6 +1298,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
   }, [invoicesData]);
 
+  const invoicesColumnsToRender = useMemo(() => {
+    if (!invoicesTableColumns.length) return [] as string[];
+    return canManageRecords ? [...invoicesTableColumns, '__actions'] : [...invoicesTableColumns];
+  }, [invoicesTableColumns, canManageRecords]);
+
   const invoicesStatusSummary = useMemo(() => {
     if (!invoicesData.length) return [] as { name: string; value: number }[];
     const statusCounts = invoicesData.reduce<Record<string, number>>((acc, row) => {
@@ -1119,6 +1374,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     return ordered;
   }, [annual2026Data]);
+
+  const annualColumnsToRender = useMemo(() => {
+    if (!annualTableColumns.length) return [] as string[];
+    return canManageRecords ? [...annualTableColumns, '__actions'] : [...annualTableColumns];
+  }, [annualTableColumns, canManageRecords]);
 
   const annualStickyInfo = useMemo(() => {
     const definitions: Array<{ id: string; match: string[]; width: number }> = [
@@ -1221,6 +1481,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       return normalizedA.localeCompare(normalizedB, 'es');
     });
   }, [compranetData]);
+
+  const compranetColumnsToRender = useMemo(() => {
+    if (!compranetTableColumns.length) return [] as string[];
+    return canManageRecords ? [...compranetTableColumns, '__actions'] : [...compranetTableColumns];
+  }, [compranetTableColumns, canManageRecords]);
 
   const compranetStatusKey = useMemo(
     () => findColumnByFragments(compranetTableColumns, ['estatus', 'status', 'estado']),
@@ -1801,16 +2066,58 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <h3 className="text-lg font-bold text-slate-800">Detalle de Registros</h3>
                           <p className="text-sm text-slate-500 mt-1">Visualización directa de los campos almacenados en la tabla `año_2026` con navegación horizontal similar al módulo de Pagos.</p>
                         </div>
-                        {annual2026Data.length > 0 && (
-                          <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {annualTableColumns.length}</span>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {annual2026Data.length > 0 && (
+                            <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {annualTableColumns.length}</span>
+                          )}
+                          {canManageRecords && (
+                            <button
+                              onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, null, null, 'Utiliza JSON válido y respeta los nombres de las columnas existentes.')}
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Nuevo registro
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="overflow-auto h-[68vh] relative">
                         <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
                           <thead className="uppercase tracking-wider text-white">
                             <tr className="h-14">
-                              {(annualTableColumns.length ? annualTableColumns : ['sin_datos']).map((column) => {
-                                const stickyMeta = annualTableColumns.length ? annualStickyInfo.meta.get(column) : undefined;
+                              {(annualColumnsToRender.length ? annualColumnsToRender : annualTableColumns.length ? annualTableColumns : ['sin_datos']).map((column) => {
+                                if (column === '__actions') {
+                                  return (
+                                    <th
+                                      key="__actions"
+                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      style={{
+                                        position: 'sticky',
+                                        top: 0,
+                                        zIndex: 45,
+                                        backgroundColor: '#124836',
+                                        color: '#fff',
+                                        minWidth: '160px',
+                                      }}
+                                    >
+                                      Acciones
+                                    </th>
+                                  );
+                                }
+
+                                if (!annualTableColumns.length && column === 'sin_datos') {
+                                  return (
+                                    <th
+                                      key="sin_datos"
+                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      style={{ position: 'sticky', top: 0, backgroundColor: '#14532d', color: '#fff' }}
+                                    >
+                                      Sin datos
+                                    </th>
+                                  );
+                                }
+
+                                const stickyMeta = annualStickyInfo.meta.get(column);
                                 const isSticky = Boolean(stickyMeta);
                                 const isLastSticky = isSticky && annualLastStickyKey === column;
                                 const baseColor = '#14532d';
@@ -1839,7 +2146,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
                                     style={headerStyle}
                                   >
-                                    {annualTableColumns.length ? humanizeKey(column) : 'Sin datos'}
+                                    {humanizeKey(column)}
                                   </th>
                                 );
                               })}
@@ -1848,11 +2155,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <tbody className="bg-white">
                             {loadingData ? (
                               <tr>
-                                <td colSpan={Math.max(annualTableColumns.length, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
+                                <td colSpan={Math.max(annualColumnsToRender.length || annualTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
                               </tr>
                             ) : !annual2026Data.length ? (
                               <tr>
-                                <td colSpan={Math.max(annualTableColumns.length, 1)} className="text-center py-10 text-slate-500">Conecta registros en la tabla `año_2026` para mostrarlos aquí.</td>
+                                <td colSpan={Math.max(annualColumnsToRender.length || annualTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">Conecta registros en la tabla `año_2026` para mostrarlos aquí.</td>
                               </tr>
                             ) : (
                               annual2026Data.map((row, rowIndex) => {
@@ -1860,7 +2167,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 const zebraBackground = rowIndex % 2 === 0 ? 'white' : '#f8fafc';
                                 return (
                                   <tr key={rowKey} className={`group transition-colors ${rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} hover:bg-emerald-50/60`}>
-                                    {annualTableColumns.map((column) => {
+                                    {(annualColumnsToRender.length ? annualColumnsToRender : annualTableColumns).map((column) => {
+                                      if (column === '__actions') {
+                                        return (
+                                          <td
+                                            key={`actions-${rowKey}`}
+                                            className="px-4 py-3 text-center"
+                                            style={{ minWidth: '160px' }}
+                                          >
+                                            {canManageRecords ? (
+                                              <div className="flex justify-center gap-2">
+                                                <button
+                                                  onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, row)}
+                                                  className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                                  title="Editar"
+                                                >
+                                                  <Pencil className="h-4 w-4" />
+                                                </button>
+                                                <button
+                                                  onClick={() => handleDeleteGenericRecord('año_2026', row, 'Registro año_2026')}
+                                                  className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                  title="Eliminar"
+                                                >
+                                                  <Trash2 className="h-4 w-4" />
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
+                                            )}
+                                          </td>
+                                        );
+                                      }
+
                                       const stickyMeta = annualStickyInfo.meta.get(column);
                                       const isSticky = Boolean(stickyMeta);
                                       const isLastSticky = isSticky && annualLastStickyKey === column;
@@ -2319,6 +2657,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
 
                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
+                     <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                       <div>
+                         <h3 className="text-lg font-bold text-slate-800">Control de Pagos</h3>
+                         <p className="text-xs text-slate-500">Edite los registros de la tabla `control_pagos`, incluidos montos mensuales y observaciones.</p>
+                       </div>
+                       {canManageRecords && (
+                         <button
+                           onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, null, null, 'Asegúrate de incluir campos numéricos con valores válidos.')} 
+                           className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                         >
+                           <Plus className="h-4 w-4" />
+                           Nuevo registro
+                         </button>
+                       )}
+                     </div>
                      {/* Contenedor con Scroll Horizontal y Altura Fija */}
                      <div className="overflow-auto h-[70vh] relative">
                        <table className="text-sm text-center w-max min-w-full border-collapse">
@@ -2350,13 +2703,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                              <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>Monto Ejercido</th>
                              <th className="px-6 py-4 font-bold text-center border-b border-white/20 bg-[#1B4D3E]" style={{ position: 'sticky', top: 0, minWidth: '200px', zIndex: 50 }}>Facturas Devengadas (%)</th>
                              <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '300px', zIndex: 50 }}>Observaciones</th>
+                             {canManageRecords && (
+                               <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '160px', zIndex: 50 }}>Acciones</th>
+                             )}
                            </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-200 bg-white">
                            {loadingData ? (
-                             <tr><td colSpan={60} className="text-center py-8">Cargando Pagos...</td></tr>
+                             <tr><td colSpan={canManageRecords ? 100 : 99} className="text-center py-8">Cargando Pagos...</td></tr>
                            ) : paymentsData.length === 0 ? (
-                              <tr><td colSpan={60} className="text-center py-8 text-slate-500">No hay registros de pagos.</td></tr>
+                              <tr><td colSpan={canManageRecords ? 100 : 99} className="text-center py-8 text-slate-500">No hay registros de pagos.</td></tr>
                            ) : paymentsData.map((item, idx) => (
                              <tr key={item.id} className={`hover:bg-slate-50 transition-colors group ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
                                
@@ -2410,6 +2766,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   </div>
                                </td>
                                <td className="px-6 py-4 text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center">{item.observaciones || '-'}</td>
+                               {canManageRecords && (
+                                 <td className="px-6 py-4 text-center" style={{ minWidth: '160px' }}>
+                                   <div className="flex justify-center gap-2">
+                                     <button
+                                       onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, item)}
+                                       className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                       title="Editar"
+                                     >
+                                       <Pencil className="h-4 w-4" />
+                                     </button>
+                                     <button
+                                       onClick={() => handleDeleteGenericRecord('control_pagos', item as unknown as Record<string, any>, 'Control de Pagos')}
+                                       className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                       title="Eliminar"
+                                     >
+                                       <Trash2 className="h-4 w-4" />
+                                     </button>
+                                   </div>
+                                 </td>
+                               )}
                              </tr>
                            ))}
                          </tbody>
@@ -2524,16 +2900,51 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <h3 className="text-lg font-bold text-slate-800">Detalle de Facturas</h3>
                           <p className="text-sm text-slate-500 mt-1">Tabla completa con los campos detectados en `estatus_facturas`.</p>
                         </div>
-                        {invoicesData.length > 0 && (
-                          <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {invoicesTableColumns.length}</span>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {invoicesData.length > 0 && (
+                            <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {invoicesTableColumns.length}</span>
+                          )}
+                          {canManageRecords && (
+                            <button
+                              onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, null, null, 'Incluye los campos requeridos para seguimiento de facturas.')} 
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Nuevo registro
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="overflow-auto h-[68vh] relative">
                         <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
                           <thead className="uppercase tracking-wider text-white">
                             <tr className="h-14">
-                              {(invoicesTableColumns.length ? invoicesTableColumns : ['sin_datos']).map((column) => {
-                                const stickyMeta = invoicesTableColumns.length ? invoicesStickyInfo.meta.get(column) : undefined;
+                              {(invoicesColumnsToRender.length ? invoicesColumnsToRender : invoicesTableColumns.length ? invoicesTableColumns : ['sin_datos']).map((column) => {
+                                if (column === '__actions') {
+                                  return (
+                                    <th
+                                      key="invoice-actions"
+                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#14532d', color: '#fff', minWidth: '160px' }}
+                                    >
+                                      Acciones
+                                    </th>
+                                  );
+                                }
+
+                                if (!invoicesTableColumns.length && column === 'sin_datos') {
+                                  return (
+                                    <th
+                                      key="invoice-empty"
+                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      style={{ position: 'sticky', top: 0, backgroundColor: '#14532d', color: '#fff' }}
+                                    >
+                                      Sin datos
+                                    </th>
+                                  );
+                                }
+
+                                const stickyMeta = invoicesStickyInfo.meta.get(column);
                                 const isSticky = Boolean(stickyMeta);
                                 const isLastSticky = isSticky && invoicesLastStickyKey === column;
                                 const headerStyle: React.CSSProperties = {
@@ -2560,7 +2971,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
                                     style={headerStyle}
                                   >
-                                    {invoicesTableColumns.length ? humanizeKey(column) : 'Sin datos'}
+                                    {humanizeKey(column)}
                                   </th>
                                 );
                               })}
@@ -2569,11 +2980,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <tbody className="bg-white">
                             {loadingData ? (
                               <tr>
-                                <td colSpan={Math.max(invoicesTableColumns.length, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
+                                <td colSpan={Math.max(invoicesColumnsToRender.length || invoicesTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
                               </tr>
                             ) : !invoicesData.length ? (
                               <tr>
-                                <td colSpan={Math.max(invoicesTableColumns.length, 1)} className="text-center py-10 text-slate-500">Conecta datos en `estatus_facturas` para mostrarlos aquí.</td>
+                                <td colSpan={Math.max(invoicesColumnsToRender.length || invoicesTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">Conecta datos en `estatus_facturas` para mostrarlos aquí.</td>
                               </tr>
                             ) : (
                               invoicesData.map((row, rowIndex) => {
@@ -2581,7 +2992,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 const zebraBackground = rowIndex % 2 === 0 ? 'white' : '#f8fafc';
                                 return (
                                   <tr key={rowKey} className={`group transition-colors ${rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} hover:bg-emerald-50/60`}>
-                                    {invoicesTableColumns.map((column) => {
+                                    {(invoicesColumnsToRender.length ? invoicesColumnsToRender : invoicesTableColumns).map((column) => {
+                                      if (column === '__actions') {
+                                        return (
+                                          <td
+                                            key={`invoice-actions-${rowKey}`}
+                                            className="px-5 py-4 text-center"
+                                            style={{ minWidth: '160px' }}
+                                          >
+                                            {canManageRecords ? (
+                                              <div className="flex justify-center gap-2">
+                                                <button
+                                                  onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, row)}
+                                                  className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                                  title="Editar"
+                                                >
+                                                  <Pencil className="h-4 w-4" />
+                                                </button>
+                                                <button
+                                                  onClick={() => handleDeleteGenericRecord('estatus_facturas', row as Record<string, any>, 'Registro estatus_facturas')}
+                                                  className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                  title="Eliminar"
+                                                >
+                                                  <Trash2 className="h-4 w-4" />
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
+                                            )}
+                                          </td>
+                                        );
+                                      }
+
                                       const stickyMeta = invoicesStickyInfo.meta.get(column);
                                       const isSticky = Boolean(stickyMeta);
                                       const isLastSticky = isSticky && invoicesLastStickyKey === column;
@@ -2807,11 +3249,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
 
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
+                        <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800">Procedimientos Compranet</h3>
+                            <p className="text-xs text-slate-500">Consulta y actualiza la tabla `procedimientos_compranet` sin salir del panel.</p>
+                          </div>
+                          {canManageRecords && (
+                            <button
+                              onClick={() => openRecordEditor('procedimientos_compranet', 'Procedimiento Compranet', compranetTableColumns, null, null, 'Revisa los campos de clave y conserva el identificador único si aplica.')} 
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Nuevo registro
+                            </button>
+                          )}
+                        </div>
                         <div className="overflow-auto max-h-[70vh] relative">
                           <table className="min-w-full text-sm text-center border-collapse">
                             <thead className="uppercase tracking-wider text-white">
                               <tr className="h-14">
-                                {(compranetTableColumns.length ? compranetTableColumns : ['sin_datos']).map((column, index) => {
+                                {(compranetColumnsToRender.length ? compranetColumnsToRender : compranetTableColumns.length ? compranetTableColumns : ['sin_datos']).map((column, index) => {
+                                  if (column === '__actions') {
+                                    return (
+                                      <th
+                                        key="compranet-actions"
+                                        className="px-5 py-4 font-semibold whitespace-nowrap border-b border-white/20 text-center"
+                                        style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#0F4C3A', color: '#fff', minWidth: '160px' }}
+                                      >
+                                        Acciones
+                                      </th>
+                                    );
+                                  }
+
+                                  if (!compranetTableColumns.length && column === 'sin_datos') {
+                                    return (
+                                      <th
+                                        key="compranet-empty"
+                                        className="px-5 py-4 font-semibold whitespace-nowrap border-b border-white/20 text-center"
+                                        style={{ position: 'sticky', top: 0, backgroundColor: '#0F4C3A', color: '#fff' }}
+                                      >
+                                        Sin datos
+                                      </th>
+                                    );
+                                  }
+
                                   const isSticky = index < compranetStickyWidths.length;
                                   const leftOffset = isSticky
                                     ? compranetStickyWidths.slice(0, index).reduce((acc, width) => acc + width, 0)
@@ -2822,6 +3303,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     top: 0,
                                     zIndex: isSticky ? 60 : 50,
                                     backgroundColor: '#0F4C3A',
+                                    color: '#fff',
                                     minWidth: `${minWidth}px`,
                                   };
 
@@ -2838,7 +3320,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       className="px-5 py-4 font-semibold whitespace-nowrap border-b border-white/20 text-center"
                                       style={headerStyle}
                                     >
-                                      {compranetTableColumns.length ? humanizeKey(column) : 'Sin datos'}
+                                      {humanizeKey(column)}
                                     </th>
                                   );
                                 })}
@@ -2847,13 +3329,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <tbody className="divide-y divide-slate-100">
                               {loadingData ? (
                                 <tr>
-                                  <td colSpan={Math.max(compranetTableColumns.length, 1)} className="text-center py-10 text-slate-500">
+                                  <td colSpan={Math.max(compranetColumnsToRender.length || compranetTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">
                                     Cargando procedimientos...
                                   </td>
                                 </tr>
                               ) : !compranetData.length ? (
                                 <tr>
-                                  <td colSpan={Math.max(compranetTableColumns.length, 1)} className="text-center py-10 text-slate-500">
+                                  <td colSpan={Math.max(compranetColumnsToRender.length || compranetTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">
                                     No hay registros de procedimientos en Compranet.
                                   </td>
                                 </tr>
@@ -2863,7 +3345,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   const isStriped = rowIndex % 2 === 0;
                                   return (
                                     <tr key={rowKey} className={isStriped ? 'bg-white hover:bg-emerald-50/40 transition-colors' : 'bg-slate-50 hover:bg-emerald-50/40 transition-colors'}>
-                                      {compranetTableColumns.map((column, colIndex) => {
+                                      {(compranetColumnsToRender.length ? compranetColumnsToRender : compranetTableColumns).map((column, colIndex) => {
+                                        if (column === '__actions') {
+                                          return (
+                                            <td
+                                              key={`compranet-actions-${rowKey}`}
+                                              className="px-5 py-3 text-center"
+                                              style={{ minWidth: '160px' }}
+                                            >
+                                              {canManageRecords ? (
+                                                <div className="flex justify-center gap-2">
+                                                  <button
+                                                    onClick={() => openRecordEditor('procedimientos_compranet', 'Procedimiento Compranet', compranetTableColumns, row)}
+                                                    className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                                    title="Editar"
+                                                  >
+                                                    <Pencil className="h-4 w-4" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => handleDeleteGenericRecord('procedimientos_compranet', row as Record<string, any>, 'Procedimiento Compranet')}
+                                                    className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                    title="Eliminar"
+                                                  >
+                                                    <Trash2 className="h-4 w-4" />
+                                                  </button>
+                                                </div>
+                                              ) : (
+                                                <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
+                                              )}
+                                            </td>
+                                          );
+                                        }
+
                                         const value = row[column];
                                         const isSticky = colIndex < compranetStickyWidths.length;
                                         const leftOffset = isSticky
@@ -3025,8 +3538,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <AlertCircle className="h-4 w-4 text-[#B38E5D]" />
                         Observaciones a servicios pendientes de pago (Octubre)
                       </div>
-                      <div className="text-xs text-slate-500">
-                        Total registros: <span className="font-semibold text-slate-700">{procedureStatuses.length}</span>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <span>
+                          Total registros: <span className="font-semibold text-slate-700">{procedureStatuses.length}</span>
+                        </span>
+                        {canManageRecords && (
+                          <button
+                            onClick={() => openRecordEditor('estatus_procedimiento', 'Observación de Pago', procedureFieldList, null, null, 'Agrega contratos, empresa y observación en formato JSON válido.')}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Nuevo registro
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="overflow-x-auto">
@@ -3039,13 +3563,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <th className="px-6 py-3 font-semibold text-center">Empresa</th>
                             <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">Mes factura / nota</th>
                             <th className="px-6 py-3 font-semibold text-center">Observación de Pago</th>
+                            {canManageRecords && (
+                              <th className="px-6 py-3 font-semibold text-center">Acciones</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {loadingData ? (
-                            <tr><td colSpan={6} className="text-center py-8">Cargando observaciones...</td></tr>
+                            <tr><td colSpan={canManageRecords ? 7 : 6} className="text-center py-8">Cargando observaciones...</td></tr>
                           ) : procedureStatuses.length === 0 ? (
-                            <tr><td colSpan={6} className="text-center py-8 text-slate-500">No hay observaciones registradas.</td></tr>
+                            <tr><td colSpan={canManageRecords ? 7 : 6} className="text-center py-8 text-slate-500">No hay observaciones registradas.</td></tr>
                           ) : procedureStatuses.map((item) => (
                             <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                               <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap text-center">{formatDateTime(item.created_at)}</td>
@@ -3054,6 +3581,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.empresa || '-'}</td>
                               <td className="px-6 py-4 text-slate-500 text-xs whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.mes_factura_nota)}</td>
                               <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.observacion_pago)}</td>
+                              {canManageRecords && (
+                                <td className="px-6 py-4 text-center">
+                                  <div className="flex justify-center gap-2">
+                                    <button
+                                      onClick={() => openRecordEditor('estatus_procedimiento', 'Observación de Pago', procedureFieldList, item as unknown as Record<string, any>)}
+                                      className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                      title="Editar"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteGenericRecord('estatus_procedimiento', item as unknown as Record<string, any>, 'Observación de Pago')}
+                                      className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                      title="Eliminar"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
@@ -3198,6 +3745,82 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {recordEditorConfig && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fade-in"
+          onClick={closeRecordEditor}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">
+                  {recordEditorConfig.isNew ? 'Nuevo registro' : 'Editar registro'} · {recordEditorConfig.title}
+                </h3>
+                <div className="text-xs text-slate-500 space-y-1 mt-1">
+                  <p>
+                    Tabla Supabase: <code className="bg-slate-100 px-1.5 py-0.5 rounded">{recordEditorConfig.table}</code>
+                  </p>
+                  {recordEditorConfig.primaryKey && (
+                    <p>
+                      Clave primaria detectada: <code className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">{recordEditorConfig.primaryKey}</code>
+                    </p>
+                  )}
+                  {recordEditorConfig.note && (
+                    <p className="text-slate-500">{recordEditorConfig.note}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={closeRecordEditor}
+                className="text-slate-400 hover:text-slate-600"
+                disabled={recordEditorSaving}
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto px-6 py-4 bg-slate-50">
+              <textarea
+                value={recordEditorConfig.editorValue}
+                onChange={(event) => updateRecordEditorValue(event.target.value)}
+                spellCheck={false}
+                className="w-full h-full min-h-[320px] bg-white border border-slate-200 rounded-xl p-4 font-mono text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#B38E5D]/40 resize-vertical"
+                placeholder={'{\n  "campo": "valor"\n}'}
+              />
+              {recordEditorError && (
+                <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+                  {recordEditorError}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className="text-xs text-slate-500">
+                Ajusta el contenido en formato JSON válido. Mantén las claves existentes para evitar errores de base de datos.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={closeRecordEditor}
+                  className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  disabled={recordEditorSaving}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveGenericRecord}
+                  disabled={recordEditorSaving}
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-[#B38E5D] text-white text-sm font-bold rounded-lg shadow hover:bg-[#9c7a4d] disabled:opacity-60 transition-colors"
+                >
+                  {recordEditorSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Guardar
+                </button>
+              </div>
             </div>
           </div>
         </div>
