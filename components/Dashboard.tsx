@@ -108,6 +108,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     amount: number;
   }
 
+  interface ExecutiveInsight {
+    id: string;
+    title: string;
+    detail: string;
+    tone: 'neutral' | 'positive' | 'alert' | 'critical';
+    icon: React.ComponentType<{ className?: string }>;
+  }
+
   type GenericRecordEditorConfig = {
     table: string;
     title: string;
@@ -1066,6 +1074,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     { name: 'Nov', value: paymentsData.reduce((acc, item) => acc + (item.nov || 0), 0) },
     { name: 'Dic', value: paymentsData.reduce((acc, item) => acc + (item.dic || 0), 0) },
   ];
+
+  const peakPaymentMonth = useMemo(() => {
+    let best: { name: string; value: number } | null = null;
+
+    paymentsMonthlyFlow.forEach((item) => {
+      if (!item || typeof item.value !== 'number' || Number.isNaN(item.value) || item.value <= 0) return;
+      if (!best || item.value > best.value) {
+        best = item;
+      }
+    });
+
+    return best;
+  }, [paymentsData]);
 
   // Total Ejecutado vs Total Contratado
   const totalContratado = paymentsData.reduce((acc, item) => acc + (item.mont_max || 0), 0);
@@ -2161,6 +2182,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }, { total: 0, paid: 0, pending: 0 });
   }, [invoicesData]);
 
+  const invoicesPendingProviders = useMemo(() => {
+    if (!invoicesData.length) return [] as { name: string; value: number }[];
+
+    const counts = invoicesData.reduce<Record<string, number>>((acc, row) => {
+      const statusRaw = normalizeWhitespace(String(row.estatus ?? row.status ?? row.estado ?? '')).toLowerCase();
+      if (!statusRaw) return acc;
+      const isPending = statusRaw.includes('pend') || statusRaw.includes('proceso') || statusRaw.includes('por pagar');
+      if (!isPending) return acc;
+
+      const providerRaw = row.proveedor ?? row.proveedor_nombre ?? row.razon_social ?? row.proveedor_name ?? 'Sin proveedor';
+      const provider = normalizeWhitespace(String(providerRaw || 'Sin proveedor'));
+      acc[provider] = (acc[provider] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value: Number(value) || 0 }))
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+      .slice(0, 3);
+  }, [invoicesData]);
+
   const executiveHighlights = useMemo(() => {
     const totalContracts = contractTimelineInsights.total;
     const cards: Array<{
@@ -2260,6 +2302,168 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     pendingObservationsCount,
     dominantObservationCategory,
     dominantObservationShare,
+  ]);
+
+  const insightToneClasses: Record<ExecutiveInsight['tone'], string> = {
+    neutral: 'bg-slate-50 border-slate-200 text-slate-700',
+    positive: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+    alert: 'bg-amber-50 border-amber-200 text-amber-700',
+    critical: 'bg-rose-50 border-rose-200 text-rose-700',
+  };
+
+  const insightIconClasses: Record<ExecutiveInsight['tone'], string> = {
+    neutral: 'bg-white/80 text-slate-600 border-slate-200/70',
+    positive: 'bg-white/80 text-emerald-600 border-emerald-200/60',
+    alert: 'bg-white/80 text-amber-600 border-amber-200/60',
+    critical: 'bg-white/80 text-rose-600 border-rose-200/60',
+  };
+
+  const executiveInsights = useMemo<ExecutiveInsight[]>(() => {
+    const insights: ExecutiveInsight[] = [];
+    const nextExpiring = contractTimelineInsights.upcoming[0] ?? null;
+    const topOverdue = contractTimelineInsights.overdueList[0] ?? null;
+    const pendingShare = invoicesTotal ? Math.round((invoicesPendingCount / invoicesTotal) * 100) : 0;
+    const pendingLeader = invoicesPendingProviders[0];
+    const paasTopGerencia = paasSummary.topGerencia;
+    const hasAnyData =
+      contractTimelineInsights.total > 0 ||
+      paasData.length > 0 ||
+      paymentsData.length > 0 ||
+      invoicesTotal > 0 ||
+      procedureStatuses.length > 0;
+
+    if (topOverdue) {
+      insights.push({
+        id: 'overdue-contract',
+        title: `Contrato vencido: ${topOverdue.contractNumber}`,
+        detail: `${topOverdue.provider} concluyó el ${topOverdue.endDateLabel} · ${describeDaysUntil(topOverdue.daysLeft)} · ${formatCurrency(topOverdue.amount || 0)}`,
+        tone: 'critical',
+        icon: AlertCircle,
+      });
+    }
+
+    if (nextExpiring) {
+      insights.push({
+        id: 'upcoming-contract',
+        title: `Próximo vencimiento: ${nextExpiring.endDateLabel}`,
+        detail: `${nextExpiring.provider} (${nextExpiring.contractNumber}) · ${describeDaysUntil(nextExpiring.daysLeft)} · ${formatCurrency(nextExpiring.amount || 0)}`,
+        tone: nextExpiring.daysLeft <= 15 ? 'alert' : 'neutral',
+        icon: Calendar,
+      });
+    } else if (contractTimelineInsights.total > 0 && !topOverdue) {
+      insights.push({
+        id: 'no-upcoming-contracts',
+        title: 'Sin vencimientos en los próximos 60 días',
+        detail: 'Los contratos activos están fuera de la ventana crítica de seguimiento.',
+        tone: 'positive',
+        icon: Briefcase,
+      });
+    }
+
+    if (pendingShare > 0) {
+      insights.push({
+        id: 'pending-invoices',
+        title: `${pendingShare}% de facturas pendientes`,
+        detail: `${invoicesPendingCount} de ${invoicesTotal} facturas siguen abiertas${pendingLeader ? `; mayor rezago: ${pendingLeader.name} (${pendingLeader.value}).` : '.'}`,
+        tone: pendingShare >= 40 ? 'alert' : 'neutral',
+        icon: FileSpreadsheet,
+      });
+    } else if (invoicesTotal > 0) {
+      insights.push({
+        id: 'invoices-cleared',
+        title: 'Facturación al día',
+        detail: 'El 100% de las facturas registradas aparece como pagado.',
+        tone: 'positive',
+        icon: FileSpreadsheet,
+      });
+    }
+
+    if (pendingObservationsCount > 0) {
+      insights.push({
+        id: 'payment-observations',
+        title: `${pendingObservationsCount} observación${pendingObservationsCount === 1 ? '' : 'es'} en seguimiento`,
+        detail: dominantObservationCategory
+          ? `${dominantObservationCategory.name} concentra el ${dominantObservationShare}% de los casos.`
+          : 'Sin una categoría dominante entre las observaciones registradas.',
+        tone: 'alert',
+        icon: AlertCircle,
+      });
+    } else if (procedureStatuses.length > 0) {
+      insights.push({
+        id: 'no-observations',
+        title: 'Pagos sin observaciones activas',
+        detail: 'La tabla de observaciones no registra pendientes vigentes.',
+        tone: 'positive',
+        icon: AlertCircle,
+      });
+    }
+
+    if (peakPaymentMonth && insights.length < 4) {
+      insights.push({
+        id: 'peak-payments',
+        title: `${peakPaymentMonth.name} concentra el mayor flujo de pagos`,
+        detail: `Se ejercieron ${formatCurrency(peakPaymentMonth.value)} durante ese mes.`,
+        tone: 'neutral',
+        icon: CreditCard,
+      });
+    } else if (!peakPaymentMonth && totalEjercido > 0 && insights.length < 4) {
+      insights.push({
+        id: 'distributed-payments',
+        title: 'Pagos distribuidos sin picos marcados',
+        detail: `Se han ejercido ${formatCurrency(totalEjercido)} sin concentrarse en un mes específico.`,
+        tone: 'neutral',
+        icon: CreditCard,
+      });
+    }
+
+    if (paasTopGerencia && insights.length < 4) {
+      const deltaMessage = paasSummary.delta !== 0
+        ? ` · Variación neta: ${formatCurrency(Math.abs(paasSummary.delta))} ${paasSummary.delta > 0 ? 'adicionales' : 'menos'}.`
+        : '.';
+      const tone: ExecutiveInsight['tone'] = paasSummary.delta > 0 ? 'alert' : paasSummary.delta < 0 ? 'positive' : 'neutral';
+      insights.push({
+        id: 'paas-leader',
+        title: `Gerencia líder: ${normalizeWhitespace(paasTopGerencia.name || 'Sin asignar')}`,
+        detail: `Suma ${formatCurrency(paasTopGerencia.value || 0)} solicitados${deltaMessage}`,
+        tone,
+        icon: FileText,
+      });
+    }
+
+    const limited = insights.filter(Boolean).slice(0, 4);
+    if (limited.length) return limited;
+
+    if (!hasAnyData) {
+      return [{
+        id: 'no-data',
+        title: 'Carga información para iniciar',
+        detail: 'Integra contratos, PAAS, pagos o facturas para que el tablero genere hallazgos automáticamente.',
+        tone: 'neutral',
+        icon: FileText,
+      }];
+    }
+
+    return [{
+      id: 'no-insights',
+      title: 'Resumen sin hallazgos relevantes',
+      detail: 'Los datos cargados no generan alertas críticas en esta revisión. Continúa monitoreando los indicadores claves.',
+      tone: 'positive',
+      icon: Briefcase,
+    }];
+  }, [
+    contractTimelineInsights,
+    invoicesPendingCount,
+    invoicesPendingProviders,
+    invoicesTotal,
+    pendingObservationsCount,
+    dominantObservationCategory,
+    dominantObservationShare,
+    peakPaymentMonth,
+    totalEjercido,
+    paasSummary,
+    paasData.length,
+    paymentsData.length,
+    procedureStatuses.length,
   ]);
 
   const contractStatusHasData = useMemo(() => contractStatusData.some((item) => item.value > 0), [contractStatusData]);
@@ -2677,6 +2881,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 <p className="text-slate-500 mt-1">
                   Datos consolidados de contratos, presupuestos PAAS, control de pagos, facturas y observaciones recientes.
                 </p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-slate-800">Hallazgos clave</h3>
+                  <span className="text-xs text-slate-400">Lectura automática del tablero</span>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {executiveInsights.map((insight) => {
+                    const toneClass = insightToneClasses[insight.tone] ?? insightToneClasses.neutral;
+                    const iconClass = insightIconClasses[insight.tone] ?? insightIconClasses.neutral;
+                    return (
+                      <div key={insight.id} className={`rounded-xl border p-4 ${toneClass}`}>
+                        <div className="flex items-start gap-3">
+                          <span className={`inline-flex h-9 w-9 items-center justify-center rounded-full border ${iconClass}`}>
+                            <insight.icon className="h-5 w-5" />
+                          </span>
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold leading-snug">{insight.title}</p>
+                            <p className="text-xs leading-relaxed opacity-90">{insight.detail}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4">

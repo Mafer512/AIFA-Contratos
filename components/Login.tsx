@@ -280,8 +280,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
               <div className="h-px w-24 bg-gradient-to-r from-transparent via-white/50 to-transparent"></div>
               
               <h1 className="text-4xl font-bold tracking-tight text-white drop-shadow-md">
-                SISTEMA INTEGRAL <br/>
-                <span className="text-2xl font-light text-slate-200">DE GESTIÓN</span>
+                AIFA CONTRATOS
               </h1>
             </div>
 
@@ -313,7 +312,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
             {/* Footer Info */}
             <div className="mt-6 text-[11px] text-slate-300/90 max-w-xs leading-relaxed space-y-1">
               <p>Aeropuerto Internacional Felipe Ángeles</p>
-              <p>Plataforma operativa para equipos acreditados y autorizados.</p>
             </div>
           </div>
         </div>
@@ -372,7 +370,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-[0.35em] mb-2">Correo Institucional</label>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-[0.35em] mb-2">Correo</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3.5 h-5 w-5 text-slate-400" />
                   <input
@@ -380,7 +378,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-[#B38E5D] focus:ring-2 focus:ring-[#B38E5D]/20 outline-none transition-all"
-                    placeholder="usuario@aifa.gob.mx"
+                    placeholder="isaacazhael161f@gmail.com"
                     required
                   />
                 </div>
