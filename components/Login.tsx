@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, User, Lock, Mail, UserPlus, AlertTriangle, CheckCircle, Key, Eye, EyeOff, ShieldCheck, Info } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
@@ -63,6 +63,27 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   
   const [successMessage, setSuccessMessage] = useState('');
   const [showApiKeyHelp, setShowApiKeyHelp] = useState(false);
+
+  useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace('#', ''));
+    const queryParams = new URLSearchParams(window.location.search);
+    const confirmationType = hashParams.get('type') || queryParams.get('type');
+    const confirmationMessage = hashParams.get('message') || queryParams.get('message');
+
+    if (confirmationType === 'signup') {
+      setSuccessMessage('¡Tu correo fue confirmado con éxito! Ya puedes acceder al sistema.');
+      setIsRegistering(false);
+      window.setTimeout(() => {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }, 250);
+    } else if (confirmationMessage === 'Confirmation complete') {
+      setSuccessMessage('¡Cuenta confirmada! Inicia sesión con tus credenciales.');
+      setIsRegistering(false);
+      window.setTimeout(() => {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }, 250);
+    }
+  }, []);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
