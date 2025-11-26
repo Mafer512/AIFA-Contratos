@@ -1,0 +1,22 @@
+{
+  "name": "AIFA Contratos",
+  "short_name": "Contratos",
+  "lang": "es-MX",
+  "start_url": "/",
+  "display": "standalone",
+  "description": "Tablero ejecutivo para el seguimiento de contratos, pagos, facturas y observaciones del AIFA.",
+  "background_color": "#0F4C3A",
+  "theme_color": "#0F4C3A",
+  "icons": [
+    {
+      "src": "/images/aifa-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/images/aifa-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
