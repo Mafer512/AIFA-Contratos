@@ -15,6 +15,9 @@ import { supabase } from '../services/supabaseClient';
 const chartPalette = ['#B38E5D', '#2563EB', '#0F4C3A', '#9E1B32', '#7C3AED', '#F97316', '#14B8A6', '#64748B'];
 const invoicesPalette = ['#0F4C3A', '#B38E5D', '#2563EB', '#F97316', '#9E1B32', '#7C3AED', '#14B8A6', '#64748B'];
 
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const CONTRACT_SOON_WINDOW_DAYS = 60;
+
 // Reuse the PNG logo within the dashboard shell.
 const AifaLogo = ({ className = 'h-32 w-auto' }: { className?: string }) => (
   <img
@@ -93,6 +96,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     placeholder?: string;
     required?: boolean;
     helpText?: string;
+  }
+
+  interface ContractAlert {
+    id: string;
+    contractNumber: string;
+    provider: string;
+    service: string;
+    endDateLabel: string;
+    daysLeft: number;
+    amount: number;
   }
 
   type GenericRecordEditorConfig = {
@@ -496,30 +509,46 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     const formValues: Record<string, any> = {};
     const fieldConfigs: FieldInputConfig[] = [];
+    const referenceRows = getReferenceRowsForTable(table);
 
     Object.keys(payload).forEach((key) => {
       if (shouldSkipColumnForForm(key) && key !== resolvedKey) return;
-      const type = inferFieldType(key);
+      const insights = analyzeFieldData(table, key, referenceRows);
+      let type = inferFieldType(key);
+      if (insights) {
+        if (insights.isMostlyNumeric) type = 'number';
+        else if (insights.isMostlyDate) type = 'date';
+        else if (insights.isLongText && type !== 'date') type = 'textarea';
+      }
+
       formValues[key] = formatValueForInput(payload[key], type);
+      const isPrimaryField = resolvedKey === key;
+      const required = Boolean(insights && insights.filledRatio > 0.92 && !isPrimaryField);
       fieldConfigs.push({
         key,
         label: humanizeKey(key),
         type,
-        placeholder:
-          type === 'number'
-            ? 'Ingresa un valor numérico'
-            : type === 'date'
-              ? 'Selecciona una fecha'
-              : undefined,
-        required: false,
-        helpText:
-          key === resolvedKey
-            ? (!row
-                ? 'Se genera automáticamente al guardar'
-                : 'Identificador del registro')
-            : undefined,
+        placeholder: buildPlaceholderForField(type, insights),
+        required,
+        helpText: buildHelperTextForField({
+          insights,
+          required,
+          isPrimary: isPrimaryField,
+          type,
+          fieldKey: key,
+        }),
       });
     });
+
+    const requiredFields = fieldConfigs.filter((field) => field.required).length;
+    const referenceCount = referenceRows.length;
+    const guidanceParts: string[] = [];
+    if (note) guidanceParts.push(note);
+    if (requiredFields) guidanceParts.push('Los campos marcados con * son obligatorios.');
+    if (referenceCount) {
+      guidanceParts.push(`Guía basada en ${referenceCount} registro${referenceCount === 1 ? '' : 's'} existentes.`);
+    }
+    const resolvedNote = guidanceParts.length ? guidanceParts.join(' ').trim() : undefined;
 
     setRecordEditorError(null);
     setRecordEditorConfig({
@@ -527,7 +556,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       title,
       isNew: !row,
       primaryKey: resolvedKey,
-      note,
+      note: resolvedNote,
       fields: fieldConfigs,
       formValues,
       originalRow: sanitizeRecord(row),
@@ -549,12 +578,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
 
       const submission: Record<string, any> = {};
+      const missingRequired: string[] = [];
 
       fields.forEach((field) => {
         const rawValue = formValues[field.key] ?? '';
         const parsedValue = parseFieldValueForSubmission(String(rawValue ?? ''), field.type);
         submission[field.key] = parsedValue;
+
+        if (field.required) {
+          const rawText = String(rawValue ?? '').trim();
+          if (!rawText) {
+            missingRequired.push(field.label || humanizeKey(field.key));
+          }
+        }
       });
+
+      if (missingRequired.length) {
+        setRecordEditorError(`Completa los campos obligatorios: ${missingRequired.join(', ')}.`);
+        setRecordEditorSaving(false);
+        return;
+      }
 
       const resolvedKey = primaryKey ?? resolvePrimaryKey(submission, table, primaryKey);
       const resolvedValue = resolvedKey
@@ -1032,6 +1075,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     { name: 'Restante', value: Math.max(0, totalContratado - totalEjercido) }
   ];
 
+  const paymentsExecutionRate = totalContratado > 0 ? totalEjercido / totalContratado : 0;
+
   const formatCurrency = (val: number | null | undefined) => {
     if (val === null || val === undefined) return '$0.00';
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 }).format(val);
@@ -1050,6 +1095,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   };
 
+  const formatDateOnly = (value: string | Date | null | undefined) => {
+    if (!value) return '-';
+    try {
+      const dateValue = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(dateValue.getTime())) return typeof value === 'string' ? value : '-';
+      return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(dateValue);
+    } catch (err) {
+      console.error('Error formatting date (short):', err);
+      return typeof value === 'string' ? value : '-';
+    }
+  };
+
+  const describeDaysUntil = (days: number) => {
+    if (days < 0) {
+      const absolute = Math.abs(days);
+      return `Vencido hace ${absolute} día${absolute === 1 ? '' : 's'}`;
+    }
+    if (days === 0) return 'Vence hoy';
+    if (days === 1) return 'Falta 1 día';
+    return `Faltan ${days} días`;
+  };
+
   const normalizeWhitespace = (value: string | null | undefined) => {
     if (!value) return '-';
     return value.replace(/\s+/g, ' ').trim();
@@ -1066,6 +1133,102 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return ['monto', 'importe', 'total', 'presupuesto', 'costo', 'valor', 'ejercido', 'pagado'].some(fragment => normalized.includes(fragment));
   };
 
+  const HUMANIZED_LABEL_OVERRIDES: Record<string, string> = {
+    'no contrato': 'Número de contrato',
+    'numero contrato': 'Número de contrato',
+    'num contrato': 'Número de contrato',
+    'objeto del contrato': 'Objeto del contrato',
+    'mont max': 'Monto máximo',
+    'mont min': 'Monto mínimo',
+    'mont total': 'Monto total',
+    'monto total': 'Monto total',
+    'fecha termino': 'Fecha de término',
+    'fecha inicio': 'Fecha de inicio',
+    'fecha fin': 'Fecha de término',
+    'ene': 'Enero',
+    'feb': 'Febrero',
+    'mar': 'Marzo',
+    'abr': 'Abril',
+    'may': 'Mayo',
+    'jun': 'Junio',
+    'jul': 'Julio',
+    'ago': 'Agosto',
+    'sep': 'Septiembre',
+    'oct': 'Octubre',
+    'nov': 'Noviembre',
+    'dic': 'Diciembre'
+  };
+
+  const HUMANIZED_WORD_OVERRIDES: Record<string, string> = {
+    ano: 'año',
+    anio: 'año',
+    anos: 'años',
+    mont: 'monto',
+    monto: 'monto',
+    max: 'máximo',
+    maximo: 'máximo',
+    min: 'mínimo',
+    minimo: 'mínimo',
+    subdireccion: 'subdirección',
+    subdir: 'subdirección',
+    justificacion: 'justificación',
+    observacion: 'observación',
+    descripcion: 'descripción',
+    terminacion: 'terminación',
+    termino: 'término',
+    vigencia: 'vigencia',
+    numero: 'número',
+    folio: 'folio',
+    factura: 'factura',
+    proveedor: 'proveedor',
+    contrato: 'contrato',
+    objeto: 'objeto',
+    clasificacion: 'clasificación',
+    ubicacion: 'ubicación',
+    observaciones: 'observaciones',
+    justificac: 'justificación',
+    ene: 'enero',
+    feb: 'febrero',
+    mar: 'marzo',
+    abr: 'abril',
+    may: 'mayo',
+    jun: 'junio',
+    jul: 'julio',
+    ago: 'agosto',
+    sep: 'septiembre',
+    sept: 'septiembre',
+    oct: 'octubre',
+    nov: 'noviembre',
+    dic: 'diciembre'
+  };
+
+  const LOWERCASE_WORDS = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'o', 'para', 'por', 'en', 'al', 'con', 'sin']);
+
+  const humanizeKey = (rawKey: string) => {
+    const cleaned = rawKey.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!cleaned) return '';
+
+    const normalized = cleaned.toLowerCase();
+    if (HUMANIZED_LABEL_OVERRIDES[normalized]) {
+      return HUMANIZED_LABEL_OVERRIDES[normalized];
+    }
+
+    const tokens = normalized
+      .split(' ')
+      .filter(Boolean)
+      .map((token) => HUMANIZED_WORD_OVERRIDES[token] ?? token);
+
+    const words = tokens.map((word, index) => {
+      if (word === 'id') return 'ID';
+      if (word === 'no' && index === 0) return 'No.';
+      if (LOWERCASE_WORDS.has(word) && index !== 0) return word;
+      if (word.length === 1) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    });
+
+    return words.join(' ');
+  };
+
   const formatMetricValue = (key: string, value: number | null | undefined) => {
     if (value === null || value === undefined) return '--';
     return shouldFormatAsCurrency(key) ? formatCurrency(value) : formatNumber(value);
@@ -1075,14 +1238,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const normalized = Number.isFinite(value) ? Math.max(-1, value) : 0;
     return new Intl.NumberFormat('es-MX', { style: 'percent', maximumFractionDigits: 1 }).format(normalized);
   };
-
-  const humanizeKey = (rawKey: string) => (
-    rawKey
-      .replace(/_/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(/\b\w/g, (letter) => letter.toUpperCase())
-  );
 
   const formatTableValue = (key: string, value: any) => {
     if (value === null || value === undefined || value === '') return '-';
@@ -1119,6 +1274,192 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
     }
     return normalizeWhitespace(String(value));
+  };
+
+  interface FieldInsights {
+    totalRows: number;
+    filledCount: number;
+    filledRatio: number;
+    sampleText?: string;
+    isMostlyNumeric: boolean;
+    isMostlyDate: boolean;
+    isLongText: boolean;
+    uniqueRatio: number;
+  }
+
+  const getReferenceRowsForTable = (table: string): Record<string, any>[] => {
+    switch (table) {
+      case 'año_2026':
+        return annual2026Data as Record<string, any>[];
+      case 'balance_paas_2026':
+        return paasData as unknown as Record<string, any>[];
+      case 'control_pagos':
+        return paymentsData as unknown as Record<string, any>[];
+      case 'estatus_facturas':
+        return invoicesData as Record<string, any>[];
+      case 'procedimientos_compranet':
+        return compranetData as Record<string, any>[];
+      case 'estatus_procedimiento':
+        return procedureStatuses as unknown as Record<string, any>[];
+      case 'contracts':
+        return contracts as unknown as Record<string, any>[];
+      case 'commercial_spaces':
+        return commercialSpaces as unknown as Record<string, any>[];
+      default:
+        return [];
+    }
+  };
+
+  const analyzeFieldData = (table: string, key: string, referenceRowsOverride?: Record<string, any>[]): FieldInsights | null => {
+    const referenceRows = referenceRowsOverride ?? getReferenceRowsForTable(table);
+    if (!referenceRows.length) {
+      return null;
+    }
+
+    let filledCount = 0;
+    const rawValues: any[] = [];
+
+    referenceRows.forEach((row) => {
+      if (!row) return;
+      const rowValue = (row as Record<string, any>)[key];
+      if (rowValue === undefined || rowValue === null) return;
+      if (typeof rowValue === 'string' && !rowValue.trim()) return;
+      filledCount += 1;
+      rawValues.push(rowValue);
+    });
+
+    const totalRows = referenceRows.length;
+    const filledRatio = totalRows ? filledCount / totalRows : 0;
+
+    if (!rawValues.length) {
+      return {
+        totalRows,
+        filledCount,
+        filledRatio,
+        isMostlyNumeric: false,
+        isMostlyDate: false,
+        isLongText: false,
+        uniqueRatio: 0,
+      };
+    }
+
+    const numericCount = rawValues.filter((value) => {
+      if (typeof value === 'number') return true;
+      if (typeof value === 'string') {
+        const sanitized = value.replace(/[^0-9.,-]/g, '').replace(/,/g, '');
+        if (!sanitized) return false;
+        return !Number.isNaN(parseFloat(sanitized));
+      }
+      return false;
+    }).length;
+
+    const dateCount = rawValues.filter((value) => {
+      if (value instanceof Date) return true;
+      if (typeof value === 'string') {
+        return Boolean(parsePotentialDate(value));
+      }
+      return false;
+    }).length;
+
+    const stringValues = rawValues.map((value) => {
+      if (typeof value === 'string') return normalizeWhitespace(value);
+      if (typeof value === 'number') {
+        return shouldFormatAsCurrency(key) ? formatCurrency(value) : formatNumber(value);
+      }
+      if (value instanceof Date) return value.toISOString().slice(0, 10);
+      return normalizeWhitespace(String(value));
+    });
+
+    const uniqueRatio = stringValues.length
+      ? new Set(stringValues.map((value) => value.toLowerCase())).size / stringValues.length
+      : 0;
+
+    const hasLongText = stringValues.some((value) => value.length > 160 || value.includes('\n'));
+
+    let sampleText = stringValues.find((value) => value && value.length > 0) ?? '';
+    if (sampleText.length > 60) {
+      sampleText = `${sampleText.slice(0, 57)}...`;
+    }
+
+    return {
+      totalRows,
+      filledCount,
+      filledRatio,
+      sampleText: sampleText || undefined,
+      isMostlyNumeric: numericCount / rawValues.length > 0.7,
+      isMostlyDate: dateCount / rawValues.length > 0.7,
+      isLongText: hasLongText,
+      uniqueRatio,
+    };
+  };
+
+  const buildPlaceholderForField = (type: FieldInputType, insights?: FieldInsights | null) => {
+    if (!insights || !insights.sampleText) {
+      switch (type) {
+        case 'number':
+          return 'Ingresa un número';
+        case 'date':
+          return 'AAAA-MM-DD';
+        case 'textarea':
+          return 'Describe el detalle';
+        default:
+          return 'Escribe un texto';
+      }
+    }
+
+    if (type === 'textarea') {
+      return `Ej. ${insights.sampleText}`;
+    }
+
+    return type === 'text' ? `Ej. ${insights.sampleText}` : insights.sampleText;
+  };
+
+  interface HelperTextOptions {
+    insights: FieldInsights | null;
+    required: boolean;
+    isPrimary: boolean;
+    type: FieldInputType;
+    fieldKey: string;
+  }
+
+  const buildHelperTextForField = ({ insights, required, isPrimary, type, fieldKey }: HelperTextOptions) => {
+    if (isPrimary) {
+      return 'Identificador principal; evita modificarlo.';
+    }
+
+    if (!insights || !insights.totalRows) {
+      return required ? 'Completa este campo.' : 'Deja vacío si no aplica.';
+    }
+
+    const filledPct = Math.round(insights.filledRatio * 100);
+    let message = '';
+
+    if (required) {
+      message = `Obligatorio; ${filledPct}% de los registros lo incluyen.`;
+    } else if (insights.uniqueRatio > 0.85 && insights.filledRatio > 0.5) {
+      message = 'Valor casi único; verifica que no se repita.';
+    } else if (filledPct >= 70) {
+      message = `Se llena en ${filledPct}% de los registros.`;
+    } else {
+      message = 'Completa cuando tengas el dato.';
+    }
+
+    if (insights.sampleText) {
+      message = `${message} Ejemplo: ${insights.sampleText}.`.trim();
+    } else if (!required) {
+      message = `${message} Deja vacío si no aplica.`.trim();
+    }
+
+    if ((!insights || !insights.sampleText) && type === 'date') {
+      message = `${message} Usa formato AAAA-MM-DD.`.trim();
+    }
+
+    const normalizedKey = normalizeAnnualKey(fieldKey);
+    if (normalizedKey.includes('monto') && type === 'number') {
+      message = `${message} Usa números sin separadores.`.trim();
+    }
+
+    return message;
   };
 
   const parseNumericValue = (value: any) => {
@@ -1210,6 +1551,59 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     );
   };
 
+  const contractTimelineInsights = useMemo(() => {
+    if (!contracts.length) {
+      return {
+        total: 0,
+        active: 0,
+        expiringSoon: 0,
+        overdue: 0,
+        upcoming: [] as ContractAlert[],
+        overdueList: [] as ContractAlert[],
+      };
+    }
+
+    const now = new Date();
+    const upcoming: ContractAlert[] = [];
+    const overdueList: ContractAlert[] = [];
+    let active = 0;
+
+    contracts.forEach((contract) => {
+      if (contract.status === 'ACTIVO') active += 1;
+      const endDate = parsePotentialDate(contract.end_date);
+      if (!endDate) return;
+
+      const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / DAY_IN_MS);
+      const alert: ContractAlert = {
+        id: contract.id,
+        contractNumber: normalizeWhitespace(contract.contract_number ?? 'Sin folio'),
+        provider: normalizeWhitespace(contract.provider_name ?? 'Sin proveedor'),
+        service: normalizeWhitespace(contract.service_concept ?? 'Sin servicio'),
+        endDateLabel: formatDateOnly(endDate),
+        daysLeft,
+        amount: contract.amount_mxn ?? 0,
+      };
+
+      if (daysLeft < 0) {
+        overdueList.push(alert);
+      } else if (daysLeft <= CONTRACT_SOON_WINDOW_DAYS) {
+        upcoming.push(alert);
+      }
+    });
+
+    upcoming.sort((a, b) => a.daysLeft - b.daysLeft);
+    overdueList.sort((a, b) => a.daysLeft - b.daysLeft);
+
+    return {
+      total: contracts.length,
+      active,
+      expiringSoon: upcoming.length,
+      overdue: overdueList.length,
+      upcoming: upcoming.slice(0, 4),
+      overdueList: overdueList.slice(0, 3),
+    };
+  }, [contracts]);
+
   const paasSummary = useMemo(() => {
     if (!paasData.length) {
       return {
@@ -1249,6 +1643,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       .sort((a, b) => ((b["Monto solicitado anteproyecto 2026"] || 0) - (a["Monto solicitado anteproyecto 2026"] || 0)))
       .slice(0, 5);
   }, [paasData]);
+
+  const topPaasGerencias = useMemo(() => {
+    if (!paasByGerencia.length) return [] as { name: string; value: number }[];
+    return paasByGerencia.slice(0, 6);
+  }, [paasByGerencia]);
 
   const paasProgressPercent = useMemo(() => {
     const raw = (paasSummary.progress || 0) * 100;
@@ -1483,6 +1882,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const companyChartHeight = topProcedureCompanies.length ? Math.max(320, topProcedureCompanies.length * 68) : 280;
   const procedureCategoryColors = ['#B38E5D', '#0F4C3A', '#9E1B32', '#2563EB', '#7C3AED', '#F97316', '#64748B'];
 
+  const pendingObservationsCount = procedureStatuses.length;
+  const invoicesTotal = invoicesData.length;
+
   // Helper para mapear meses dinámicamente
   const monthsConfig = [
       { key: 'ene', label: 'Ene.' },
@@ -1703,6 +2105,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
   }, [invoicesData]);
 
+  const invoicesPendingCount = useMemo(() => {
+    if (!invoicesData.length) return 0;
+    return invoicesData.reduce((acc, row) => {
+      const statusRaw = normalizeWhitespace(String(row.estatus ?? row.status ?? row.estado ?? '')).toLowerCase();
+      if (!statusRaw) return acc;
+      if (statusRaw.includes('pend') || statusRaw.includes('proceso') || statusRaw.includes('por pagar')) {
+        return acc + 1;
+      }
+      return acc;
+    }, 0);
+  }, [invoicesData]);
+
+  const invoicesPaidCount = useMemo(() => {
+    if (!invoicesData.length) return 0;
+    return invoicesData.reduce((acc, row) => {
+      const statusRaw = normalizeWhitespace(String(row.estatus ?? row.status ?? row.estado ?? '')).toLowerCase();
+      if (!statusRaw) return acc;
+      if (statusRaw.includes('pag') || statusRaw.includes('cobrad') || statusRaw.includes('cerr')) {
+        return acc + 1;
+      }
+      return acc;
+    }, 0);
+  }, [invoicesData]);
+
   const invoicesProviderSummary = useMemo(() => {
     if (!invoicesData.length) return [] as { name: string; value: number }[];
     const counts = invoicesData.reduce<Record<string, number>>((acc, row) => {
@@ -1734,6 +2160,113 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       };
     }, { total: 0, paid: 0, pending: 0 });
   }, [invoicesData]);
+
+  const executiveHighlights = useMemo(() => {
+    const totalContracts = contractTimelineInsights.total;
+    const cards: Array<{
+      id: string;
+      label: string;
+      value: string;
+      helper: string;
+      icon: React.ComponentType<{ className?: string }>;
+      accentBg: string;
+      accentText: string;
+    }> = [];
+
+    const activeShare = totalContracts ? Math.round((contractTimelineInsights.active / totalContracts) * 100) : 0;
+    cards.push({
+      id: 'contracts-active',
+      label: 'Contratos activos',
+      value: contractTimelineInsights.active.toString(),
+      helper: totalContracts ? `${activeShare}% de ${totalContracts} contratos` : 'Sin registros cargados.',
+      icon: Briefcase,
+      accentBg: 'bg-emerald-100',
+      accentText: 'text-emerald-700',
+    });
+
+    const overdue = contractTimelineInsights.overdue;
+    cards.push({
+      id: 'contracts-expiring',
+      label: `Por vencer (${CONTRACT_SOON_WINDOW_DAYS} días)`,
+      value: contractTimelineInsights.expiringSoon.toString(),
+      helper: overdue
+        ? `${overdue} contrato${overdue === 1 ? '' : 's'} vencido${overdue === 1 ? '' : 's'}`
+        : 'Sin vencimientos registrados.',
+      icon: Calendar,
+      accentBg: 'bg-amber-100',
+      accentText: 'text-amber-700',
+    });
+
+    cards.push({
+      id: 'paas-requested',
+      label: 'PAAS solicitado',
+      value: formatCurrency(paasSummary.totalRequested || 0),
+      helper: `Modificado: ${formatCurrency(paasSummary.totalModified || 0)}`,
+      icon: FileText,
+      accentBg: 'bg-slate-100',
+      accentText: 'text-slate-700',
+    });
+
+    cards.push({
+      id: 'payments-execution',
+      label: 'Ejecución de pagos',
+      value: formatPercent(Math.max(0, Math.min(paymentsExecutionRate || 0, 2))),
+      helper:
+        totalContratado > 0
+          ? `${formatCurrency(totalEjercido)} de ${formatCurrency(totalContratado)}`
+          : 'Carga la tabla de control de pagos.',
+      icon: CreditCard,
+      accentBg: 'bg-blue-100',
+      accentText: 'text-blue-700',
+    });
+
+    const pendingShare = invoicesTotal ? Math.round((invoicesPendingCount / invoicesTotal) * 100) : 0;
+    cards.push({
+      id: 'invoices-pending',
+      label: 'Facturas pendientes',
+      value: invoicesPendingCount.toString(),
+      helper: invoicesTotal
+        ? `${pendingShare}% de ${invoicesTotal} · Pagadas: ${invoicesPaidCount}`
+        : 'Sin facturas registradas.',
+      icon: FileSpreadsheet,
+      accentBg: 'bg-slate-100',
+      accentText: 'text-slate-700',
+    });
+
+    cards.push({
+      id: 'payment-observations',
+      label: 'Observaciones activas',
+      value: pendingObservationsCount.toString(),
+      helper: pendingObservationsCount
+        ? dominantObservationCategory
+          ? `${dominantObservationCategory.name} (${dominantObservationShare}% del total)`
+          : 'Distribución equilibrada entre categorías.'
+        : 'Sin observaciones registradas.',
+      icon: AlertCircle,
+      accentBg: 'bg-rose-100',
+      accentText: 'text-rose-700',
+    });
+
+    return cards;
+  }, [
+    contractTimelineInsights,
+    paasSummary,
+    paymentsExecutionRate,
+    totalContratado,
+    totalEjercido,
+    invoicesPendingCount,
+    invoicesPaidCount,
+    invoicesTotal,
+    pendingObservationsCount,
+    dominantObservationCategory,
+    dominantObservationShare,
+  ]);
+
+  const contractStatusHasData = useMemo(() => contractStatusData.some((item) => item.value > 0), [contractStatusData]);
+  const invoicesStatusHasData = useMemo(() => invoicesStatusSummary.some((item) => item.value > 0), [invoicesStatusSummary]);
+  const paymentsFlowHasData = useMemo(() => paymentsMonthlyFlow.some((item) => Math.abs(item.value) > 0), [paymentsMonthlyFlow]);
+  const topPaasGerenciasHasData = useMemo(() => topPaasGerencias.some((item) => item.value > 0), [topPaasGerencias]);
+  const budgetExecutionHasData = totalContratado > 0;
 
   const annualTableColumns = useMemo(() => {
     if (!annual2026Data.length) return [] as string[];
@@ -2140,88 +2673,255 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           {activeTab === 'overview' && (
             <>
               <div>
-                <h1 className="text-2xl font-bold text-slate-900">Resumen Ejecutivo</h1>
-                <p className="text-slate-500 mt-1">Panorama general de contratos y operaciones.</p>
+                <h1 className="text-2xl font-bold text-slate-900">Resumen ejecutivo</h1>
+                <p className="text-slate-500 mt-1">
+                  Datos consolidados de contratos, presupuestos PAAS, control de pagos, facturas y observaciones recientes.
+                </p>
               </div>
 
-              {/* KPIs */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { label: 'Contratos Activos', value: contracts.filter(c => c.status === 'ACTIVO').length.toString(), trend: '+2', icon: Briefcase, color: 'blue' },
-                  { label: 'Monto PAAS 2026', value: '$' + (paasData.reduce((acc, c) => acc + (c["Monto solicitado anteproyecto 2026"] || 0), 0) / 1000000).toFixed(1) + 'M', trend: 'Anteproyecto', icon: DollarSign, color: 'green' },
-                  { label: 'Partidas PAAS', value: paasData.length.toString(), trend: 'Total', icon: FileText, color: 'orange' },
-                  { label: 'Pagado (Control)', value: '$' + (paymentsData.reduce((acc, c) => acc + (c.monto_ejercido || 0), 0) / 1000000).toFixed(1) + 'M', trend: 'Total', icon: CreditCard, color: 'purple' },
-                ].map((kpi, idx) => (
-                  <div key={idx} className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300">
-                    <div className="flex justify-between items-start">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4">
+                {executiveHighlights.map((card) => (
+                  <div
+                    key={card.id}
+                    className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-medium text-slate-500">{kpi.label}</p>
-                        <h3 className="text-2xl font-bold text-slate-800 mt-1">{kpi.value}</h3>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{card.label}</p>
+                        <p className="text-2xl font-bold text-slate-900 mt-2">{card.value}</p>
+                        <p className="text-xs text-slate-500 mt-2 leading-snug">{card.helper}</p>
                       </div>
-                      <div className={`p-2 rounded-lg bg-${kpi.color}-50`}>
-                        <kpi.icon className={`h-5 w-5 text-${kpi.color}-600`} />
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-slate-400">
-                        <span className="font-medium text-slate-600">{kpi.trend}</span>
+                      <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/60 shadow-sm ${card.accentBg} ${card.accentText}`}>
+                        <card.icon className="h-5 w-5" />
+                      </span>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Charts Row */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                    <h3 className="text-lg font-bold text-slate-800 mb-6">Estatus de Contratos Vigentes</h3>
-                    <div className="h-64 w-full flex items-center justify-center">
-                        {loadingData ? <p>Cargando...</p> : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={contractStatusData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={60}
-                                        outerRadius={80}
-                                        fill="#8884d8"
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                    >
-                                        {contractStatusData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={index === 0 ? '#22c55e' : index === 1 ? '#f59e0b' : '#ef4444'} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        )}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-slate-800">Contratos por estatus</h3>
+                    <span className="text-xs text-slate-400">{contractTimelineInsights.total} total</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-64">
+                      {loadingData ? (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                      ) : contractStatusHasData ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={contractStatusData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={4}>
+                              {contractStatusData.map((entry, index) => (
+                                <Cell key={`contract-status-${entry.name}-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => `${value} contrato${value === 1 ? '' : 's'}`} />
+                            <Legend verticalAlign="bottom" height={32} iconType="circle" />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                          Registra contratos para visualizar su distribución por estatus.
+                        </div>
+                      )}
                     </div>
+                  </div>
                 </div>
 
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-6 border-b border-slate-100">
-                        <h3 className="text-lg font-bold text-slate-800">Top Partidas (Mayor Monto)</h3>
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-slate-800">Ejecución presupuestal</h3>
+                    <span className="text-xs text-slate-400">{formatCurrency(totalContratado)}</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-64">
+                      {loadingData ? (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                      ) : budgetExecutionHasData ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={budgetExecutionData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={4}>
+                              <Cell key="budget-executed" fill="#0F4C3A" />
+                              <Cell key="budget-remaining" fill="#B38E5D" />
+                            </Pie>
+                            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                            <Legend verticalAlign="bottom" height={32} iconType="circle" />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                          Aún no se registran montos contratados en el control de pagos.
+                        </div>
+                      )}
                     </div>
-                    <div className="overflow-y-auto max-h-80">
-                        {loadingData ? <div className="p-4">Cargando...</div> : (
-                            <div className="divide-y divide-slate-100">
-                                {[...paasData]
-                                   .sort((a, b) => (b["Monto solicitado anteproyecto 2026"] || 0) - (a["Monto solicitado anteproyecto 2026"] || 0))
-                                   .slice(0, 5)
-                                   .map((item, idx) => (
-                                    <div key={idx} className="p-4 hover:bg-slate-50">
-                                        <div className="flex justify-between items-start mb-1">
-                                            <span className="font-semibold text-sm text-slate-800 truncate w-2/3">{item["Nombre del Servicio."]}</span>
-                                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-mono">
-                                                {formatCurrency(item["Monto solicitado anteproyecto 2026"])}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 truncate">{item["Gerencia"]}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-slate-800">Facturas por estatus</h3>
+                    <span className="text-xs text-slate-400">{invoicesTotal} registros</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-64">
+                      {loadingData ? (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                      ) : invoicesStatusHasData ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={invoicesStatusSummary} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={4}>
+                              {invoicesStatusSummary.map((entry, index) => (
+                                <Cell key={`invoice-status-${entry.name}-${index}`} fill={invoicesPalette[index % invoicesPalette.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => `${value} factura${value === 1 ? '' : 's'}`} />
+                            <Legend verticalAlign="bottom" height={32} iconType="circle" />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                          Carga facturas para monitorear su avance por estatus.
+                        </div>
+                      )}
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-slate-800">Flujo mensual de pagos</h3>
+                    <span className="text-xs text-slate-400">{formatCurrency(totalEjercido)} ejercido</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-72">
+                      {loadingData ? (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                      ) : paymentsFlowHasData ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={paymentsMonthlyFlow} margin={{ top: 12, right: 24, left: 8, bottom: 12 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" />
+                            <YAxis tickFormatter={(value: number) => formatNumber(value)} />
+                            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                            <Bar dataKey="value" name="Pagos" fill="#0F4C3A" radius={[4, 4, 0, 0]} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                          Aún no hay montos mensuales registrados en el control de pagos.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-slate-800">Top gerencias por monto PAAS</h3>
+                    <span className="text-xs text-slate-400">{paasSummary.gerenciasCount} gerencia{paasSummary.gerenciasCount === 1 ? '' : 's'}</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-72">
+                      {loadingData ? (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                      ) : topPaasGerenciasHasData ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={topPaasGerencias} layout="vertical" margin={{ top: 10, right: 24, left: 0, bottom: 10 }} barCategoryGap={18}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" hide />
+                            <YAxis type="category" dataKey="name" width={240} tick={renderCompanyTick} axisLine={false} tickLine={false} />
+                            <Tooltip formatter={(value: number | string) => formatCurrency(typeof value === 'number' ? value : Number(value))} />
+                            <Bar dataKey="value" fill="#B38E5D" radius={[0, 6, 6, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                          Registra partidas PAAS para visualizar su distribución por gerencia.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-slate-800">Alertas y pendientes</h3>
+                  <span className="text-xs text-slate-400">Última actualización: {formatDateTime(new Date().toISOString())}</span>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-[#0F4C3A]" />
+                    Contratos por vencer
+                  </h4>
+                  {contractTimelineInsights.upcoming.length ? (
+                    <ul className="mt-3 space-y-3">
+                      {contractTimelineInsights.upcoming.map((alert) => (
+                        <li key={alert.id} className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{alert.provider}</p>
+                            <p className="text-xs text-slate-500">{alert.contractNumber} · {alert.service}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-semibold text-slate-600">{alert.endDateLabel}</p>
+                            <p className="text-xs text-slate-500">{describeDaysUntil(alert.daysLeft)}</p>
+                            <p className="text-xs text-slate-400">{formatCurrency(alert.amount || 0)}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-xs text-slate-500">No hay contratos dentro de la ventana de {CONTRACT_SOON_WINDOW_DAYS} días.</p>
+                  )}
+                </div>
+
+                {contractTimelineInsights.overdueList.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-rose-600">Vencidos</h4>
+                    <ul className="mt-2 space-y-2">
+                      {contractTimelineInsights.overdueList.map((alert) => (
+                        <li key={`${alert.id}-overdue`} className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{alert.provider}</p>
+                            <p className="text-xs text-slate-500">{alert.contractNumber} · {alert.service}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-semibold text-rose-600">{alert.endDateLabel}</p>
+                            <p className="text-xs text-rose-500">{describeDaysUntil(alert.daysLeft)}</p>
+                            <p className="text-xs text-slate-400">{formatCurrency(alert.amount || 0)}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Observaciones de pago</p>
+                    <p className="text-xl font-bold text-slate-900 mt-1">{pendingObservationsCount}</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {pendingObservationsCount
+                        ? dominantObservationCategory
+                          ? `Categoría líder: ${dominantObservationCategory.name} (${dominantObservationShare}%).`
+                          : 'Distribución equilibrada entre categorías.'
+                        : 'Sin observaciones registradas.'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Procedimientos Compranet</p>
+                    <p className="text-xl font-bold text-slate-900 mt-1">{compranetData.length}</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {compranetTopStatus
+                        ? `${compranetTopStatus.name}: ${compranetTopStatus.value} (${compranetTopStatusShare}% del total).`
+                        : 'Integra procedimientos para identificar estatus dominantes.'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </>
@@ -2601,7 +3301,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           )}
                           {canManageRecords && (
                             <button
-                              onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, null, null, 'Utiliza JSON válido y respeta los nombres de las columnas existentes.')}
+                              onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, null, null, 'Revisa los campos clave y evita duplicar identificadores.')}
                               className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
                             >
                               <Plus className="h-4 w-4" />
@@ -3193,7 +3893,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                        </div>
                        {canManageRecords && (
                          <button
-                           onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, null, null, 'Asegúrate de incluir campos numéricos con valores válidos.')} 
+                                       onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, null, null, 'Captura montos con números válidos y respeta el formato de fechas.')}
                            className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
                          >
                            <Plus className="h-4 w-4" />
@@ -3435,7 +4135,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           )}
                           {canManageRecords && (
                             <button
-                              onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, null, null, 'Incluye los campos requeridos para seguimiento de facturas.')} 
+                              onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, null, null, 'Registra folios, montos y estatus tal como aparecen en los registros existentes.')}
                               className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
                             >
                               <Plus className="h-4 w-4" />
@@ -3785,7 +4485,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </div>
                           {canManageRecords && (
                             <button
-                              onClick={() => openRecordEditor('procedimientos_compranet', 'Procedimiento Compranet', compranetTableColumns, null, null, 'Revisa los campos de clave y conserva el identificador único si aplica.')} 
+                              onClick={() => openRecordEditor('procedimientos_compranet', 'Procedimiento Compranet', compranetTableColumns, null, null, 'Revisa las claves y conserva el identificador único cuando aplique.')}
                               className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
                             >
                               <Plus className="h-4 w-4" />
@@ -4073,7 +4773,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </span>
                         {canManageRecords && (
                           <button
-                            onClick={() => openRecordEditor('estatus_procedimiento', 'Observación de Pago', procedureFieldList, null, null, 'Agrega contratos, empresa y observación en formato JSON válido.')}
+                            onClick={() => openRecordEditor('estatus_procedimiento', 'Observación de Pago', procedureFieldList, null, null, 'Detalla contrato, empresa y observación con redacción clara y fechas completas.')}
                             className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
                           >
                             <Plus className="h-4 w-4" />
@@ -4322,7 +5022,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   const isPrimary = recordEditorConfig.primaryKey === field.key;
                   const isReadOnly = Boolean(isPrimary && !recordEditorConfig.isNew);
                   const label = field.label || humanizeKey(field.key);
-                  const helper = field.helpText || (field.required ? 'Campo obligatorio' : 'Deja vacío si no aplica');
+                  const helper = field.helpText || (field.required ? 'Campo obligatorio.' : 'Deja vacío si no aplica.');
 
                   return (
                     <div key={field.key} className="flex flex-col gap-1">
@@ -4351,10 +5051,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           disabled={isReadOnly || recordEditorSaving}
                         />
                       )}
-                      <div className="flex justify-between text-[11px] text-slate-400">
-                        <span>{helper}</span>
-                        {isPrimary && !recordEditorConfig.isNew && <span>ID protegido</span>}
-                      </div>
+                      <p className="text-[11px] text-slate-400">{helper}</p>
                     </div>
                   );
                 })}
