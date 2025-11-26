@@ -1,8 +1,6 @@
 /// <reference types="vite/client" />
 
-interface ImportMetaEnv {
-	readonly VITE_AI_PROXY_URL?: string;
-}
+interface ImportMetaEnv {}
 
 interface ImportMeta {
 	readonly env: ImportMetaEnv;

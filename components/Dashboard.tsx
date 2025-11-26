@@ -1,16 +1,15 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  LayoutDashboard, Bell,
+  LayoutDashboard,
   LogOut, AlertCircle,
-  Sparkles, X, Send, FileText, Briefcase,
+  X, FileText, Briefcase,
   DollarSign, PieChart as PieChartIcon,
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
-  CreditCard, Calendar, FileSpreadsheet, Menu
+  CreditCard, Calendar, FileSpreadsheet, Menu, History
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line } from 'recharts';
-import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, UserRole } from '../types';
-import { generateOperationalInsight } from '../services/geminiService';
+import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, UserRole, ChangeLogEntry, ChangeDiff } from '../types';
 import { supabase } from '../services/supabaseClient';
 
 const chartPalette = ['#B38E5D', '#2563EB', '#0F4C3A', '#9E1B32', '#7C3AED', '#F97316', '#14B8A6', '#64748B'];
@@ -62,10 +61,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [activeContractSubTab, setActiveContractSubTab] = useState<'annual2026' | 'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct'>('annual2026'); 
   
-  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
-  const [aiQuery, setAiQuery] = useState('');
-  const [aiResponse, setAiResponse] = useState('');
-  const [isAiThinking, setIsAiThinking] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Database State
@@ -78,19 +73,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [compranetData, setCompranetData] = useState<Record<string, any>[]>([]);
   const [procedureStatuses, setProcedureStatuses] = useState<ProcedureStatusItem[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [changeHistory, setChangeHistory] = useState<ChangeLogEntry[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyTableFilter, setHistoryTableFilter] = useState<string>('all');
+  const historyAvailableRef = useRef(true);
 
   // === STATES FOR PAAS RECORD MODAL ===
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null); // ID si estamos editando, null si es nuevo
 
+  type FieldInputType = 'text' | 'number' | 'date' | 'textarea';
+
+  interface FieldInputConfig {
+    key: string;
+    label: string;
+    type: FieldInputType;
+    placeholder?: string;
+    required?: boolean;
+    helpText?: string;
+  }
+
   type GenericRecordEditorConfig = {
     table: string;
     title: string;
     isNew: boolean;
     primaryKey?: string | null;
-    editorValue: string;
     note?: string;
+    fields: FieldInputConfig[];
+    formValues: Record<string, any>;
+    originalRow: Record<string, any> | null;
   };
 
   const [recordEditorConfig, setRecordEditorConfig] = useState<GenericRecordEditorConfig | null>(null);
@@ -167,6 +180,277 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return Object.keys(template).length ? template : {};
   };
 
+  const sanitizeRecord = (value: Record<string, any> | null | undefined): Record<string, any> | null => {
+    if (!value || typeof value !== 'object') return null;
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+      console.error('Error sanitizing record for historial:', error);
+      return { ...value };
+    }
+  };
+
+  const cloneForDiff = (value: any): any => {
+    if (value === undefined) return null;
+    if (value === null) return null;
+    if (value instanceof Date) return value.toISOString();
+    if (Array.isArray(value)) {
+      return value.map((item) => cloneForDiff(item));
+    }
+    if (typeof value === 'object') {
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch (error) {
+        console.error('Error clonando valor para historial:', error);
+        return value;
+      }
+    }
+    return value;
+  };
+
+  const deepEqual = (a: any, b: any): boolean => {
+    if (a === b) return true;
+    if (a === null || b === null) return a === b;
+    if (typeof a !== typeof b) return false;
+    if (a instanceof Date && b instanceof Date) {
+      return a.getTime() === b.getTime();
+    }
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) return false;
+      return a.every((item, index) => deepEqual(item, b[index]));
+    }
+    if (typeof a === 'object' && typeof b === 'object') {
+      const aKeys = Object.keys(a ?? {});
+      const bKeys = Object.keys(b ?? {});
+      if (aKeys.length !== bKeys.length) return false;
+      return aKeys.every((key) => deepEqual(a[key], (b as Record<string, any>)[key]));
+    }
+    return false;
+  };
+
+  const computeChangeDetails = (beforeRecord: Record<string, any> | null, afterRecord: Record<string, any> | null): ChangeDiff[] => {
+    const before = sanitizeRecord(beforeRecord) ?? {};
+    const after = sanitizeRecord(afterRecord) ?? {};
+    const keys = new Set<string>([...Object.keys(before), ...Object.keys(after)]);
+    const diff: ChangeDiff[] = [];
+
+    keys.forEach((key) => {
+      const previous = cloneForDiff(before[key]);
+      const next = cloneForDiff(after[key]);
+      if (!deepEqual(previous, next)) {
+        diff.push({ field: key, before: previous, after: next });
+      }
+    });
+
+    return diff;
+  };
+
+  const normalizeRecordId = (value: any): string | number | null => {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'string' || typeof value === 'number') return value;
+    try {
+      return JSON.stringify(value);
+    } catch (error) {
+      console.error('Error serializando record_id para historial:', error);
+      return String(value);
+    }
+  };
+
+  const shouldSkipColumnForForm = (key: string) => {
+    const normalized = normalizeAnnualKey(key);
+    return ['created_at', 'updated_at', 'inserted_at', 'deleted_at'].includes(normalized);
+  };
+
+  const inferFieldType = (key: string): FieldInputType => {
+    const normalized = normalizeAnnualKey(key);
+    if (normalized.includes('fecha') || normalized.includes('vigencia') || normalized.includes('inicio') || normalized.includes('termino')) {
+      return 'date';
+    }
+    if (
+      normalized.includes('descripcion') ||
+      normalized.includes('detalle') ||
+      normalized.includes('justificacion') ||
+      normalized.includes('observacion')
+    ) {
+      return 'textarea';
+    }
+    if (
+      normalized.includes('monto') ||
+      normalized.includes('importe') ||
+      normalized.includes('total') ||
+      normalized.includes('presupuesto') ||
+      normalized.includes('costo') ||
+      normalized.includes('cantidad') ||
+      normalized.includes('pago') ||
+      normalized.includes('porcentaje')
+    ) {
+      return 'number';
+    }
+    return 'text';
+  };
+
+  const formatDateForInput = (value: any): string => {
+    if (!value) return '';
+    if (value instanceof Date) {
+      return value.toISOString().slice(0, 10);
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        return trimmed;
+      }
+      const parsed = parsePotentialDate(trimmed);
+      return parsed ? parsed.toISOString().slice(0, 10) : trimmed;
+    }
+    return '';
+  };
+
+  const formatValueForInput = (value: any, type: FieldInputType): string => {
+    if (value === undefined || value === null) return '';
+    if (type === 'date') return formatDateForInput(value);
+    if (type === 'number') {
+      if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+      if (typeof value === 'string') return value;
+      return '';
+    }
+    if (typeof value === 'string') return value;
+    try {
+      return String(value);
+    } catch (error) {
+      console.error('Error convirtiendo valor para input:', error);
+      return '';
+    }
+  };
+
+  const parseFieldValueForSubmission = (value: string, type: FieldInputType) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (type === 'number') {
+      const sanitized = trimmed.replace(/[^0-9.,-]/g, '').replace(/,/g, '');
+      const parsed = parseFloat(sanitized);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    if (type === 'date') {
+      return trimmed;
+    }
+    return trimmed;
+  };
+
+  type ChangeAction = 'INSERT' | 'UPDATE' | 'DELETE';
+
+  interface LogChangeParams {
+    table: string;
+    action: ChangeAction;
+    recordId: string | number | null | undefined;
+    before: Record<string, any> | null;
+    after: Record<string, any> | null;
+  }
+
+  const fetchChangeHistory = useCallback(async () => {
+    if (!historyAvailableRef.current) return;
+    try {
+      setLoadingHistory(true);
+      setHistoryError(null);
+      const { data, error } = await supabase
+        .from('change_history')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (error) {
+        if (error.code === '42P01') {
+          historyAvailableRef.current = false;
+          setHistoryError('La tabla change_history no existe. Ejecuta la migración SQL incluida en scripts/create_change_history_table.sql.');
+        } else {
+          setHistoryError('No se pudo cargar el historial de cambios.');
+        }
+        console.error('Error fetching change history:', error);
+        return;
+      }
+
+      setChangeHistory(data ?? []);
+    } catch (err) {
+      console.error('Error fetching change history:', err);
+      setHistoryError('No se pudo cargar el historial de cambios.');
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
+  const logChange = useCallback(async ({ table, action, recordId, before, after }: LogChangeParams) => {
+    if (!historyAvailableRef.current) return;
+    try {
+      const previousData = sanitizeRecord(before);
+      const newData = sanitizeRecord(after);
+      const changes = computeChangeDetails(previousData, newData);
+
+      const payload: Record<string, any> = {
+        table_name: table,
+        record_id: normalizeRecordId(recordId),
+        action,
+        changed_by: user.id ?? null,
+        changed_by_name: user.name ?? null,
+        changed_by_role: user.role ?? null,
+        changes: changes.length ? changes : null,
+        previous_data: previousData,
+        new_data: newData,
+      };
+
+      const { error } = await supabase.from('change_history').insert([payload]);
+      if (error) {
+        if (error.code === '42P01') {
+          historyAvailableRef.current = false;
+          setHistoryError('La tabla change_history no existe. Ejecuta la migración SQL incluida en scripts/create_change_history_table.sql.');
+        } else {
+          console.error('Error registrando historial:', error);
+          setHistoryError('No se pudo registrar el historial del cambio.');
+        }
+        return;
+      }
+
+      await fetchChangeHistory();
+    } catch (err) {
+      console.error('Error logging change history:', err);
+    }
+  }, [fetchChangeHistory, user.id, user.name, user.role]);
+
+  const historyActionMeta: Record<ChangeAction, { label: string; className: string }> = {
+    INSERT: {
+      label: 'Creación',
+      className: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+    },
+    UPDATE: {
+      label: 'Actualización',
+      className: 'bg-blue-100 text-blue-700 border border-blue-200',
+    },
+    DELETE: {
+      label: 'Eliminación',
+      className: 'bg-rose-100 text-rose-700 border border-rose-200',
+    },
+  };
+
+  const historyTables = useMemo(() => {
+    const tables = new Set<string>();
+    changeHistory.forEach((entry) => {
+      if (entry.table_name) {
+        tables.add(entry.table_name);
+      }
+    });
+    return Array.from(tables).sort((a, b) => a.localeCompare(b));
+  }, [changeHistory]);
+
+  const filteredHistory = useMemo(() => {
+    if (historyTableFilter === 'all') return changeHistory;
+    return changeHistory.filter((entry) => entry.table_name === historyTableFilter);
+  }, [changeHistory, historyTableFilter]);
+
+  useEffect(() => {
+    if (historyTableFilter !== 'all' && !historyTables.includes(historyTableFilter)) {
+      setHistoryTableFilter('all');
+    }
+  }, [historyTableFilter, historyTables]);
+
   const refreshTable = async (table: string) => {
     switch (table) {
       case 'año_2026':
@@ -210,14 +494,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const payload = buildEditorPayload(columns, row);
     const resolvedKey = resolvePrimaryKey(row ?? payload, table, primaryKey);
 
+    const formValues: Record<string, any> = {};
+    const fieldConfigs: FieldInputConfig[] = [];
+
+    Object.keys(payload).forEach((key) => {
+      if (shouldSkipColumnForForm(key) && key !== resolvedKey) return;
+      const type = inferFieldType(key);
+      formValues[key] = formatValueForInput(payload[key], type);
+      fieldConfigs.push({
+        key,
+        label: humanizeKey(key),
+        type,
+        placeholder:
+          type === 'number'
+            ? 'Ingresa un valor numérico'
+            : type === 'date'
+              ? 'Selecciona una fecha'
+              : undefined,
+        required: false,
+        helpText:
+          key === resolvedKey
+            ? (!row
+                ? 'Se genera automáticamente al guardar'
+                : 'Identificador del registro')
+            : undefined,
+      });
+    });
+
     setRecordEditorError(null);
     setRecordEditorConfig({
       table,
       title,
       isNew: !row,
       primaryKey: resolvedKey,
-      editorValue: JSON.stringify(payload, null, 2),
       note,
+      fields: fieldConfigs,
+      formValues,
+      originalRow: sanitizeRecord(row),
     });
   };
 
@@ -229,31 +542,79 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setRecordEditorSaving(true);
       setRecordEditorError(null);
 
-      const parsed = JSON.parse(recordEditorConfig.editorValue);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Proporcione un objeto JSON válido para guardar el registro.');
+      const { table, fields, formValues, isNew, primaryKey, originalRow } = recordEditorConfig;
+
+      if (!fields.length) {
+        throw new Error('No se detectaron columnas configuradas para este registro.');
       }
 
-      const table = recordEditorConfig.table;
+      const submission: Record<string, any> = {};
 
-      if (recordEditorConfig.isNew) {
-        const { error } = await supabase.from(table).insert([parsed]);
-        if (error) throw error;
-      } else {
-        const resolvedKey = resolvePrimaryKey(parsed, table, recordEditorConfig.primaryKey);
-        if (!resolvedKey) {
-          throw new Error('No se encontró un campo de clave primaria en el objeto (por ejemplo "id").');
+      fields.forEach((field) => {
+        const rawValue = formValues[field.key] ?? '';
+        const parsedValue = parseFieldValueForSubmission(String(rawValue ?? ''), field.type);
+        submission[field.key] = parsedValue;
+      });
+
+      const resolvedKey = primaryKey ?? resolvePrimaryKey(submission, table, primaryKey);
+      const resolvedValue = resolvedKey
+        ? submission[resolvedKey] ?? originalRow?.[resolvedKey] ?? null
+        : null;
+
+      const cleanedSubmission: Record<string, any> = {};
+      Object.entries(submission).forEach(([key, value]) => {
+        if (value !== undefined) {
+          cleanedSubmission[key] = value;
         }
-        const resolvedValue = parsed[resolvedKey];
-        if (resolvedValue === undefined || resolvedValue === null || resolvedValue === '') {
+      });
+
+      if (isNew && resolvedKey && (cleanedSubmission[resolvedKey] === null || cleanedSubmission[resolvedKey] === '')) {
+        delete cleanedSubmission[resolvedKey];
+      }
+
+      if (isNew) {
+        const { data, error } = await supabase.from(table).insert([cleanedSubmission]).select();
+        if (error) throw error;
+
+        const insertedRecord = Array.isArray(data) ? data[0] ?? null : null;
+        const recordId = resolvedKey
+          ? insertedRecord?.[resolvedKey] ?? null
+          : null;
+
+        await logChange({
+          table,
+          action: 'INSERT',
+          recordId,
+          before: null,
+          after: insertedRecord ?? cleanedSubmission,
+        });
+      } else {
+        if (!resolvedKey) {
+          throw new Error('No se encontró un campo de clave primaria en el registro.');
+        }
+        const targetValue = resolvedValue;
+        if (targetValue === undefined || targetValue === null || targetValue === '') {
           throw new Error('El valor de la clave primaria no puede estar vacío.');
         }
 
-        const { error } = await supabase
+        const previousRecord = originalRow ? sanitizeRecord(originalRow) : null;
+
+        const { data, error } = await supabase
           .from(table)
-          .update(parsed)
-          .eq(resolvedKey, resolvedValue);
+          .update(cleanedSubmission)
+          .eq(resolvedKey, targetValue)
+          .select();
         if (error) throw error;
+
+        const updatedRecord = Array.isArray(data) ? data[0] ?? null : null;
+
+        await logChange({
+          table,
+          action: 'UPDATE',
+          recordId: targetValue,
+          before: previousRecord,
+          after: updatedRecord ?? cleanedSubmission,
+        });
       }
 
       await refreshTable(table);
@@ -288,6 +649,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const confirmed = window.confirm(`¿Eliminar el registro seleccionado de "${title}"? Esta acción no se puede deshacer.`);
     if (!confirmed) return;
 
+    const previousRecord = sanitizeRecord(row);
+
     const { error } = await supabase
       .from(table)
       .delete()
@@ -298,6 +661,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       return;
     }
 
+    await logChange({
+      table,
+      action: 'DELETE',
+      recordId: resolvedValue,
+      before: previousRecord,
+      after: null,
+    });
+
     await refreshTable(table);
   };
 
@@ -306,9 +677,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setRecordEditorConfig(null);
   };
 
-  const updateRecordEditorValue = (value: string) => {
+  const updateRecordEditorValue = (fieldKey: string, value: string) => {
     setRecordEditorError(null);
-    setRecordEditorConfig((prev) => (prev ? { ...prev, editorValue: value } : prev));
+    setRecordEditorConfig((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        formValues: {
+          ...prev.formValues,
+          [fieldKey]: value,
+        },
+      };
+    });
   };
 
   const userInitials = useMemo(() => {
@@ -460,6 +840,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         await fetchInvoicesData();
         await fetchCompranetData();
         await fetchProcedureStatusData();
+        await fetchChangeHistory();
 
       } catch (e) {
         console.error("Exception fetching data", e);
@@ -469,37 +850,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     };
 
     fetchAllData();
-  }, []);
-
-  const handleAiQuery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!aiQuery.trim()) return;
-
-    setIsAiThinking(true);
-    setAiResponse(''); 
-
-    // Totales basados en las columnas nuevas
-    const totalSolicitadoPaas = paasData.reduce((acc, curr) => acc + (curr["Monto solicitado anteproyecto 2026"] || 0), 0);
-    const totalModificadoPaas = paasData.reduce((acc, curr) => acc + (curr["Modificado"] || 0), 0);
-    // Usar monto_maximo_contrato para pagos si está disponible
-    const totalPagado = paymentsData.reduce((acc, curr) => acc + (curr.monto_ejercido || 0), 0);
-    const pendingProcedureRecords = procedureStatuses.length;
-
-    const context = `
-      Resumen de Base de Datos AIFA:
-      - Contratos Activos: ${contracts.filter(c => c.status === 'ACTIVO').length}
-      - Presupuesto PAAS 2026 Solicitado Total: $${totalSolicitadoPaas.toLocaleString()} MXN
-      - Presupuesto PAAS 2026 Modificado: $${totalModificadoPaas.toLocaleString()} MXN
-      - Total Pagado (Control Pagos): $${totalPagado.toLocaleString()} MXN
-      - Número de Partidas en PAAS: ${paasData.length}
-      - Locales Comerciales Ocupados: ${commercialSpaces.filter(s => s.occupancy_status === 'OCUPADO').length}
-      - Servicios con observaciones de pago (Octubre): ${pendingProcedureRecords}
-    `;
-
-    const response = await generateOperationalInsight(context, aiQuery);
-    setAiResponse(response);
-    setIsAiThinking(false);
-  };
+  }, [fetchChangeHistory]);
 
   // === HANDLE FORM INPUT CHANGE ===
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -541,24 +892,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setIsSubmitting(true);
 
     try {
-      let error;
-      
       if (editingId) {
-        // UPDATE EXISTING RECORD
-        const { error: updateError } = await supabase
+        const existingRecord = paasData.find(item => item.id === editingId) ?? null;
+        const previousSnapshot = existingRecord
+          ? sanitizeRecord(existingRecord as unknown as Record<string, any>)
+          : null;
+
+        const { data, error: updateError } = await supabase
           .from('balance_paas_2026')
           .update(formState)
-          .eq('id', editingId);
-        error = updateError;
-      } else {
-        // CREATE NEW RECORD
-        const { error: insertError } = await supabase
-          .from('balance_paas_2026')
-          .insert([formState]);
-        error = insertError;
-      }
+          .eq('id', editingId)
+          .select();
 
-      if (error) throw error;
+        if (updateError) throw updateError;
+
+        const updatedRecord = Array.isArray(data) ? data[0] ?? null : null;
+
+        await logChange({
+          table: 'balance_paas_2026',
+          action: 'UPDATE',
+          recordId: editingId,
+          before: previousSnapshot,
+          after: updatedRecord ?? { ...formState, id: editingId },
+        });
+      } else {
+        const { data, error: insertError } = await supabase
+          .from('balance_paas_2026')
+          .insert([formState])
+          .select();
+
+        if (insertError) throw insertError;
+
+        const insertedRecord = Array.isArray(data) ? data[0] ?? null : null;
+
+        await logChange({
+          table: 'balance_paas_2026',
+          action: 'INSERT',
+          recordId: insertedRecord?.id ?? null,
+          before: null,
+          after: insertedRecord ?? formState,
+        });
+      }
 
       // Success
       await fetchPaasData(); // Refresh table
@@ -579,12 +953,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
 
     try {
+        const existingRecord = paasData.find(item => item.id === id) ?? null;
+        const previousSnapshot = existingRecord
+          ? sanitizeRecord(existingRecord as unknown as Record<string, any>)
+          : null;
+
       const { error } = await supabase
         .from('balance_paas_2026')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+        await logChange({
+          table: 'balance_paas_2026',
+          action: 'DELETE',
+          recordId: id,
+          before: previousSnapshot,
+          after: null,
+        });
 
       await fetchPaasData(); // Refresh table
     } catch (error: any) {
@@ -1040,7 +1427,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const delta = paasSummary.delta || 0;
     if (delta > 0) return TrendingUp;
     if (delta < 0) return AlertCircle;
-    return Sparkles;
+    return FileText;
   }, [paasSummary.delta]);
 
   const procedureByCompany = useMemo(() => {
@@ -1665,7 +2052,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
           {[
             { id: 'overview', icon: LayoutDashboard, label: 'Resumen' },
-            { id: 'contracts', icon: FileText, label: 'Gestión Contratos' }
+            { id: 'contracts', icon: FileText, label: 'Gestión Contratos' },
+            { id: 'history', icon: History, label: 'Historial' }
           ].map((item) => (
             <button
               key={item.id}
@@ -1741,17 +2129,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </span>
               </div>
             </div>
-            <button 
-              type="button"
-              onClick={() => setIsAiChatOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-full shadow hover:bg-slate-800 transition-all"
-            >
-              <Sparkles className="h-4 w-4 text-[#B38E5D]" />
-              <span className="hidden sm:inline">Asistente IA</span>
-            </button>
-            <button className="p-2 text-slate-400 hover:text-slate-600 relative">
-              <Bell className="h-5 w-5" />
-            </button>
           </div>
         </header>
 
@@ -1848,6 +2225,166 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </div>
               </div>
             </>
+          )}
+
+          {activeTab === 'history' && (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">Historial de Cambios</h1>
+                  <p className="text-slate-500 text-sm">
+                    Consulta qué administradores modificaron los registros y qué campos se alteraron.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={historyTableFilter}
+                    onChange={(event) => setHistoryTableFilter(event.target.value)}
+                    className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#B38E5D]/40"
+                  >
+                    <option value="all">Todas las tablas</option>
+                    {historyTables.map((tableName) => (
+                      <option key={tableName} value={tableName}>
+                        {humanizeKey(tableName)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={fetchChangeHistory}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <History className="h-4 w-4" />
+                    Actualizar
+                  </button>
+                </div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                {historyError ? (
+                  <div className="p-6 text-sm text-red-600 bg-red-50 border-b border-red-100">
+                    {historyError}
+                  </div>
+                ) : (
+                  <div>
+                    {loadingHistory ? (
+                      <div className="flex items-center justify-center gap-2 py-16 text-slate-500">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        Cargando historial...
+                      </div>
+                    ) : filteredHistory.length === 0 ? (
+                      <div className="p-6 text-sm text-slate-500 text-center">
+                        No hay registros aún. Cuando un administrador cree, actualice o elimine información aparecerá aquí.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {filteredHistory.map((entry) => {
+                          const diffList = entry.changes && entry.changes.length
+                            ? entry.changes
+                            : computeChangeDetails(
+                                entry.previous_data as Record<string, any> | null,
+                                entry.new_data as Record<string, any> | null
+                              );
+                          const meta = historyActionMeta[entry.action] ?? historyActionMeta.UPDATE;
+                          const roleLabel =
+                            entry.changed_by_role === UserRole.ADMIN
+                              ? 'Administrador'
+                              : entry.changed_by_role === UserRole.OPERATOR
+                                ? 'Operador'
+                                : entry.changed_by_role === UserRole.VIEWER
+                                  ? 'Solo lectura'
+                                  : entry.changed_by_role ?? null;
+
+                          return (
+                            <div key={`${entry.id}-${entry.created_at}`} className="p-6 space-y-4">
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-800">
+                                    {entry.changed_by_name ?? 'Usuario desconocido'}
+                                  </p>
+                                  <p className="text-xs text-slate-500">
+                                    {formatDateTime(entry.created_at)}
+                                  </p>
+                                </div>
+                                <span className={`inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full ${meta.className}`}>
+                                  {meta.label}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500">
+                                <span>
+                                  Tabla:{' '}
+                                  <span className="font-mono text-slate-700">{entry.table_name}</span>
+                                </span>
+                                <span>
+                                  Registro:{' '}
+                                  <span className="font-mono text-slate-700">{entry.record_id ?? '—'}</span>
+                                </span>
+                                {roleLabel && (
+                                  <span>
+                                    Rol:{' '}
+                                    <span className="font-semibold text-slate-600">{roleLabel}</span>
+                                  </span>
+                                )}
+                              </div>
+                              {diffList.length ? (
+                                <div className="overflow-x-auto rounded-lg border border-slate-100">
+                                  <table className="min-w-full text-xs">
+                                    <thead className="bg-slate-50 text-slate-500 uppercase tracking-wide">
+                                      <tr>
+                                        <th className="px-4 py-2 text-left font-semibold">Campo</th>
+                                        <th className="px-4 py-2 text-left font-semibold">Antes</th>
+                                        <th className="px-4 py-2 text-left font-semibold">Después</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {diffList.map((change) => (
+                                        <tr key={`${entry.id}-${change.field}`} className="border-t border-slate-100">
+                                          <td className="px-4 py-2 font-semibold text-slate-700 align-top whitespace-nowrap">
+                                            {humanizeKey(change.field)}
+                                          </td>
+                                          <td className="px-4 py-2 text-slate-500 align-top whitespace-pre-wrap break-words">
+                                            {formatTableValue(change.field, change.before)}
+                                          </td>
+                                          <td className="px-4 py-2 text-slate-700 align-top whitespace-pre-wrap break-words">
+                                            {formatTableValue(change.field, change.after)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-500">
+                                  No se registraron cambios de campo para esta acción.
+                                </p>
+                              )}
+                              <details className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
+                                <summary className="cursor-pointer font-semibold text-slate-600">
+                                  Ver detalle JSON
+                                </summary>
+                                <div className="mt-3 space-y-3">
+                                  <div>
+                                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Antes</p>
+                                    <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-[11px] text-slate-700">
+                                      {entry.previous_data ? JSON.stringify(entry.previous_data, null, 2) : '—'}
+                                    </pre>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Después</p>
+                                    <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-[11px] text-slate-700">
+                                      {entry.new_data ? JSON.stringify(entry.new_data, null, 2) : '—'}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </details>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {activeTab === 'contracts' && (
@@ -3611,7 +4148,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       {/* === MODAL PARA NUEVO/EDITAR REGISTRO PAAS === */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -3744,7 +4281,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       {recordEditorConfig && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fade-in"
           onClick={closeRecordEditor}
         >
           <div
@@ -3779,22 +4316,58 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               </button>
             </div>
             <div className="flex-1 overflow-auto px-6 py-4 bg-slate-50">
-              <textarea
-                value={recordEditorConfig.editorValue}
-                onChange={(event) => updateRecordEditorValue(event.target.value)}
-                spellCheck={false}
-                className="w-full h-full min-h-[320px] bg-white border border-slate-200 rounded-xl p-4 font-mono text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#B38E5D]/40 resize-vertical"
-                placeholder={'{\n  "campo": "valor"\n}'}
-              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {recordEditorConfig.fields.map((field) => {
+                  const value = recordEditorConfig.formValues[field.key] ?? '';
+                  const isPrimary = recordEditorConfig.primaryKey === field.key;
+                  const isReadOnly = Boolean(isPrimary && !recordEditorConfig.isNew);
+                  const label = field.label || humanizeKey(field.key);
+                  const helper = field.helpText || (field.required ? 'Campo obligatorio' : 'Deja vacío si no aplica');
+
+                  return (
+                    <div key={field.key} className="flex flex-col gap-1">
+                      <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                        {label}
+                        {field.required && <span className="text-red-500 ml-1">*</span>}
+                      </label>
+                      {field.type === 'textarea' ? (
+                        <textarea
+                          name={field.key}
+                          rows={4}
+                          value={value}
+                          onChange={(event) => updateRecordEditorValue(field.key, event.target.value)}
+                          className={`w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#B38E5D]/40 resize-none ${isReadOnly ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                          placeholder={field.placeholder}
+                          disabled={isReadOnly || recordEditorSaving}
+                        />
+                      ) : (
+                        <input
+                          name={field.key}
+                          type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                          value={value}
+                          onChange={(event) => updateRecordEditorValue(field.key, event.target.value)}
+                          className={`w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#B38E5D]/40 ${isReadOnly ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                          placeholder={field.placeholder}
+                          disabled={isReadOnly || recordEditorSaving}
+                        />
+                      )}
+                      <div className="flex justify-between text-[11px] text-slate-400">
+                        <span>{helper}</span>
+                        {isPrimary && !recordEditorConfig.isNew && <span>ID protegido</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
               {recordEditorError && (
-                <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+                <div className="mt-4 text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
                   {recordEditorError}
                 </div>
               )}
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-xs text-slate-500">
-                Ajusta el contenido en formato JSON válido. Mantén las claves existentes para evitar errores de base de datos.
+                Completa los campos con texto claro; los valores vacíos se guardan como "sin dato". Si aparece la clave primaria, respeta el valor sugerido.
               </p>
               <div className="flex items-center gap-3">
                 <button
@@ -3813,49 +4386,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   Guardar
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Chat Overlay */}
-      {isAiChatOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setIsAiChatOpen(false)}
-          ></div>
-          <div className="relative w-full sm:w-96 bg-white h-[80vh] sm:h-[calc(100vh-2rem)] sm:mr-4 shadow-2xl rounded-t-2xl sm:rounded-2xl flex flex-col border border-slate-200">
-            <div className="p-4 bg-slate-900 text-white flex justify-between items-center rounded-t-2xl">
-              <h3 className="font-bold flex items-center gap-2"><Sparkles className="h-4 w-4 text-[#B38E5D]"/> Asistente</h3>
-              <button onClick={() => setIsAiChatOpen(false)}><X className="h-5 w-5"/></button>
-            </div>
-            <div className="flex-1 p-4 bg-slate-50 overflow-y-auto">
-              {aiResponse ? (
-                <div className="bg-white p-3 rounded-lg shadow-sm text-sm">{aiResponse}</div>
-              ) : (
-                <p className="text-center text-slate-400 text-sm mt-10">
-                   Soy tu analista de contratos inteligente.<br/>
-                   Pregúntame: "¿Qué contratos vencen este mes?" o "¿Cuál es la ocupación comercial actual?"
-                </p>
-              )}
-            </div>
-            <div className="p-4 bg-white border-t">
-              <form onSubmit={handleAiQuery} className="flex gap-2">
-                <input 
-                  value={aiQuery}
-                  onChange={e => setAiQuery(e.target.value)}
-                  placeholder="Escribe tu consulta..."
-                  className="flex-1 bg-slate-100 border-none rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-[#B38E5D] outline-none"
-                />
-                <button 
-                  type="submit" 
-                  disabled={isAiThinking}
-                  className="bg-[#B38E5D] text-white p-2 rounded-lg hover:bg-[#9c7a4d] disabled:opacity-50"
-                >
-                  {isAiThinking ? <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"/> : <Send className="h-4 w-4" />}
-                </button>
-              </form>
             </div>
           </div>
         </div>

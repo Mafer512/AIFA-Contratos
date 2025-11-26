@@ -167,3 +167,23 @@ export interface KPIData {
   trend: number; // Percentage change
   icon: string; // Lucide icon name
 }
+
+export interface ChangeDiff {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+
+export interface ChangeLogEntry {
+  id: number;
+  table_name: string;
+  record_id: string | number | null;
+  action: 'INSERT' | 'UPDATE' | 'DELETE';
+  changed_by: string | null;
+  changed_by_name: string | null;
+  changed_by_role?: string | null;
+  changes: ChangeDiff[] | null;
+  previous_data: Record<string, unknown> | null;
+  new_data: Record<string, unknown> | null;
+  created_at: string;
+}
