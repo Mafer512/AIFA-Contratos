@@ -14,6 +14,7 @@ import { supabase } from '../services/supabaseClient';
 
 const chartPalette = ['#B38E5D', '#2563EB', '#0F4C3A', '#9E1B32', '#7C3AED', '#F97316', '#14B8A6', '#64748B'];
 const invoicesPalette = ['#0F4C3A', '#B38E5D', '#2563EB', '#F97316', '#9E1B32', '#7C3AED', '#14B8A6', '#64748B'];
+const TABLE_ROW_HOVER_COLOR = '#E5F4EF';
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const CONTRACT_SOON_WINDOW_DAYS = 60;
@@ -149,6 +150,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [selectedResponsibleName, setSelectedResponsibleName] = useState<string | null>(null);
   const [isProceduresEditing, setIsProceduresEditing] = useState(false);
   const [isProceduresCompact, setIsProceduresCompact] = useState(false);
+  const [hoveredRowId, setHoveredRowId] = useState<string | number | null>(null);
+  const commitHoveredRow = (value: string | number | null) => {
+    setHoveredRowId((prev) => (prev === value ? prev : value));
+  };
+  const getRowHoverMeta = useCallback(
+    (bucket: string, identifier: string | number) => {
+      const hoverKey = `${bucket}-${String(identifier)}`;
+      return {
+        hoverKey,
+        hovered: hoveredRowId === hoverKey,
+        onMouseEnter: () => commitHoveredRow(hoverKey),
+        onMouseLeave: () => commitHoveredRow(null),
+      };
+    },
+    [hoveredRowId]
+  );
 
   // Initial state matches the columns of your table
   const initialFormState = {
@@ -3865,19 +3882,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {diffList.map((change) => (
-                                        <tr key={`${entry.id}-${change.field}`} className="border-t border-slate-100">
-                                          <td className="px-4 py-2 font-semibold text-slate-700 align-top whitespace-nowrap">
-                                            {humanizeKey(change.field)}
-                                          </td>
-                                          <td className="px-4 py-2 text-slate-500 align-top whitespace-pre-wrap break-words">
-                                            {formatTableValue(change.field, change.before)}
-                                          </td>
-                                          <td className="px-4 py-2 text-slate-700 align-top whitespace-pre-wrap break-words">
-                                            {formatTableValue(change.field, change.after)}
-                                          </td>
-                                        </tr>
-                                      ))}
+                                      {diffList.map((change) => {
+                                        const { hovered, onMouseEnter, onMouseLeave } = getRowHoverMeta('history-diff', `${entry.id}-${change.field}`);
+                                        return (
+                                          <tr
+                                            key={`${entry.id}-${change.field}`}
+                                            className={`border-t border-slate-100 transition-colors ${hovered ? 'bg-[#E5F4EF]' : ''}`}
+                                            onMouseEnter={onMouseEnter}
+                                            onMouseLeave={onMouseLeave}
+                                          >
+                                            <td className="px-4 py-2 font-semibold text-slate-700 align-top whitespace-nowrap">
+                                              {humanizeKey(change.field)}
+                                            </td>
+                                            <td className="px-4 py-2 text-slate-500 align-top whitespace-pre-wrap break-words">
+                                              {formatTableValue(change.field, change.before)}
+                                            </td>
+                                            <td className="px-4 py-2 text-slate-700 align-top whitespace-pre-wrap break-words">
+                                              {formatTableValue(change.field, change.after)}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
                                     </tbody>
                                   </table>
                                 </div>
@@ -4148,7 +4173,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           )}
                         </div>
                       </div>
-                      <div className="overflow-auto h-[68vh] relative">
+                      <div className="overflow-auto h-[68vh] relative" onMouseLeave={() => commitHoveredRow(null)}>
                         <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
                           <thead className="uppercase tracking-wider text-white">
                             <tr className="h-14">
@@ -4231,9 +4256,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             ) : (
                               annual2026Data.map((row, rowIndex) => {
                                 const rowKey = row.id ?? row.ID ?? row.Id ?? `annual-row-${rowIndex}`;
-                                const zebraBackground = rowIndex % 2 === 0 ? 'white' : '#f8fafc';
+                                const { hovered, onMouseEnter, onMouseLeave } = getRowHoverMeta('annual2026', rowKey);
+                                const zebraBackground = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                                const rowBackground = hovered ? TABLE_ROW_HOVER_COLOR : zebraBackground;
                                 return (
-                                  <tr key={rowKey} className={`group transition-colors ${rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} hover:bg-emerald-50/60`}>
+                                  <tr
+                                    key={rowKey}
+                                    className="group transition-colors"
+                                    style={{ backgroundColor: rowBackground }}
+                                    onMouseEnter={onMouseEnter}
+                                    onMouseLeave={onMouseLeave}
+                                  >
                                     {(annualColumnsToRender.length ? annualColumnsToRender : annualTableColumns).map((column) => {
                                       if (column === '__actions') {
                                         return (
@@ -4278,7 +4311,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         cellStyle.left = stickyMeta.left;
                                         cellStyle.width = `${stickyMeta.width}px`;
                                         cellStyle.zIndex = 40;
-                                        cellStyle.backgroundColor = zebraBackground;
+                                        cellStyle.backgroundColor = rowBackground;
                                       }
 
                                       if (isLastSticky) {
@@ -4482,7 +4515,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                     {/* Table Section */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="overflow-auto max-h-[70vh] relative">
+                        <div className="overflow-auto max-h-[70vh] relative" onMouseLeave={() => commitHoveredRow(null)}>
                           <table className="min-w-full text-sm text-center border-collapse">
                             <thead>
                               <tr className="uppercase tracking-wider text-white">
@@ -4535,12 +4568,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <>
                                   {paasOrderedRows.map((item, rowIndex) => {
                                   const isStriped = rowIndex % 2 === 0;
-                                  const rowBackground = isStriped ? '#ffffff' : '#f8fafc';
+                                  const zebraBackground = isStriped ? '#ffffff' : '#f8fafc';
+                                  const { hovered, onMouseEnter, onMouseLeave } = getRowHoverMeta('paas', item.id ?? rowIndex);
+                                  const rowBackground = hovered ? TABLE_ROW_HOVER_COLOR : zebraBackground;
 
                                   return (
                                     <tr
                                       key={item.id}
-                                      className={`${isStriped ? 'bg-white' : 'bg-slate-50'} hover:bg-[#B38E5D]/10 transition-colors`}
+                                      className="transition-colors"
+                                      style={{ backgroundColor: rowBackground }}
+                                      onMouseEnter={onMouseEnter}
+                                      onMouseLeave={onMouseLeave}
                                     >
                                       {paasTableConfig.columns.map((column) => {
                                         const stickyInfo = paasTableConfig.stickyMeta.get(column.key);
@@ -4740,7 +4778,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                        )}
                      </div>
                      {/* Contenedor con Scroll Horizontal y Altura Fija */}
-                     <div className="overflow-auto h-[70vh] relative">
+                     <div className="overflow-auto h-[70vh] relative" onMouseLeave={() => commitHoveredRow(null)}>
                        <table className="text-sm text-center w-max min-w-full border-collapse">
                          <thead className="text-white uppercase tracking-wider">
                            <tr className="h-14">
@@ -4780,17 +4818,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                              <tr><td colSpan={canManageRecords ? 100 : 99} className="text-center py-8">Cargando Pagos...</td></tr>
                            ) : paymentsData.length === 0 ? (
                               <tr><td colSpan={canManageRecords ? 100 : 99} className="text-center py-8 text-slate-500">No hay registros de pagos.</td></tr>
-                           ) : paymentsData.map((item, idx) => (
-                             <tr key={item.id} className={`hover:bg-slate-50 transition-colors group ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
+                           ) : paymentsData.map((item, idx) => {
+                             const { hovered, onMouseEnter, onMouseLeave } = getRowHoverMeta('control-pagos', item.id ?? idx);
+                             const zebraBackground = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+                             const rowBackground = hovered ? TABLE_ROW_HOVER_COLOR : zebraBackground;
+                             return (
+                               <tr
+                                 key={item.id}
+                                 className="transition-colors group"
+                                 style={{ backgroundColor: rowBackground }}
+                                 onMouseEnter={onMouseEnter}
+                                 onMouseLeave={onMouseLeave}
+                               >
                                
                                {/* CELDAS FIJAS - 3 PRIMERAS COLUMNAS */}
-                               <td className="px-6 py-4 font-bold text-slate-800 border-b border-slate-200 text-center" style={{ position: 'sticky', left: 0, width: '150px', minWidth: '150px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
+                               <td className="px-6 py-4 font-bold text-slate-800 border-b border-slate-200 text-center" style={{ position: 'sticky', left: 0, width: '150px', minWidth: '150px', zIndex: 40, backgroundColor: rowBackground }}>
                                   {item.no_contrato || '-'}
                                </td>
-                               <td className="px-6 py-4 text-slate-600 border-b border-slate-200 whitespace-pre-wrap break-words text-center" style={{ position: 'sticky', left: '150px', width: '350px', minWidth: '350px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
+                               <td className="px-6 py-4 text-slate-600 border-b border-slate-200 whitespace-pre-wrap break-words text-center" style={{ position: 'sticky', left: '150px', width: '350px', minWidth: '350px', zIndex: 40, backgroundColor: rowBackground }}>
                                   {item.objeto_del_contrato || '-'}
                                </td>
-                               <td className="px-6 py-4 text-slate-600 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.1)] border-b border-slate-200 whitespace-pre-wrap break-words border-r border-slate-300 text-center" style={{ position: 'sticky', left: '500px', width: '250px', minWidth: '250px', zIndex: 40, backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
+                               <td className="px-6 py-4 text-slate-600 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.1)] border-b border-slate-200 whitespace-pre-wrap break-words border-r border-slate-300 text-center" style={{ position: 'sticky', left: '500px', width: '250px', minWidth: '250px', zIndex: 40, backgroundColor: rowBackground }}>
                                   {item.proveedor || '-'}
                                </td>
 
@@ -4854,7 +4902,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                  </td>
                                )}
                              </tr>
-                           ))}
+                           );
+                           })}
                          </tbody>
                        </table>
                      </div>
@@ -4982,7 +5031,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           )}
                         </div>
                       </div>
-                      <div className="overflow-auto h-[68vh] relative">
+                      <div className="overflow-auto h-[68vh] relative" onMouseLeave={() => commitHoveredRow(null)}>
                         <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
                           <thead className="uppercase tracking-wider text-white">
                             <tr className="h-14">
@@ -5056,9 +5105,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             ) : (
                               invoicesData.map((row, rowIndex) => {
                                 const rowKey = row.id ?? row.ID ?? row.Id ?? row.numero ?? `invoice-row-${rowIndex}`;
-                                const zebraBackground = rowIndex % 2 === 0 ? 'white' : '#f8fafc';
+                                const { hovered, onMouseEnter, onMouseLeave } = getRowHoverMeta('invoices', rowKey);
+                                const zebraBackground = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                                const rowBackground = hovered ? TABLE_ROW_HOVER_COLOR : zebraBackground;
                                 return (
-                                  <tr key={rowKey} className={`group transition-colors ${rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} hover:bg-emerald-50/60`}>
+                                  <tr
+                                    key={rowKey}
+                                    className="group transition-colors"
+                                    style={{ backgroundColor: rowBackground }}
+                                    onMouseEnter={onMouseEnter}
+                                    onMouseLeave={onMouseLeave}
+                                  >
                                     {(invoicesColumnsToRender.length ? invoicesColumnsToRender : invoicesTableColumns).map((column) => {
                                       if (column === '__actions') {
                                         return (
@@ -5109,7 +5166,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         cellStyle.left = stickyMeta.left;
                                         cellStyle.width = `${stickyMeta.width}px`;
                                         cellStyle.zIndex = 40;
-                                        cellStyle.backgroundColor = zebraBackground;
+                                        cellStyle.backgroundColor = rowBackground;
                                       }
 
                                       if (isLastSticky) {
@@ -5331,7 +5388,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </button>
                           )}
                         </div>
-                        <div className="overflow-auto max-h-[70vh] relative">
+                        <div className="overflow-auto max-h-[70vh] relative" onMouseLeave={() => commitHoveredRow(null)}>
                           <table className="min-w-full text-sm text-center border-collapse">
                             <thead className="uppercase tracking-wider text-white">
                               <tr className="h-14">
@@ -5409,9 +5466,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               ) : (
                                 compranetData.map((row, rowIndex) => {
                                   const rowKey = row.id ?? `compranet-row-${rowIndex}`;
+                                  const { hovered: rowIsHovered, onMouseEnter, onMouseLeave } = getRowHoverMeta('compranet', rowKey);
                                   const isStriped = rowIndex % 2 === 0;
                                   return (
-                                    <tr key={rowKey} className={isStriped ? 'bg-white hover:bg-emerald-50/40 transition-colors' : 'bg-slate-50 hover:bg-emerald-50/40 transition-colors'}>
+                                    <tr
+                                      key={rowKey}
+                                      className={`${rowIsHovered ? 'bg-[#E5F4EF]' : isStriped ? 'bg-white' : 'bg-slate-50'} transition-colors`}
+                                      onMouseEnter={onMouseEnter}
+                                      onMouseLeave={onMouseLeave}
+                                    >
                                       {(compranetColumnsToRender.length ? compranetColumnsToRender : compranetTableColumns).map((column, colIndex) => {
                                         if (column === '__actions') {
                                           return (
@@ -5461,7 +5524,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         if (isSticky) {
                                           stickyStyle.position = 'sticky';
                                           stickyStyle.left = leftOffset;
-                                          stickyStyle.backgroundColor = isStriped ? '#ffffff' : '#f8fafc';
+                                          stickyStyle.backgroundColor = rowIsHovered ? TABLE_ROW_HOVER_COLOR : isStriped ? '#ffffff' : '#f8fafc';
                                           stickyStyle.zIndex = 30;
                                           if (colIndex === compranetStickyWidths.length - 1) {
                                             stickyStyle.boxShadow = '6px 0 10px -4px rgba(15,76,58,0.18)';
@@ -5640,8 +5703,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <tr><td colSpan={canManageRecords ? 7 : 6} className="text-center py-8">Cargando observaciones...</td></tr>
                           ) : procedureStatuses.length === 0 ? (
                             <tr><td colSpan={canManageRecords ? 7 : 6} className="text-center py-8 text-slate-500">No hay observaciones registradas.</td></tr>
-                          ) : procedureStatuses.map((item) => (
-                            <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                          ) : procedureStatuses.map((item) => {
+                            const { hovered: rowIsHovered, onMouseEnter, onMouseLeave } = getRowHoverMeta('observaciones', item.id);
+                            return (
+                              <tr
+                                key={item.id}
+                                className={`${rowIsHovered ? 'bg-[#E5F4EF]' : ''} transition-colors`}
+                                onMouseEnter={onMouseEnter}
+                                onMouseLeave={onMouseLeave}
+                              >
                               <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap text-center">{formatDateTime(item.created_at)}</td>
                               <td className="px-6 py-4 text-slate-700 font-semibold text-center">{item.contrato || '-'}</td>
                               <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.descripcion || '-'}</td>
@@ -5668,8 +5738,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   </div>
                                 </td>
                               )}
-                            </tr>
-                          ))}
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -5969,7 +6040,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
                       </div>
                     )}
-                    <div className={`relative ${proceduresSizing.containerHeightClass} overflow-auto`}>
+                    <div
+                      className={`relative ${proceduresSizing.containerHeightClass} overflow-auto`}
+                      onMouseLeave={() => commitHoveredRow(null)}
+                    >
                       <table className={`min-w-full ${proceduresSizing.tableMinWidthClass} ${proceduresSizing.tableTextClass} text-center border-collapse`}>
                         <thead className={`uppercase tracking-wide text-white ${proceduresSizing.headerTextClass}`}>
                           <tr className={proceduresSizing.headerRowClass}>
@@ -6045,11 +6119,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           ) : (
                             sortedProceduresData.map((row, rowIndex) => {
                               const rowKey = row.id ?? `procedimiento-row-${rowIndex}`;
+                              const { hovered: rowIsHovered, onMouseEnter, onMouseLeave } = getRowHoverMeta('procedures', rowKey);
                               const isStriped = rowIndex % 2 === 0;
                               const columns = proceduresColumnsToRender.length ? proceduresColumnsToRender : proceduresTableColumns;
+                              const baseBackground = isStriped ? 'bg-white' : 'bg-slate-50';
+                              const rowClassName = `${rowIsHovered ? 'bg-[#E5F4EF]' : baseBackground} transition-colors`;
 
                               return (
-                                <tr key={rowKey} className={isStriped ? 'bg-white hover:bg-emerald-50/40 transition-colors' : 'bg-slate-50 hover:bg-emerald-50/40 transition-colors'}>
+                                <tr
+                                  key={rowKey}
+                                  className={rowClassName}
+                                  onMouseEnter={onMouseEnter}
+                                  onMouseLeave={onMouseLeave}
+                                >
                                   {columns.map((column) => {
                                     if (column === '__actions') {
                                       return (
@@ -6097,7 +6179,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     if (isSticky && stickyMeta) {
                                       stickyStyle.position = 'sticky';
                                       stickyStyle.left = stickyMeta.left;
-                                      stickyStyle.backgroundColor = isStriped ? '#ffffff' : '#f8fafc';
+                                      stickyStyle.backgroundColor = rowIsHovered ? TABLE_ROW_HOVER_COLOR : isStriped ? '#ffffff' : '#f8fafc';
                                       stickyStyle.zIndex = 30;
                                       if (column === proceduresLastStickyKey) {
                                         stickyStyle.boxShadow = '6px 0 10px -4px rgba(15,76,58,0.18)';
