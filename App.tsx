@@ -14,9 +14,31 @@ const App: React.FC = () => {
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [isStandaloneMode, setIsStandaloneMode] = useState(false);
   const forceLoginRef = useRef(false);
+  const authTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
+
+    const scheduleAuthFallback = () => {
+      if (authTimeoutRef.current !== null) {
+        window.clearTimeout(authTimeoutRef.current);
+      }
+      authTimeoutRef.current = window.setTimeout(() => {
+        if (!isMounted) return;
+        console.warn('Auth initialization excedió el tiempo límite, mostrando pantalla de inicio.');
+        forceLoginRef.current = false;
+        setCurrentUser(null);
+        setCurrentScreen(Screen.LOGIN);
+        setLoading(false);
+      }, 8000);
+    };
+
+    const clearAuthFallback = () => {
+      if (authTimeoutRef.current !== null) {
+        window.clearTimeout(authTimeoutRef.current);
+        authTimeoutRef.current = null;
+      }
+    };
 
     const url = new URL(window.location.href);
     const hashParams = new URLSearchParams(url.hash.replace('#', ''));
@@ -32,6 +54,7 @@ const App: React.FC = () => {
       setCurrentScreen(Screen.LOGIN);
       setCurrentUser(null);
       setLoading(false);
+      clearAuthFallback();
 
       const cleanUrl = `${url.origin}${url.pathname}`;
       window.setTimeout(() => {
@@ -39,14 +62,37 @@ const App: React.FC = () => {
       }, 0);
     }
 
+    scheduleAuthFallback();
+
     const initAuth = async () => {
       if (forceLoginRef.current) return;
 
-      const { data: { session } } = await supabase.auth.getSession();
+      try {
+        const { data, error } = await supabase.auth.getSession();
 
-      if (!isMounted) return;
+        if (!isMounted) return;
 
-      syncSession(session);
+        if (error) {
+          console.error('Error obteniendo sesión inicial:', error);
+          forceLoginRef.current = false;
+          setCurrentUser(null);
+          setCurrentScreen(Screen.LOGIN);
+          setLoading(false);
+          clearAuthFallback();
+          return;
+        }
+
+        clearAuthFallback();
+        syncSession(data.session);
+      } catch (error) {
+        console.error('Excepción durante initAuth:', error);
+        if (!isMounted) return;
+        forceLoginRef.current = false;
+        setCurrentUser(null);
+        setCurrentScreen(Screen.LOGIN);
+        setLoading(false);
+        clearAuthFallback();
+      }
     };
 
     initAuth();
@@ -65,14 +111,17 @@ const App: React.FC = () => {
         setCurrentScreen(Screen.LOGIN);
         setLoading(false);
         forceLoginRef.current = false;
+        clearAuthFallback();
         return;
       }
 
+      clearAuthFallback();
       syncSession(session);
     });
 
     return () => {
       isMounted = false;
+      clearAuthFallback();
       subscription.unsubscribe();
     };
   }, []);
@@ -126,6 +175,11 @@ const App: React.FC = () => {
   }, []);
 
   const syncSession = async (session: Session | null) => {
+    if (authTimeoutRef.current !== null) {
+      window.clearTimeout(authTimeoutRef.current);
+      authTimeoutRef.current = null;
+    }
+
     if (!session) {
       setCurrentUser(null);
       setCurrentScreen(Screen.LOGIN);
@@ -187,8 +241,20 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    // State listener will handle redirect
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+    } finally {
+      forceLoginRef.current = false;
+      setCurrentUser(null);
+      setCurrentScreen(Screen.LOGIN);
+      setAuthNotice(null);
+      setLoading(false);
+    }
   };
 
   const handleInstallClick = async () => {
@@ -207,6 +273,15 @@ const App: React.FC = () => {
   const handleDismissInstallPrompt = () => {
     setShowInstallPrompt(false);
   };
+
+  useEffect(() => {
+    return () => {
+      if (authTimeoutRef.current !== null) {
+        window.clearTimeout(authTimeoutRef.current);
+        authTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   if (loading) {
     return (
