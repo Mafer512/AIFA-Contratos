@@ -161,6 +161,11 @@ export interface ProcedureStatusItem {
   observacion_pago: string | null;
 }
 
+export interface ProcedureRecord {
+  id: number | string;
+  [key: string]: any;
+}
+
 export enum Screen {
   LOGIN = 'LOGIN',
   DASHBOARD = 'DASHBOARD'

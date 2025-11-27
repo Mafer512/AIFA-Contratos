@@ -6,10 +6,10 @@ import {
   X, FileText, Briefcase,
   DollarSign, PieChart as PieChartIcon,
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
-  CreditCard, Calendar, FileSpreadsheet, Menu, History
+  CreditCard, Calendar, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line } from 'recharts';
-import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, UserRole, ChangeLogEntry, ChangeDiff } from '../types';
+import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff } from '../types';
 import { supabase } from '../services/supabaseClient';
 
 const chartPalette = ['#B38E5D', '#2563EB', '#0F4C3A', '#9E1B32', '#7C3AED', '#F97316', '#14B8A6', '#64748B'];
@@ -62,7 +62,7 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview');
-  const [activeContractSubTab, setActiveContractSubTab] = useState<'annual2026' | 'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct'>('annual2026'); 
+  const [activeContractSubTab, setActiveContractSubTab] = useState<'annual2026' | 'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('annual2026'); 
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -74,6 +74,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [paymentsData, setPaymentsData] = useState<PaymentControlItem[]>([]);
   const [invoicesData, setInvoicesData] = useState<Record<string, any>[]>([]);
   const [compranetData, setCompranetData] = useState<Record<string, any>[]>([]);
+  const [proceduresData, setProceduresData] = useState<ProcedureRecord[]>([]);
   const [procedureStatuses, setProcedureStatuses] = useState<ProcedureStatusItem[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [changeHistory, setChangeHistory] = useState<ChangeLogEntry[]>([]);
@@ -116,6 +117,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     icon: React.ComponentType<{ className?: string }>;
   }
 
+  interface ProcedureServiceSnapshot {
+    id: number | string;
+    label: string;
+    statusLabel: string | null;
+    deadlineLabel: string | null;
+    raw: ProcedureRecord;
+  }
+
+  interface ProcedureResponsibleSummary {
+    responsible: string;
+    total: number;
+    statusBreakdown: Array<{ label: string; count: number }>;
+    services: ProcedureServiceSnapshot[];
+  }
+
   type GenericRecordEditorConfig = {
     table: string;
     title: string;
@@ -130,6 +146,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [recordEditorConfig, setRecordEditorConfig] = useState<GenericRecordEditorConfig | null>(null);
   const [recordEditorSaving, setRecordEditorSaving] = useState(false);
   const [recordEditorError, setRecordEditorError] = useState<string | null>(null);
+  const [selectedResponsibleName, setSelectedResponsibleName] = useState<string | null>(null);
+  const [isProceduresEditing, setIsProceduresEditing] = useState(false);
+  const [isProceduresCompact, setIsProceduresCompact] = useState(false);
 
   // Initial state matches the columns of your table
   const initialFormState = {
@@ -144,12 +163,52 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
   const [formState, setFormState] = useState(initialFormState);
 
+  useEffect(() => {
+    if (!proceduresData.length && isProceduresEditing) {
+      setIsProceduresEditing(false);
+    }
+  }, [proceduresData.length, isProceduresEditing]);
+
+  const proceduresSizing = useMemo(() => {
+    if (isProceduresCompact) {
+      return {
+        containerHeightClass: 'max-h-[85vh]',
+        tableTextClass: 'text-[10px]',
+        tableMinWidthClass: 'lg:min-w-[900px]',
+        headerTextClass: 'text-[9px]',
+        headerRowClass: 'h-10',
+        headerCellPadding: 'px-2 py-1.5',
+        actionsCellPadding: 'px-2 py-1.5',
+        actionsMinWidth: 120,
+        stickyFallbackWidth: 130,
+        numericCellClass: 'px-2 py-1.5 text-center font-mono text-slate-600 align-middle',
+        textCellClass: 'px-2 py-1.5 text-center text-slate-700 align-middle whitespace-pre-wrap break-words',
+        editorMinHeightClass: 'min-h-[18px]',
+      } as const;
+    }
+    return {
+      containerHeightClass: 'max-h-[80vh]',
+      tableTextClass: 'text-[11px]',
+      tableMinWidthClass: 'lg:min-w-[1100px]',
+      headerTextClass: 'text-[10px]',
+      headerRowClass: 'h-11',
+      headerCellPadding: 'px-3 py-2',
+      actionsCellPadding: 'px-3 py-2',
+      actionsMinWidth: 140,
+      stickyFallbackWidth: 150,
+      numericCellClass: 'px-3 py-2 text-center font-mono text-slate-600 align-middle',
+      textCellClass: 'px-3 py-2 text-center text-slate-700 align-middle whitespace-pre-wrap break-words',
+      editorMinHeightClass: 'min-h-[22px]',
+    } as const;
+  }, [isProceduresCompact]);
+
   const PRIMARY_KEY_HINTS: Record<string, string> = {
     'año_2026': 'id',
     'balance_paas_2026': 'id',
     'control_pagos': 'id',
     'estatus_facturas': 'id',
     'procedimientos_compranet': 'id',
+    'procedimientos': 'id',
     'estatus_procedimiento': 'id',
     contracts: 'id',
     commercial_spaces: 'id',
@@ -313,16 +372,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const formatDateForInput = (value: any): string => {
     if (!value) return '';
     if (value instanceof Date) {
-      return value.toISOString().slice(0, 10);
+      return formatDateToDDMMYYYY(value);
     }
     if (typeof value === 'string') {
       const trimmed = value.trim();
       if (!trimmed) return '';
-      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-        return trimmed;
-      }
       const parsed = parsePotentialDate(trimmed);
-      return parsed ? parsed.toISOString().slice(0, 10) : trimmed;
+      return parsed ? formatDateToDDMMYYYY(parsed) : trimmed;
     }
     return '';
   };
@@ -353,7 +409,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       return Number.isNaN(parsed) ? null : parsed;
     }
     if (type === 'date') {
-      return trimmed;
+      const parsed = parsePotentialDate(trimmed);
+      if (!parsed) return trimmed;
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, '0');
+      const day = String(parsed.getDate()).padStart(2, '0');
+      const isoDate = `${year}-${month}-${day}`;
+      const hasTime = /\d{1,2}:\d{2}/.test(trimmed) || /t\d{2}:/i.test(trimmed);
+      if (hasTime) {
+        const hours = String(parsed.getHours()).padStart(2, '0');
+        const minutes = String(parsed.getMinutes()).padStart(2, '0');
+        const seconds = String(parsed.getSeconds()).padStart(2, '0');
+        return `${isoDate}T${hours}:${minutes}:${seconds}`;
+      }
+      return isoDate;
     }
     return trimmed;
   };
@@ -477,7 +546,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       case 'año_2026':
         await fetchAnnual2026Data();
         break;
-      case 'balance_paas_2026':
+          return 'DD-MM-YYYY';
         await fetchPaasData();
         break;
       case 'control_pagos':
@@ -488,6 +557,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         break;
       case 'procedimientos_compranet':
         await fetchCompranetData();
+        break;
+      case 'procedimientos':
+        await fetchProceduresData();
         break;
       case 'estatus_procedimiento':
         await fetchProcedureStatusData();
@@ -878,6 +950,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (compranetError) console.error('Error fetching procedimientos_compranet:', compranetError.message);
   };
 
+  const fetchProceduresData = async () => {
+    const { data: proceduresResults, error: proceduresError } = await supabase
+      .from('procedimientos')
+      .select('*');
+
+    if (proceduresResults) setProceduresData(proceduresResults as ProcedureRecord[]);
+    if (proceduresError) console.error('Error fetching procedimientos:', proceduresError.message);
+  };
+
   useEffect(() => {
     const fetchAllData = async () => {
       try {
@@ -890,6 +971,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         await fetchPaymentsData();
         await fetchInvoicesData();
         await fetchCompranetData();
+        await fetchProceduresData();
         await fetchProcedureStatusData();
         await fetchChangeHistory();
 
@@ -1103,25 +1185,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 }).format(val);
   };
 
+  const formatDateToDDMMYYYY = (dateValue: Date) => {
+    const day = String(dateValue.getDate()).padStart(2, '0');
+    const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+    const year = dateValue.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
   const formatDateTime = (value: string | null | undefined) => {
     if (!value) return '-';
     try {
-      return new Intl.DateTimeFormat('es-MX', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(new Date(value));
+      const parsed = parsePotentialDate(value);
+      if (!parsed) return typeof value === 'string' ? value : '-';
+      const datePart = formatDateToDDMMYYYY(parsed);
+      const timePart = parsed.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+      return `${datePart} ${timePart}`;
     } catch (err) {
       console.error('Error formatting date:', err);
-      return value;
+      return typeof value === 'string' ? value : '-';
     }
   };
 
   const formatDateOnly = (value: string | Date | null | undefined) => {
     if (!value) return '-';
     try {
-      const dateValue = value instanceof Date ? value : new Date(value);
-      if (Number.isNaN(dateValue.getTime())) return typeof value === 'string' ? value : '-';
-      return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(dateValue);
+      const dateValue = value instanceof Date ? value : parsePotentialDate(value);
+      if (!dateValue) return typeof value === 'string' ? value : '-';
+      return formatDateToDDMMYYYY(dateValue);
     } catch (err) {
       console.error('Error formatting date (short):', err);
       return typeof value === 'string' ? value : '-';
@@ -1279,13 +1369,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               return String(item);
             }
           }
-          return normalizeWhitespace(String(item));
+          const stringItem = normalizeWhitespace(String(item));
+          const parsed = parsePotentialDate(stringItem);
+          return parsed ? formatDateToDDMMYYYY(parsed) : stringItem;
         })
         .filter((item): item is string => Boolean(item && item.trim().length));
 
       return printableItems.length ? printableItems.join('\n') : '-';
     }
-    if (value instanceof Date) return formatDateTime(value.toISOString());
+    if (value instanceof Date) return formatDateToDDMMYYYY(value);
     if (typeof value === 'object') {
       try {
         return JSON.stringify(value, null, 2);
@@ -1294,7 +1386,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         return String(value);
       }
     }
-    return normalizeWhitespace(String(value));
+    const stringValue = normalizeWhitespace(String(value));
+    const parsed = parsePotentialDate(stringValue);
+    return parsed ? formatDateToDDMMYYYY(parsed) : stringValue;
   };
 
   interface FieldInsights {
@@ -1320,6 +1414,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         return invoicesData as Record<string, any>[];
       case 'procedimientos_compranet':
         return compranetData as Record<string, any>[];
+      case 'procedimientos':
+        return proceduresData as Record<string, any>[];
       case 'estatus_procedimiento':
         return procedureStatuses as unknown as Record<string, any>[];
       case 'contracts':
@@ -1383,11 +1479,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }).length;
 
     const stringValues = rawValues.map((value) => {
-      if (typeof value === 'string') return normalizeWhitespace(value);
+      if (typeof value === 'string') {
+        const parsed = parsePotentialDate(value);
+        return parsed ? formatDateToDDMMYYYY(parsed) : normalizeWhitespace(value);
+      }
       if (typeof value === 'number') {
         return shouldFormatAsCurrency(key) ? formatCurrency(value) : formatNumber(value);
       }
-      if (value instanceof Date) return value.toISOString().slice(0, 10);
+      if (value instanceof Date) return formatDateToDDMMYYYY(value);
       return normalizeWhitespace(String(value));
     });
 
@@ -1420,7 +1519,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         case 'number':
           return 'Ingresa un número';
         case 'date':
-          return 'AAAA-MM-DD';
+          return 'DD-MM-YYYY';
         case 'textarea':
           return 'Describe el detalle';
         default:
@@ -1471,8 +1570,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       message = `${message} Deja vacío si no aplica.`.trim();
     }
 
-    if ((!insights || !insights.sampleText) && type === 'date') {
-      message = `${message} Usa formato AAAA-MM-DD.`.trim();
+    if (type === 'date') {
+      message = `${message} Usa formato DD-MM-YYYY.`.trim();
     }
 
     const normalizedKey = normalizeAnnualKey(fieldKey);
@@ -1534,6 +1633,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (typeof value === 'string') {
       const trimmed = value.trim();
       if (!trimmed) return null;
+
+      const hasDateSeparator = /[-\/]/.test(trimmed);
+      const hasTimeComponent = /t\d{2}:/i.test(trimmed) || /\d{1,2}:\d{2}/.test(trimmed);
+      if (!hasDateSeparator && !hasTimeComponent) {
+        return null;
+      }
 
       const direct = new Date(trimmed);
       if (!Number.isNaN(direct.getTime())) return direct;
@@ -1932,6 +2037,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return Array.from(keys);
   }, [paymentsData]);
 
+  const proceduresFieldList = useMemo(() => {
+    if (!proceduresData.length) return [] as string[];
+    const keys = new Set<string>();
+    proceduresData.forEach((row) => {
+      if (!row) return;
+      Object.keys(row).forEach((key) => keys.add(key));
+    });
+    return Array.from(keys);
+  }, [proceduresData]);
+
   const annualNumericTotals = useMemo(() => {
     if (!annual2026Data.length) return [] as { key: string; label: string; value: number }[];
 
@@ -2318,6 +2433,583 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     critical: 'bg-white/80 text-rose-600 border-rose-200/60',
   };
 
+  const contractStatusHasData = useMemo(() => contractStatusData.some((item) => item.value > 0), [contractStatusData]);
+  const invoicesStatusHasData = useMemo(() => invoicesStatusSummary.some((item) => item.value > 0), [invoicesStatusSummary]);
+  const paymentsFlowHasData = useMemo(() => paymentsMonthlyFlow.some((item) => Math.abs(item.value) > 0), [paymentsMonthlyFlow]);
+  const topPaasGerenciasHasData = useMemo(() => topPaasGerencias.some((item) => item.value > 0), [topPaasGerencias]);
+  const budgetExecutionHasData = totalContratado > 0;
+
+  const annualTableColumns = useMemo(() => {
+    if (!annual2026Data.length) return [] as string[];
+    const seen = new Set<string>();
+    const allColumns: string[] = [];
+    annual2026Data.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        if (!seen.has(key)) {
+          seen.add(key);
+          allColumns.push(key);
+        }
+      });
+    });
+
+    const ordered = [...allColumns].sort((a, b) => {
+      const normalizedA = normalizeAnnualKey(a);
+      const normalizedB = normalizeAnnualKey(b);
+      const priorityA = annualPreferredOrder.findIndex((target) => normalizedA === target);
+      const priorityB = annualPreferredOrder.findIndex((target) => normalizedB === target);
+      const safePriorityA = priorityA === -1 ? Number.MAX_SAFE_INTEGER : priorityA;
+      const safePriorityB = priorityB === -1 ? Number.MAX_SAFE_INTEGER : priorityB;
+      if (safePriorityA !== safePriorityB) return safePriorityA - safePriorityB;
+      return normalizedA.localeCompare(normalizedB);
+    });
+
+    return ordered;
+  }, [annual2026Data]);
+
+  const annualColumnsToRender = useMemo(() => {
+    if (!annualTableColumns.length) return [] as string[];
+    return canManageRecords ? [...annualTableColumns, '__actions'] : [...annualTableColumns];
+  }, [annualTableColumns, canManageRecords]);
+
+  const annualStickyInfo = useMemo(() => {
+    const definitions: Array<{ id: string; match: string[]; width: number }> = [
+      { id: 'no', match: ['no', 'no.', '#', 'n'], width: 80 },
+      { id: 'clave', match: ['clave cucop', 'clave cucop (dn 10)', 'clave cucop dn10'], width: 160 },
+      { id: 'servicio', match: ['nombre del servicio', 'nombre del servicio.', 'servicio'], width: 380 },
+    ];
+
+    const meta = new Map<string, { left: number; width: number }>();
+    const order: string[] = [];
+    let left = 0;
+
+    definitions.forEach((definition) => {
+      const matchedColumn = annualTableColumns.find((column) => {
+        const normalized = normalizeAnnualKey(column);
+        return definition.match.some((target) => normalized === target);
+      });
+
+      if (matchedColumn) {
+        meta.set(matchedColumn, { left, width: definition.width });
+        order.push(matchedColumn);
+        left += definition.width;
+      }
+    });
+
+    return { meta, order };
+  }, [annualTableColumns]);
+
+  const annualLastStickyKey = annualStickyInfo.order[annualStickyInfo.order.length - 1];
+
+  const invoicesStickyInfo = useMemo(() => {
+    const meta = new Map<string, { left: number; width: number }>();
+    const order: string[] = [];
+    let left = 0;
+
+    invoicesStickyDefinitions.forEach((definition) => {
+      const matchedColumn = invoicesTableColumns.find((column) => {
+        const normalized = normalizeAnnualKey(column);
+        return definition.match.some((target) => normalized === target);
+      });
+
+      if (matchedColumn) {
+        meta.set(matchedColumn, { left, width: definition.width });
+        order.push(matchedColumn);
+        left += definition.width;
+      }
+    });
+
+    return { meta, order };
+  }, [invoicesTableColumns]);
+
+  const invoicesLastStickyKey = invoicesStickyInfo.order[invoicesStickyInfo.order.length - 1];
+
+  const compranetPreferredOrderHints = [
+    ['id'],
+    ['numero de procedimiento', 'numero procedimiento', 'procedimiento numero', 'numero_de_procedimiento', 'no de procedimiento', 'no procedimiento'],
+    ['procedimiento', 'nombre del procedimiento', 'nombre procedimiento', 'procedimiento descripcion'],
+    ['titulo', 'titulo convocatoria', 'titulo del procedimiento'],
+    ['descripcion', 'descripcion del procedimiento', 'descripcion_procedimiento', 'descripcion convocatoria'],
+    ['proveedor', 'proveedor ganador', 'proveedor nombre', 'razon social', 'nombre proveedor'],
+    ['empresa', 'empresa participante', 'empresa ganadora', 'empresa proveedor'],
+    ['dependencia', 'dependencia solicitante', 'unidad solicitante', 'unidad requisitante', 'unidad contratante', 'area solicitante', 'area contratante', 'direccion solicitante'],
+    ['tipo de procedimiento', 'tipo procedimiento', 'modalidad', 'modalidad del procedimiento', 'tipo de contratacion', 'tipo contratacion'],
+    ['estatus', 'estado', 'estatus procedimiento', 'status'],
+    ['numero de contrato', 'numero contrato', 'no contrato'],
+    ['fecha publicacion', 'fecha de publicacion', 'fecha_publicacion', 'fecha apertura', 'fecha fallo', 'fecha adjudicacion', 'fecha_de_apertura'],
+    ['monto estimado', 'monto adjudicado', 'monto contratado', 'monto', 'importe', 'total', 'presupuesto', 'valor contratado', 'valor estimado'],
+    ['observaciones', 'comentarios', 'notas', 'aclaraciones']
+  ];
+
+  const proceduresPreferredOrderHints = [
+    ['id'],
+    ['servicio', 'servicios', 'nombre del servicio', 'nombre del servicio.', 'descripcion del servicio', 'descripcion', 'actividad', 'servicio actividad'],
+    ['tipo_servicio_adquisicion', 'tipo servicio adquisicion', 'tipo de servicio', 'tipo servicio', 'adquisicion'],
+    ['tipo_contrato', 'tipo contrato'],
+    ['administrador_contrato', 'administrador contrato', 'administrador_co', 'administrador del contrato'],
+    ['gerencia'],
+    ['subdireccion', 'sub direccion', 'sub-direccion'],
+    ['responsable_gpyc', 'responsable gpyc', 'responsable g p y c', 'responsable seguimiento', 'responsable'],
+    ['oficio_suficiencia_presupuestal', 'oficio suficiencia presupuestal'],
+    ['monto_suficiencia_presupuestal', 'monto suficiencia presupuestal', 'monto_suficiencia'],
+    ['paaas', 'paas', 'p a a s'],
+    ['precio_prevaleciente_minimo_2025', 'precio prevaleciente minimo 2025', 'precio minimo 2025'],
+    ['precio_prevaleciente_maximo_2025', 'precio prevaleciente maximo 2025', 'precio maximo 2025'],
+    ['monto_maximo_adjudicado_2024', 'monto maximo adjudicado 2024'],
+    ['monto_maximo_adjudicado_2025', 'monto maximo adjudicado 2025'],
+    ['tipo_procedimiento', 'tipo procedimiento'],
+    ['tipo_contratacion', 'tipo contratacion'],
+    ['observacion', 'observaciones', 'comentarios', 'notas', 'detalle', 'hallazgos'],
+    ['situacion', 'estatus', 'status', 'estado', 'avance', 'seguimiento', 'estatus seguimiento'],
+    ['proveedor', 'empresa proveedor', 'empresa'],
+    ['oficio_investigacion_mercado', 'oficio investigacion mercado'],
+    ['ultima_revision', 'ultima revision', 'última revision', 'ultima_actualizacion', 'actualizacion'],
+    ['documentacion_soporte', 'documentacion soporte', 'documentación soporte'],
+    ['investigacion_mercado', 'investigacion mercado'],
+    ['suficiencia_presupuestal', 'suficiencia presupuestal'],
+    ['licitacion_publica', 'licitacion publica'],
+    ['publicacion_convocatoria', 'publicacion convocatoria'],
+    ['visita_instalaciones', 'visita instalaciones'],
+    ['junta_aclaraciones', 'junta aclaraciones'],
+    ['apertura_proposiciones', 'apertura proposiciones'],
+    ['fallo'],
+    ['diferimiento_fallo', 'diferimiento fallo'],
+    ['area_responsable', 'area responsable'],
+    ['area_tecnica', 'area tecnica'],
+    ['contacto']
+  ];
+
+  const compranetTableColumns = useMemo(() => {
+    if (!compranetData.length) return [] as string[];
+
+    const priorityMap = new Map<string, number>();
+    compranetPreferredOrderHints.forEach((synonyms, index) => {
+      synonyms.forEach((label) => {
+        priorityMap.set(normalizeAnnualKey(label), index);
+      });
+    });
+
+    const columns = new Set<string>();
+    compranetData.forEach((row) => {
+      if (!row) return;
+      Object.keys(row).forEach((key) => {
+        if (key) columns.add(key);
+      });
+    });
+
+    return Array.from(columns).sort((a, b) => {
+      const normalizedA = normalizeAnnualKey(a);
+      const normalizedB = normalizeAnnualKey(b);
+      const priorityA = priorityMap.get(normalizedA);
+      const priorityB = priorityMap.get(normalizedB);
+
+      if (priorityA !== undefined && priorityB !== undefined && priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      if (priorityA !== undefined && priorityB === undefined) return -1;
+      if (priorityB !== undefined && priorityA === undefined) return 1;
+      return normalizedA.localeCompare(normalizedB, 'es');
+    });
+  }, [compranetData]);
+
+  const compranetColumnsToRender = useMemo(() => {
+    if (!compranetTableColumns.length) return [] as string[];
+    return canManageRecords ? [...compranetTableColumns, '__actions'] : [...compranetTableColumns];
+  }, [compranetTableColumns, canManageRecords]);
+
+  const proceduresTableColumns = useMemo(() => {
+    if (!proceduresData.length) return [] as string[];
+
+    const priorityMap = new Map<string, number>();
+    proceduresPreferredOrderHints.forEach((synonyms, index) => {
+      synonyms.forEach((label) => {
+        priorityMap.set(normalizeAnnualKey(label), index);
+      });
+    });
+
+    const columns = new Set<string>();
+    proceduresData.forEach((row) => {
+      if (!row) return;
+      Object.keys(row).forEach((key) => {
+        if (key) columns.add(key);
+      });
+    });
+
+    return Array.from(columns).sort((a, b) => {
+      const normalizedA = normalizeAnnualKey(a);
+      const normalizedB = normalizeAnnualKey(b);
+      const priorityA = priorityMap.get(normalizedA);
+      const priorityB = priorityMap.get(normalizedB);
+
+      if (priorityA !== undefined && priorityB !== undefined && priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      if (priorityA !== undefined && priorityB === undefined) return -1;
+      if (priorityB !== undefined && priorityA === undefined) return 1;
+      return normalizedA.localeCompare(normalizedB, 'es');
+    });
+  }, [proceduresData]);
+
+  const proceduresColumnsToRender = useMemo(() => {
+    if (!proceduresTableColumns.length) return [] as string[];
+    return canManageRecords ? [...proceduresTableColumns, '__actions'] : [...proceduresTableColumns];
+  }, [proceduresTableColumns, canManageRecords]);
+
+  const sortedProceduresData = useMemo(() => {
+    if (!proceduresData.length) return [] as ProcedureRecord[];
+
+    const parseNumericId = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string') {
+        const cleaned = value.trim();
+        if (!cleaned.length) return null;
+        let numericText = cleaned.replace(/\s+/g, '').replace(/\$/g, '');
+        if (numericText.includes(',') && !numericText.includes('.')) {
+          numericText = numericText.replace(/,/g, '.');
+        } else {
+          numericText = numericText.replace(/,/g, '');
+        }
+        const parsed = Number(numericText);
+        return Number.isNaN(parsed) ? null : parsed;
+      }
+      return null;
+    };
+
+    const toComparableText = (value: unknown) => {
+      if (value === null || value === undefined) return '';
+      return String(value).trim().toLowerCase();
+    };
+
+    return proceduresData
+      .map((row, index) => ({ row, index }))
+      .sort((a, b) => {
+        const idA = a.row?.id ?? null;
+        const idB = b.row?.id ?? null;
+        const numericA = parseNumericId(idA);
+        const numericB = parseNumericId(idB);
+
+        if (numericA !== null && numericB !== null && numericA !== numericB) {
+          return numericA - numericB;
+        }
+        if (numericA !== null && numericB === null) return -1;
+        if (numericA === null && numericB !== null) return 1;
+
+        const textA = toComparableText(idA);
+        const textB = toComparableText(idB);
+
+        if (textA && textB && textA !== textB) {
+          return textA.localeCompare(textB, 'es');
+        }
+        if (!textA && textB) return 1;
+        if (textA && !textB) return -1;
+
+        return a.index - b.index;
+      })
+      .map(({ row }) => row);
+  }, [proceduresData]);
+
+  const compranetStatusKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['estatus', 'status', 'estado']),
+    [compranetTableColumns]
+  );
+
+  const compranetDependencyKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['dependencia', 'unidad', 'area', 'direccion', 'departamento']),
+    [compranetTableColumns]
+  );
+
+  const compranetAmountKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['monto', 'importe', 'total', 'valor', 'presupuesto', 'estimado', 'contratado', 'adjudicado']),
+    [compranetTableColumns]
+  );
+
+  const compranetTypeKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['tipo de procedimiento', 'modalidad', 'tipo de contratacion', 'tipo']),
+    [compranetTableColumns]
+  );
+
+  const compranetDateKey = useMemo(
+    () => findColumnByFragments(compranetTableColumns, ['fecha publicacion', 'fecha de publicacion', 'fecha', 'publicacion', 'apertura', 'acto', 'fallo', 'adjudicacion']),
+    [compranetTableColumns]
+  );
+
+  const proceduresStickyDefinitions = useMemo(() => (
+    isProceduresCompact
+      ? [
+          { match: ['id'], width: 80 },
+          { match: ['servicio', 'nombre del servicio', 'nombre del servicio.', 'descripcion', 'actividad', 'servicio actividad'], width: 220 },
+          { match: ['responsable gpyc', 'responsable g p y c', 'responsable'], width: 160 },
+        ]
+      : [
+          { match: ['id'], width: 100 },
+          { match: ['servicio', 'nombre del servicio', 'nombre del servicio.', 'descripcion', 'actividad', 'servicio actividad'], width: 260 },
+          { match: ['responsable gpyc', 'responsable g p y c', 'responsable'], width: 190 },
+        ]
+  ), [isProceduresCompact]);
+
+  const proceduresStickyInfo = useMemo(() => {
+    if (!proceduresTableColumns.length) {
+      return { meta: new Map<string, { left: number; width: number }>(), order: [] as string[] };
+    }
+
+    const meta = new Map<string, { left: number; width: number }>();
+    const order: string[] = [];
+    let left = 0;
+
+    proceduresStickyDefinitions.forEach((definition) => {
+      const matchedColumn = proceduresTableColumns.find((column) => {
+        const normalized = normalizeAnnualKey(column);
+        return definition.match.some((target) => normalized === normalizeAnnualKey(target));
+      });
+
+      if (matchedColumn) {
+        meta.set(matchedColumn, { left, width: definition.width });
+        order.push(matchedColumn);
+        left += definition.width;
+      }
+    });
+
+    return { meta, order };
+  }, [proceduresTableColumns, proceduresStickyDefinitions]);
+
+  const proceduresLastStickyKey = proceduresStickyInfo.order[proceduresStickyInfo.order.length - 1];
+
+  const proceduresResponsibleKey = useMemo(
+    () => findColumnByFragments(proceduresTableColumns, ['responsable gpyc', 'responsable', 'responsable seguimiento', 'responsable g p y c', 'gpyc']),
+    [proceduresTableColumns]
+  );
+
+  const proceduresServiceKey = useMemo(
+    () => findColumnByFragments(proceduresTableColumns, ['servicio', 'servicios', 'nombre del servicio', 'descripcion', 'actividad']),
+    [proceduresTableColumns]
+  );
+
+  const proceduresStatusKey = useMemo(
+    () => findColumnByFragments(proceduresTableColumns, ['estatus', 'status', 'estado', 'avance', 'seguimiento']),
+    [proceduresTableColumns]
+  );
+
+  const proceduresDeadlineKey = useMemo(
+    () => findColumnByFragments(proceduresTableColumns, ['fecha compromiso', 'fecha limite', 'fecha', 'plazo', 'entrega', 'vencimiento']),
+    [proceduresTableColumns]
+  );
+
+  const proceduresUpdatedAtKey = useMemo(
+    () => findColumnByFragments(proceduresTableColumns, ['updated_at', 'updated', 'ultima actualizacion', 'fecha actualizacion', 'actualizacion']),
+    [proceduresTableColumns]
+  );
+
+  const proceduresLastUpdated = useMemo(() => {
+    if (!proceduresData.length || !proceduresUpdatedAtKey) return null as Date | null;
+    const timestamps: Date[] = [];
+    proceduresData.forEach((row) => {
+      const raw = row[proceduresUpdatedAtKey];
+      const parsed = parsePotentialDate(raw);
+      if (parsed) timestamps.push(parsed);
+    });
+    if (!timestamps.length) return null;
+    timestamps.sort((a, b) => b.getTime() - a.getTime());
+    return timestamps[0];
+  }, [proceduresData, proceduresUpdatedAtKey]);
+
+  const proceduresLastUpdatedLabel = useMemo(() => (
+    proceduresLastUpdated ? formatDateTime(proceduresLastUpdated.toISOString()) : null
+  ), [proceduresLastUpdated]);
+
+  const proceduresSummaries = useMemo<ProcedureResponsibleSummary[]>(() => {
+    if (!proceduresData.length) return [];
+
+    type MutableSummary = ProcedureResponsibleSummary & { statusCounter: Map<string, number> };
+    const map = new Map<string, MutableSummary>();
+
+    const getResponsibleLabel = (rawValue: unknown) => {
+      if (rawValue === null || rawValue === undefined) {
+        return 'Sin responsable asignado';
+      }
+      const normalized = normalizeWhitespace(String(rawValue));
+      return normalized.length ? normalized : 'Sin responsable asignado';
+    };
+
+    proceduresData.forEach((row, index) => {
+      const responsibleLabel = getResponsibleLabel(proceduresResponsibleKey ? row[proceduresResponsibleKey] : null);
+
+      let summary = map.get(responsibleLabel);
+      if (!summary) {
+        summary = {
+          responsible: responsibleLabel,
+          total: 0,
+          statusBreakdown: [],
+          services: [],
+          statusCounter: new Map<string, number>(),
+        };
+        map.set(responsibleLabel, summary);
+      }
+
+      const serviceRaw = proceduresServiceKey ? row[proceduresServiceKey] : null;
+      const serviceLabelCandidate = serviceRaw !== null && serviceRaw !== undefined
+        ? normalizeWhitespace(String(serviceRaw))
+        : '';
+      const serviceLabel = serviceLabelCandidate.length
+        ? serviceLabelCandidate
+        : `Servicio ${summary.total + 1}`;
+
+      const statusRaw = proceduresStatusKey ? row[proceduresStatusKey] : null;
+      const statusCandidate = statusRaw !== null && statusRaw !== undefined
+        ? normalizeWhitespace(String(statusRaw))
+        : '';
+      const statusLabel = statusCandidate.length ? statusCandidate : null;
+      const statusCounterKey = statusLabel ?? 'Sin estatus asignado';
+
+      let deadlineLabel: string | null = null;
+      if (proceduresDeadlineKey) {
+        const deadlineRaw = row[proceduresDeadlineKey];
+        if (deadlineRaw !== null && deadlineRaw !== undefined) {
+          const parsedDeadline = parsePotentialDate(deadlineRaw);
+          if (parsedDeadline) {
+            deadlineLabel = formatDateOnly(parsedDeadline);
+          } else {
+            const normalizedDeadline = normalizeWhitespace(String(deadlineRaw));
+            deadlineLabel = normalizedDeadline.length ? normalizedDeadline : null;
+          }
+        }
+      }
+
+      const serviceId = row.id ?? `procedimiento-${index}`;
+
+      summary.total += 1;
+      summary.services.push({
+        id: serviceId,
+        label: serviceLabel,
+        statusLabel,
+        deadlineLabel,
+        raw: row,
+      });
+
+      summary.statusCounter.set(
+        statusCounterKey,
+        (summary.statusCounter.get(statusCounterKey) ?? 0) + 1,
+      );
+    });
+
+    const summaries = Array.from(map.values()).map((entry) => {
+      const { statusCounter, ...rest } = entry;
+      const statusBreakdown = Array.from(statusCounter.entries())
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => {
+          if (a.count !== b.count) return b.count - a.count;
+          return a.label.localeCompare(b.label, 'es');
+        });
+
+      return {
+        responsible: rest.responsible,
+        total: rest.total,
+        services: rest.services,
+        statusBreakdown,
+      } as ProcedureResponsibleSummary;
+    });
+
+    summaries.sort((a, b) => {
+      if (a.total !== b.total) return b.total - a.total;
+      return a.responsible.localeCompare(b.responsible, 'es');
+    });
+
+    return summaries;
+  }, [proceduresData, proceduresResponsibleKey, proceduresServiceKey, proceduresStatusKey, proceduresDeadlineKey]);
+
+  const proceduresTotalServices = proceduresData.length;
+  const proceduresUniqueResponsibles = proceduresSummaries.length;
+  const proceduresUnassignedCount = useMemo(() => {
+    const unassigned = proceduresSummaries.find((summary) => summary.responsible === 'Sin responsable asignado');
+    return unassigned?.total ?? 0;
+  }, [proceduresSummaries]);
+
+  const topProcedureResponsible = proceduresSummaries[0] ?? null;
+
+  const selectedResponsibleSummary = useMemo(() => {
+    if (!selectedResponsibleName) return null;
+    return proceduresSummaries.find((summary) => summary.responsible === selectedResponsibleName) ?? null;
+  }, [proceduresSummaries, selectedResponsibleName]);
+
+  const proceduresHighlightKeys = useMemo(() => {
+    const source = proceduresColumnsToRender.length ? proceduresColumnsToRender : proceduresTableColumns;
+    return source
+      .filter((key) => key && key !== '__actions' && key !== proceduresResponsibleKey)
+      .slice(0, 6);
+  }, [proceduresColumnsToRender, proceduresTableColumns, proceduresResponsibleKey]);
+
+  const handleProcedureCellEdit = (rowRef: ProcedureRecord, column: string, rawInput: string) => {
+    const normalizedInput = rawInput.replace(/\u00A0/g, ' ').trim();
+    const currentValue = rowRef[column];
+    const lowerColumn = column.toLowerCase();
+    const columnSuggestsDate = ['fecha', 'vigencia', 'fallo', 'apertura', 'publicacion', 'término', 'termino', 'inicio', 'visita', 'revision', 'revisión', 'diferimiento']
+      .some((fragment) => lowerColumn.includes(fragment));
+    const inputSuggestsDate = /[-\/]/.test(normalizedInput) || /\d{1,2}\s+de\s+\w+/i.test(normalizedInput) || /\d{1,2}:\d{2}/.test(normalizedInput) || /t\d{2}:/i.test(normalizedInput);
+
+    const looksNumeric = (value: string) => {
+      const normalized = value.replace(/\s+/g, '');
+      return /^[-+]?\d+(?:[.,]\d+)?$/.test(normalized.replace(/,/g, '.'));
+    };
+
+    const parseNumericLike = (value: string) => {
+      let sanitized = value.replace(/\s+/g, '').replace(/\$/g, '');
+      if (sanitized.includes(',') && !sanitized.includes('.')) {
+        sanitized = sanitized.replace(/,/g, '.');
+      } else {
+        sanitized = sanitized.replace(/,/g, '');
+      }
+      const parsed = Number(sanitized);
+      return Number.isNaN(parsed) ? null : parsed;
+    };
+
+    let nextValue: any;
+    if (!normalizedInput.length) {
+      nextValue = null;
+    } else {
+      let parsedDateInput: Date | null = null;
+      if (columnSuggestsDate || inputSuggestsDate) {
+        parsedDateInput = parsePotentialDate(normalizedInput);
+      }
+
+      if (parsedDateInput) {
+        const isoDate = `${parsedDateInput.getFullYear()}-${String(parsedDateInput.getMonth() + 1).padStart(2, '0')}-${String(parsedDateInput.getDate()).padStart(2, '0')}`;
+        const hasTime = /\d{1,2}:\d{2}/.test(normalizedInput) || /t\d{2}:/i.test(normalizedInput);
+        if (hasTime) {
+          const hours = String(parsedDateInput.getHours()).padStart(2, '0');
+          const minutes = String(parsedDateInput.getMinutes()).padStart(2, '0');
+          const seconds = String(parsedDateInput.getSeconds()).padStart(2, '0');
+          nextValue = `${isoDate}T${hours}:${minutes}:${seconds}`;
+        } else {
+          nextValue = isoDate;
+        }
+      } else if (typeof currentValue === 'number' || shouldFormatAsCurrency(column)) {
+        const numericCandidate = parseNumericLike(normalizedInput);
+        nextValue = numericCandidate !== null ? numericCandidate : normalizedInput;
+      } else if (looksNumeric(normalizedInput)) {
+        const numericCandidate = parseNumericLike(normalizedInput);
+        nextValue = numericCandidate !== null ? numericCandidate : normalizedInput;
+      } else {
+        nextValue = normalizedInput;
+      }
+    }
+
+    setProceduresData((prev) => prev.map((entry) => {
+      if (entry === rowRef) {
+        if (entry[column] === nextValue) return entry;
+        return { ...entry, [column]: nextValue };
+      }
+      return entry;
+    }));
+  };
+
+  const handleAddProcedureRow = useCallback(() => {
+    if (!proceduresTableColumns.length) return;
+
+    const template = generateTemplateFromColumns(proceduresTableColumns);
+    const newRow: ProcedureRecord = { ...template, id: null };
+
+    setProceduresData((prev) => [...prev, newRow]);
+    setIsProceduresEditing(true);
+  }, [proceduresTableColumns]);
+
   const executiveInsights = useMemo<ExecutiveInsight[]>(() => {
     const insights: ExecutiveInsight[] = [];
     const nextExpiring = contractTimelineInsights.upcoming[0] ?? null;
@@ -2430,6 +3122,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       });
     }
 
+    if (topProcedureResponsible && topProcedureResponsible.total > 0 && insights.length < 4) {
+      const topStatuses = topProcedureResponsible.statusBreakdown.slice(0, 2)
+        .map((item) => `${item.label} (${item.count})`)
+        .join(' · ');
+      insights.push({
+        id: 'gpyc-lead',
+        title: `${topProcedureResponsible.responsible} concentra ${topProcedureResponsible.total} servicio${topProcedureResponsible.total === 1 ? '' : 's'}`,
+        detail: topStatuses.length ? `Estatus principales: ${topStatuses}.` : 'Distribución equilibrada de estatus.',
+        tone: topProcedureResponsible.total >= 6 ? 'alert' : 'neutral',
+        icon: Briefcase,
+      });
+    }
+
+    if (proceduresUnassignedCount > 0 && insights.length < 4) {
+      insights.push({
+        id: 'gpyc-unassigned',
+        title: `${proceduresUnassignedCount} servicio${proceduresUnassignedCount === 1 ? '' : 's'} sin responsable GPyC`,
+        detail: 'Asigna un responsable para habilitar seguimiento oportuno.',
+        tone: 'alert',
+        icon: AlertCircle,
+      });
+    }
+
     const limited = insights.filter(Boolean).slice(0, 4);
     if (limited.length) return limited;
 
@@ -2464,177 +3179,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     paasData.length,
     paymentsData.length,
     procedureStatuses.length,
+    proceduresSummaries,
+    proceduresUnassignedCount,
   ]);
-
-  const contractStatusHasData = useMemo(() => contractStatusData.some((item) => item.value > 0), [contractStatusData]);
-  const invoicesStatusHasData = useMemo(() => invoicesStatusSummary.some((item) => item.value > 0), [invoicesStatusSummary]);
-  const paymentsFlowHasData = useMemo(() => paymentsMonthlyFlow.some((item) => Math.abs(item.value) > 0), [paymentsMonthlyFlow]);
-  const topPaasGerenciasHasData = useMemo(() => topPaasGerencias.some((item) => item.value > 0), [topPaasGerencias]);
-  const budgetExecutionHasData = totalContratado > 0;
-
-  const annualTableColumns = useMemo(() => {
-    if (!annual2026Data.length) return [] as string[];
-    const seen = new Set<string>();
-    const allColumns: string[] = [];
-    annual2026Data.forEach((row) => {
-      Object.keys(row).forEach((key) => {
-        if (!seen.has(key)) {
-          seen.add(key);
-          allColumns.push(key);
-        }
-      });
-    });
-
-    const ordered = [...allColumns].sort((a, b) => {
-      const normalizedA = normalizeAnnualKey(a);
-      const normalizedB = normalizeAnnualKey(b);
-      const priorityA = annualPreferredOrder.findIndex((target) => normalizedA === target);
-      const priorityB = annualPreferredOrder.findIndex((target) => normalizedB === target);
-      const safePriorityA = priorityA === -1 ? Number.MAX_SAFE_INTEGER : priorityA;
-      const safePriorityB = priorityB === -1 ? Number.MAX_SAFE_INTEGER : priorityB;
-      if (safePriorityA !== safePriorityB) return safePriorityA - safePriorityB;
-      return normalizedA.localeCompare(normalizedB);
-    });
-
-    return ordered;
-  }, [annual2026Data]);
-
-  const annualColumnsToRender = useMemo(() => {
-    if (!annualTableColumns.length) return [] as string[];
-    return canManageRecords ? [...annualTableColumns, '__actions'] : [...annualTableColumns];
-  }, [annualTableColumns, canManageRecords]);
-
-  const annualStickyInfo = useMemo(() => {
-    const definitions: Array<{ id: string; match: string[]; width: number }> = [
-      { id: 'no', match: ['no', 'no.', '#', 'n'], width: 80 },
-      { id: 'clave', match: ['clave cucop', 'clave cucop (dn 10)', 'clave cucop dn10'], width: 160 },
-      { id: 'servicio', match: ['nombre del servicio', 'nombre del servicio.', 'servicio'], width: 380 },
-    ];
-
-    const meta = new Map<string, { left: number; width: number }>();
-    const order: string[] = [];
-    let left = 0;
-
-    definitions.forEach((definition) => {
-      const matchedColumn = annualTableColumns.find((column) => {
-        const normalized = normalizeAnnualKey(column);
-        return definition.match.some((target) => normalized === target);
-      });
-
-      if (matchedColumn) {
-        meta.set(matchedColumn, { left, width: definition.width });
-        order.push(matchedColumn);
-        left += definition.width;
-      }
-    });
-
-    return { meta, order };
-  }, [annualTableColumns]);
-
-  const annualLastStickyKey = annualStickyInfo.order[annualStickyInfo.order.length - 1];
-
-  const invoicesStickyInfo = useMemo(() => {
-    const meta = new Map<string, { left: number; width: number }>();
-    const order: string[] = [];
-    let left = 0;
-
-    invoicesStickyDefinitions.forEach((definition) => {
-      const matchedColumn = invoicesTableColumns.find((column) => {
-        const normalized = normalizeAnnualKey(column);
-        return definition.match.some((target) => normalized === target);
-      });
-
-      if (matchedColumn) {
-        meta.set(matchedColumn, { left, width: definition.width });
-        order.push(matchedColumn);
-        left += definition.width;
-      }
-    });
-
-    return { meta, order };
-  }, [invoicesTableColumns]);
-
-  const invoicesLastStickyKey = invoicesStickyInfo.order[invoicesStickyInfo.order.length - 1];
-
-  const compranetPreferredOrderHints = [
-    ['id'],
-    ['numero de procedimiento', 'numero procedimiento', 'procedimiento numero', 'numero_de_procedimiento', 'no de procedimiento', 'no procedimiento'],
-    ['procedimiento', 'nombre del procedimiento', 'nombre procedimiento', 'procedimiento descripcion'],
-    ['titulo', 'titulo convocatoria', 'titulo del procedimiento'],
-    ['descripcion', 'descripcion del procedimiento', 'descripcion_procedimiento', 'descripcion convocatoria'],
-    ['proveedor', 'proveedor ganador', 'proveedor nombre', 'razon social', 'nombre proveedor'],
-    ['empresa', 'empresa participante', 'empresa ganadora', 'empresa proveedor'],
-    ['dependencia', 'dependencia solicitante', 'unidad solicitante', 'unidad requisitante', 'unidad contratante', 'area solicitante', 'area contratante', 'direccion solicitante'],
-    ['tipo de procedimiento', 'tipo procedimiento', 'modalidad', 'modalidad del procedimiento', 'tipo de contratacion', 'tipo contratacion'],
-    ['estatus', 'estado', 'estatus procedimiento', 'status'],
-    ['numero de contrato', 'numero contrato', 'no contrato'],
-    ['fecha publicacion', 'fecha de publicacion', 'fecha_publicacion', 'fecha apertura', 'fecha fallo', 'fecha adjudicacion', 'fecha_de_apertura'],
-    ['monto estimado', 'monto adjudicado', 'monto contratado', 'monto', 'importe', 'total', 'presupuesto', 'valor contratado', 'valor estimado'],
-    ['observaciones', 'comentarios', 'notas', 'aclaraciones']
-  ];
-
-  const compranetTableColumns = useMemo(() => {
-    if (!compranetData.length) return [] as string[];
-
-    const priorityMap = new Map<string, number>();
-    compranetPreferredOrderHints.forEach((synonyms, index) => {
-      synonyms.forEach((label) => {
-        priorityMap.set(normalizeAnnualKey(label), index);
-      });
-    });
-
-    const columns = new Set<string>();
-    compranetData.forEach((row) => {
-      if (!row) return;
-      Object.keys(row).forEach((key) => {
-        if (key) columns.add(key);
-      });
-    });
-
-    return Array.from(columns).sort((a, b) => {
-      const normalizedA = normalizeAnnualKey(a);
-      const normalizedB = normalizeAnnualKey(b);
-      const priorityA = priorityMap.get(normalizedA);
-      const priorityB = priorityMap.get(normalizedB);
-
-      if (priorityA !== undefined && priorityB !== undefined && priorityA !== priorityB) {
-        return priorityA - priorityB;
-      }
-      if (priorityA !== undefined && priorityB === undefined) return -1;
-      if (priorityB !== undefined && priorityA === undefined) return 1;
-      return normalizedA.localeCompare(normalizedB, 'es');
-    });
-  }, [compranetData]);
-
-  const compranetColumnsToRender = useMemo(() => {
-    if (!compranetTableColumns.length) return [] as string[];
-    return canManageRecords ? [...compranetTableColumns, '__actions'] : [...compranetTableColumns];
-  }, [compranetTableColumns, canManageRecords]);
-
-  const compranetStatusKey = useMemo(
-    () => findColumnByFragments(compranetTableColumns, ['estatus', 'status', 'estado']),
-    [compranetTableColumns]
-  );
-
-  const compranetDependencyKey = useMemo(
-    () => findColumnByFragments(compranetTableColumns, ['dependencia', 'unidad', 'area', 'direccion', 'departamento']),
-    [compranetTableColumns]
-  );
-
-  const compranetAmountKey = useMemo(
-    () => findColumnByFragments(compranetTableColumns, ['monto', 'importe', 'total', 'valor', 'presupuesto', 'estimado', 'contratado', 'adjudicado']),
-    [compranetTableColumns]
-  );
-
-  const compranetTypeKey = useMemo(
-    () => findColumnByFragments(compranetTableColumns, ['tipo de procedimiento', 'modalidad', 'tipo de contratacion', 'tipo']),
-    [compranetTableColumns]
-  );
-
-  const compranetDateKey = useMemo(
-    () => findColumnByFragments(compranetTableColumns, ['fecha publicacion', 'fecha de publicacion', 'fecha', 'publicacion', 'apertura', 'acto', 'fallo', 'adjudicacion']),
-    [compranetTableColumns]
-  );
 
   const compranetTotalAmount = useMemo(() => {
     if (!compranetAmountKey) return 0;
@@ -3391,6 +3938,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     <div className="flex items-center gap-2">
                       <AlertCircle className="h-4 w-4" />
                       Observaciones de Pago (Octubre)
+                    </div>
+                  </button>
+                  <button 
+                     onClick={() => setActiveContractSubTab('procedures')}
+                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'procedures' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Procedimientos
                     </div>
                   </button>
                </div>
@@ -5069,6 +5625,489 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </div>
               )}
 
+              {activeContractSubTab === 'procedures' && (
+                <div className="animate-fade-in space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Servicios en seguimiento</p>
+                      <div className="flex items-end justify-between mt-3">
+                        <h3 className="text-3xl font-bold text-slate-900">{proceduresTotalServices}</h3>
+                        <span className="text-[11px] text-slate-400 text-right">
+                          {proceduresLastUpdatedLabel ? (
+                            <>
+                              Última actualización
+                              <br />
+                              {proceduresLastUpdatedLabel}
+                            </>
+                          ) : 'Actualiza desde Supabase para sincronizar'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Responsables activos</p>
+                      <div className="flex items-end justify-between mt-3">
+                        <h3 className="text-3xl font-bold text-slate-900">{proceduresUniqueResponsibles}</h3>
+                        <span className="text-[11px] text-slate-400 text-right">
+                          {topProcedureResponsible ? `Mayor carga: ${topProcedureResponsible.responsible}` : 'Sin responsables detectados'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={`bg-white rounded-xl border border-slate-200 shadow-sm p-5 ${proceduresUnassignedCount ? 'ring-1 ring-amber-200' : ''}`}>
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Sin responsable asignado</p>
+                      <div className="flex items-end justify-between mt-3">
+                        <h3 className={`text-3xl font-bold ${proceduresUnassignedCount ? 'text-amber-600' : 'text-slate-900'}`}>{proceduresUnassignedCount}</h3>
+                        <span className="text-[11px] text-slate-400 text-right">
+                          {proceduresUnassignedCount ? 'Asigna encargados para activar seguimiento.' : 'Todos los servicios tienen responsable.'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800">Seguimiento por responsable GPyC</h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {proceduresSummaries.length
+                            ? `${proceduresSummaries.length} responsable${proceduresSummaries.length === 1 ? '' : 's'} monitorean ${proceduresTotalServices} servicio${proceduresTotalServices === 1 ? '' : 's'}.`
+                            : 'Carga registros en Supabase para distribuir responsabilidades.'}
+                        </p>
+                        {!proceduresResponsibleKey && (
+                          <p className="mt-2 text-xs text-amber-600 font-semibold">
+                            No se detectó un campo "Responsable GPyC". Añádelo en la tabla para clasificar automáticamente.
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <span>
+                          Total servicios: <span className="font-semibold text-slate-700">{proceduresTotalServices}</span>
+                        </span>
+                        {canManageRecords && (
+                          <button
+                            onClick={() => openRecordEditor('procedimientos', 'Procedimiento', proceduresTableColumns, null, null, 'Define responsable, servicio y fechas clave con descripciones concisas.')}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Nuevo registro
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {proceduresSummaries.length ? (
+                      selectedResponsibleSummary ? (
+                        <div className="mt-6 rounded-xl border border-[#0F4C3A]/20 bg-[#0F4C3A]/5 px-4 py-3 text-xs font-semibold text-[#0F4C3A]">
+                          Mostrando el detalle de {selectedResponsibleSummary.responsible}. Usa "Regresar a responsables" para volver a la lista completa.
+                        </div>
+                      ) : (
+                        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                          {proceduresSummaries.map((summary) => {
+                            const isActive = selectedResponsibleName === summary.responsible;
+                            return (
+                              <button
+                                key={summary.responsible}
+                                type="button"
+                                aria-pressed={isActive}
+                                onClick={() => setSelectedResponsibleName((current) => (current === summary.responsible ? null : summary.responsible))}
+                                className={`text-left rounded-xl border transition-all p-5 bg-white ${isActive ? 'border-[#0F4C3A] shadow-lg ring-1 ring-[#0F4C3A]/20' : 'border-slate-200 hover:border-[#B38E5D] hover:shadow-md'}`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-sm font-semibold text-slate-800 leading-tight truncate">
+                                    {summary.responsible}
+                                  </span>
+                                  <span className="text-xs font-semibold text-[#0F4C3A] bg-[#0F4C3A]/10 px-2 py-1 rounded-full whitespace-nowrap">
+                                    {summary.total} servicio{summary.total === 1 ? '' : 's'}
+                                  </span>
+                                </div>
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                  {summary.statusBreakdown.slice(0, 3).map((item) => (
+                                    <span
+                                      key={`${summary.responsible}-${item.label}`}
+                                      className={`text-[11px] font-medium px-2 py-1 rounded-full ${isActive ? 'bg-[#0F4C3A]/10 text-[#0F4C3A]' : 'bg-slate-100 text-slate-600'}`}
+                                    >
+                                      {item.label} · {item.count}
+                                    </span>
+                                  ))}
+                                  {!summary.statusBreakdown.length && (
+                                    <span className={`text-[11px] font-medium px-2 py-1 rounded-full ${isActive ? 'bg-[#0F4C3A]/10 text-[#0F4C3A]' : 'bg-slate-100 text-slate-500'}`}>
+                                      Sin estatus capturado
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-4 text-xs text-slate-500">
+                                  {isActive ? 'Selección activa · clic para ocultar detalle.' : `Clic para ver detalle de ${summary.services.length} servicio${summary.services.length === 1 ? '' : 's'}.`}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )
+                    ) : (
+                      <div className="mt-6 text-sm text-slate-500 border border-dashed border-slate-200 rounded-xl p-6 text-center">
+                        Aún no hay procedimientos registrados. Integra registros en Supabase para activar el seguimiento.
+                      </div>
+                    )}
+
+                    {selectedResponsibleSummary && (
+                      <div className="mt-8 bg-[#0F4C3A]/5 border border-[#0F4C3A]/20 rounded-xl p-6">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-widest text-[#0F4C3A]">Detalle de carga</p>
+                            <h4 className="mt-2 text-xl font-bold text-slate-900 leading-tight">
+                              {selectedResponsibleSummary.responsible}
+                            </h4>
+                            <p className="text-xs text-slate-600 mt-2">
+                              {selectedResponsibleSummary.total} servicio{selectedResponsibleSummary.total === 1 ? '' : 's'} en seguimiento asignados.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setSelectedResponsibleName(null)}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-transparent bg-white text-xs font-semibold text-slate-600 hover:text-[#0F4C3A] hover:border-[#0F4C3A]/40 transition-colors"
+                          >
+                            <ArrowLeft className="h-4 w-4" />
+                            Regresar a responsables
+                          </button>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {selectedResponsibleSummary.statusBreakdown.length ? (
+                            selectedResponsibleSummary.statusBreakdown.map((item) => (
+                              <span key={`${selectedResponsibleSummary.responsible}-chip-${item.label}`} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white text-[#0F4C3A] shadow-sm">
+                                {item.label} · {item.count}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white text-slate-400 shadow-sm">
+                              Sin estatus capturado
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-6 grid gap-4">
+                          {selectedResponsibleSummary.services.map((service, index) => {
+                            const highlightKeys = proceduresHighlightKeys;
+                            const hasDetails = highlightKeys.some((key) => {
+                              if (!key) return false;
+                              if (!Object.prototype.hasOwnProperty.call(service.raw, key)) return false;
+                              const value = service.raw[key];
+                              return value !== null && value !== undefined && value !== '';
+                            });
+
+                            return (
+                              <div key={String(service.id ?? index)} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Servicio</p>
+                                    <h5 className="mt-1 text-base font-semibold text-slate-800 break-words max-w-xl">
+                                      {service.label || `Servicio ${index + 1}`}
+                                    </h5>
+                                  </div>
+                                  <div className="flex flex-col gap-2 items-end text-right">
+                                    {service.statusLabel && (
+                                      <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#0F4C3A]/10 text-xs font-semibold text-[#0F4C3A]">
+                                        <AlertCircle className="h-3.5 w-3.5" />
+                                        {service.statusLabel}
+                                      </span>
+                                    )}
+                                    {service.deadlineLabel && (
+                                      <span className="text-[11px] font-medium text-slate-500">
+                                        Próximo hito: {service.deadlineLabel}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {hasDetails ? (
+                                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-600">
+                                    {highlightKeys.map((key) => {
+                                      if (!key) return null;
+                                      if (!Object.prototype.hasOwnProperty.call(service.raw, key)) return null;
+                                      const rawValue = service.raw[key];
+                                      if (rawValue === null || rawValue === undefined || rawValue === '') return null;
+                                      return (
+                                        <div key={`${service.id}-${key}`}>
+                                          <p className="font-semibold uppercase tracking-widest text-[11px] text-slate-400">{humanizeKey(key)}</p>
+                                          <p className="mt-1 text-slate-700 whitespace-pre-wrap break-words">{formatTableValue(key, rawValue)}</p>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <p className="mt-4 text-xs text-slate-400 italic">
+                                    Captura información adicional en Supabase para enriquecer este resumen.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800">Procedimientos (tabla `procedimientos`)</h3>
+                        <p className="text-xs text-slate-500 mt-1">Consulta y edita los registros capturados por GPyC.</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <button
+                          type="button"
+                          onClick={() => setIsProceduresCompact((prev) => !prev)}
+                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isProceduresCompact ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                        >
+                          {isProceduresCompact ? (
+                            <>
+                              <Minimize2 className="h-4 w-4" />
+                              Vista estándar
+                            </>
+                          ) : (
+                            <>
+                              <Maximize2 className="h-4 w-4" />
+                              Vista compacta
+                            </>
+                          )}
+                        </button>
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={() => setIsProceduresEditing((prev) => !prev)}
+                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isProceduresEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                          >
+                            {isProceduresEditing ? (
+                              <>
+                                <Save className="h-4 w-4" />
+                                Salir de edición
+                              </>
+                            ) : (
+                              <>
+                                <Pencil className="h-4 w-4" />
+                                Editar
+                              </>
+                            )}
+                          </button>
+                        )}
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={handleAddProcedureRow}
+                            disabled={!proceduresTableColumns.length}
+                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${proceduresTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Agregar fila
+                          </button>
+                        )}
+                        <span>
+                          Total registros: <span className="font-semibold text-slate-700">{proceduresTotalServices}</span>
+                        </span>
+                        {canManageRecords && (
+                          <button
+                            onClick={() => openRecordEditor('procedimientos', 'Procedimiento', proceduresTableColumns, null, null, 'Usa responsable, servicio y próximos hitos con la misma nomenclatura del equipo.')}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Nuevo registro
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {isProceduresEditing && (
+                      <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
+                      </div>
+                    )}
+                    <div className={`relative ${proceduresSizing.containerHeightClass} overflow-auto`}>
+                      <table className={`min-w-full ${proceduresSizing.tableMinWidthClass} ${proceduresSizing.tableTextClass} text-center border-collapse`}>
+                        <thead className={`uppercase tracking-wide text-white ${proceduresSizing.headerTextClass}`}>
+                          <tr className={proceduresSizing.headerRowClass}>
+                            {(proceduresColumnsToRender.length ? proceduresColumnsToRender : proceduresTableColumns.length ? proceduresTableColumns : ['sin_datos']).map((column) => {
+                              if (column === '__actions') {
+                                return (
+                                  <th
+                                    key="procedimientos-actions"
+                                    className={`${proceduresSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center`}
+                                    style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#0F4C3A', color: '#fff', minWidth: `${proceduresSizing.actionsMinWidth}px` }}
+                                  >
+                                    Acciones
+                                  </th>
+                                );
+                              }
+
+                              if (!proceduresTableColumns.length && column === 'sin_datos') {
+                                return (
+                                  <th
+                                    key="procedimientos-empty"
+                                    className={`${proceduresSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center`}
+                                    style={{ position: 'sticky', top: 0, backgroundColor: '#0F4C3A', color: '#fff' }}
+                                  >
+                                    Sin datos
+                                  </th>
+                                );
+                              }
+
+                              const stickyMeta = proceduresStickyInfo.meta.get(column);
+                              const isSticky = Boolean(stickyMeta);
+                              const minWidth = stickyMeta?.width ?? proceduresSizing.stickyFallbackWidth;
+                              const headerStyle: React.CSSProperties = {
+                                position: 'sticky',
+                                top: 0,
+                                zIndex: isSticky ? 60 : 50,
+                                backgroundColor: '#0F4C3A',
+                                color: '#fff',
+                                minWidth: `${minWidth}px`,
+                              };
+
+                              if (isSticky && stickyMeta) {
+                                headerStyle.left = stickyMeta.left;
+                                if (column === proceduresLastStickyKey) {
+                                  headerStyle.boxShadow = '6px 0 10px -4px rgba(15,76,58,0.2)';
+                                }
+                              }
+
+                              return (
+                                <th
+                                  key={column}
+                                  className={`${proceduresSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center`}
+                                  style={headerStyle}
+                                >
+                                  {humanizeKey(column)}
+                                </th>
+                              );
+                            })}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {loadingData ? (
+                            <tr>
+                              <td colSpan={Math.max(proceduresColumnsToRender.length || proceduresTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">
+                                Cargando procedimientos...
+                              </td>
+                            </tr>
+                          ) : !sortedProceduresData.length ? (
+                            <tr>
+                              <td colSpan={Math.max(proceduresColumnsToRender.length || proceduresTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">
+                                No hay registros en la tabla `procedimientos`.
+                              </td>
+                            </tr>
+                          ) : (
+                            sortedProceduresData.map((row, rowIndex) => {
+                              const rowKey = row.id ?? `procedimiento-row-${rowIndex}`;
+                              const isStriped = rowIndex % 2 === 0;
+                              const columns = proceduresColumnsToRender.length ? proceduresColumnsToRender : proceduresTableColumns;
+
+                              return (
+                                <tr key={rowKey} className={isStriped ? 'bg-white hover:bg-emerald-50/40 transition-colors' : 'bg-slate-50 hover:bg-emerald-50/40 transition-colors'}>
+                                  {columns.map((column) => {
+                                    if (column === '__actions') {
+                                      return (
+                                        <td
+                                          key={`procedimientos-actions-${rowKey}`}
+                                          className={`${proceduresSizing.actionsCellPadding} text-center`}
+                                          style={{ minWidth: `${proceduresSizing.actionsMinWidth}px` }}
+                                        >
+                                          {canManageRecords ? (
+                                            <div className="flex justify-center gap-2">
+                                              <button
+                                                onClick={() => openRecordEditor('procedimientos', 'Procedimiento', proceduresTableColumns, row as Record<string, any>) }
+                                                className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                                title="Editar"
+                                              >
+                                                <Pencil className="h-4 w-4" />
+                                              </button>
+                                              <button
+                                                onClick={() => handleDeleteGenericRecord('procedimientos', row as Record<string, any>, 'Procedimiento')}
+                                                className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                title="Eliminar"
+                                              >
+                                                <Trash2 className="h-4 w-4" />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
+                                          )}
+                                        </td>
+                                      );
+                                    }
+
+                                    const rawValue = row[column];
+                                    const stickyMeta = proceduresStickyInfo.meta.get(column);
+                                    const isSticky = Boolean(stickyMeta);
+                                    const minWidth = stickyMeta?.width ?? proceduresSizing.stickyFallbackWidth;
+                                    const numeric = typeof rawValue === 'number' || shouldFormatAsCurrency(column);
+                                    const baseClasses = numeric ? proceduresSizing.numericCellClass : proceduresSizing.textCellClass;
+                                    const isCellEditable = isProceduresEditing && column !== '__actions';
+                                    const cellClasses = isCellEditable ? `${baseClasses} cursor-text` : baseClasses;
+                                    const stickyStyle: React.CSSProperties = {
+                                      minWidth: `${minWidth}px`,
+                                    };
+
+                                    if (isSticky && stickyMeta) {
+                                      stickyStyle.position = 'sticky';
+                                      stickyStyle.left = stickyMeta.left;
+                                      stickyStyle.backgroundColor = isStriped ? '#ffffff' : '#f8fafc';
+                                      stickyStyle.zIndex = 30;
+                                      if (column === proceduresLastStickyKey) {
+                                        stickyStyle.boxShadow = '6px 0 10px -4px rgba(15,76,58,0.18)';
+                                      }
+                                    }
+
+                                    let editingValue = '';
+                                    if (rawValue !== null && rawValue !== undefined) {
+                                      if (rawValue instanceof Date) {
+                                        editingValue = formatDateToDDMMYYYY(rawValue);
+                                      } else if (typeof rawValue === 'string') {
+                                        const parsedForEdit = parsePotentialDate(rawValue);
+                                        editingValue = parsedForEdit ? formatDateToDDMMYYYY(parsedForEdit) : rawValue;
+                                      } else if (typeof rawValue === 'object') {
+                                        try {
+                                          editingValue = JSON.stringify(rawValue);
+                                        } catch (err) {
+                                          console.error('Error serializing value for inline edit:', err);
+                                          editingValue = String(rawValue);
+                                        }
+                                      } else {
+                                        editingValue = String(rawValue);
+                                      }
+                                    }
+
+                                    return (
+                                      <td key={column} className={cellClasses} style={stickyStyle}>
+                                        {isCellEditable ? (
+                                          <div
+                                            contentEditable
+                                            suppressContentEditableWarning
+                                            className={`inline-block w-full ${proceduresSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                            onBlur={(event) => handleProcedureCellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                            onKeyDown={(event) => {
+                                              if (event.key === 'Enter') {
+                                                event.preventDefault();
+                                                (event.currentTarget as HTMLDivElement).blur();
+                                              }
+                                            }}
+                                          >
+                                            {editingValue}
+                                          </div>
+                                        ) : (
+                                          formatTableValue(column, rawValue)
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="p-3 bg-slate-50 text-xs text-slate-400 border-t border-slate-100 text-center">
+                      Desliza horizontalmente o usa la búsqueda del navegador (Ctrl/Cmd + F) para ubicar un servicio específico.
+                    </div>
+                  </div>
+                </div>
+              )}
+
             </div>
           )}
 
@@ -5254,6 +6293,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   const label = field.label || humanizeKey(field.key);
                   const helper = field.helpText || (field.required ? 'Campo obligatorio.' : 'Deja vacío si no aplica.');
 
+                  const isDateField = field.type === 'date';
+                  const inputType = field.type === 'number' ? 'number' : 'text';
+                  const inputMode = field.type === 'number' ? 'decimal' : isDateField ? 'numeric' : undefined;
+
                   return (
                     <div key={field.key} className="flex flex-col gap-1">
                       <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
@@ -5273,11 +6316,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       ) : (
                         <input
                           name={field.key}
-                          type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                          type={inputType}
                           value={value}
                           onChange={(event) => updateRecordEditorValue(field.key, event.target.value)}
                           className={`w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#B38E5D]/40 ${isReadOnly ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
                           placeholder={field.placeholder}
+                          inputMode={inputMode}
+                          pattern={isDateField ? '\\d{2}-\\d{2}-\\d{4}' : undefined}
                           disabled={isReadOnly || recordEditorSaving}
                         />
                       )}
