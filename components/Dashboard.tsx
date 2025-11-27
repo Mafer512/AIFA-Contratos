@@ -2936,7 +2936,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       .slice(0, 6);
   }, [proceduresColumnsToRender, proceduresTableColumns, proceduresResponsibleKey]);
 
-  const handleProcedureCellEdit = (rowRef: ProcedureRecord, column: string, rawInput: string) => {
+  const handleProcedureCellEdit = async (rowRef: ProcedureRecord, column: string, rawInput: string) => {
+    if (!requireManagePermission()) return;
     const normalizedInput = rawInput.replace(/\u00A0/g, ' ').trim();
     const currentValue = rowRef[column];
     const lowerColumn = column.toLowerCase();
@@ -2991,13 +2992,64 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
     }
 
-    setProceduresData((prev) => prev.map((entry) => {
-      if (entry === rowRef) {
-        if (entry[column] === nextValue) return entry;
-        return { ...entry, [column]: nextValue };
+    const normalizedCurrent = currentValue === undefined ? null : currentValue;
+    const normalizedNext = nextValue === undefined ? null : nextValue;
+    if (deepEqual(normalizedCurrent, normalizedNext)) return;
+
+    const resolvedKey = resolvePrimaryKey(rowRef, 'procedimientos', PRIMARY_KEY_HINTS['procedimientos']);
+    if (!resolvedKey) {
+      alert('No se identificó una clave primaria para este registro. Usa el formulario "Editar" para actualizarlo.');
+      return;
+    }
+
+    const normalizeIdValue = (value: any): string | null => {
+      if (value === undefined || value === null) return null;
+      const trimmed = typeof value === 'string' ? value.trim() : value;
+      if (trimmed === '') return null;
+      return String(trimmed);
+    };
+
+    const recordId = rowRef[resolvedKey];
+    const comparableId = normalizeIdValue(recordId);
+    if (!comparableId) {
+      alert('Este registro todavía no existe en Supabase. Usa "Nuevo registro" para crearlo antes de editar en línea.');
+      return;
+    }
+
+    const matchesTarget = (entry: ProcedureRecord) => normalizeIdValue(entry?.[resolvedKey]) === comparableId;
+    const beforeRecord = sanitizeRecord(rowRef) ?? { ...rowRef };
+    const optimisticSnapshot = { ...beforeRecord, [column]: nextValue };
+
+    setProceduresData((prev) => prev.map((entry) => (matchesTarget(entry) ? { ...entry, [column]: nextValue } : entry)));
+
+    try {
+      const { data, error } = await supabase
+        .from('procedimientos')
+        .update({ [column]: nextValue })
+        .eq(resolvedKey, recordId)
+        .select();
+
+      if (error) {
+        throw error;
       }
-      return entry;
-    }));
+
+      const updatedRecord = Array.isArray(data) ? data[0] ?? null : null;
+      if (updatedRecord) {
+        setProceduresData((prev) => prev.map((entry) => (matchesTarget(entry) ? { ...entry, ...updatedRecord } : entry)));
+      }
+
+      await logChange({
+        table: 'procedimientos',
+        action: 'UPDATE',
+        recordId,
+        before: beforeRecord,
+        after: updatedRecord ?? optimisticSnapshot,
+      });
+    } catch (error) {
+      console.error('Error guardando cambio en procedimientos:', error);
+      alert('No se pudo guardar el cambio en Supabase. Se restauró el valor anterior.');
+      setProceduresData((prev) => prev.map((entry) => (matchesTarget(entry) ? { ...entry, ...beforeRecord } : entry)));
+    }
   };
 
   const handleAddProcedureRow = useCallback(() => {
