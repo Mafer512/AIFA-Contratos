@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
-import { Screen, User, UserRole } from './types';
+import { Screen, User, UserRole, BeforeInstallPromptEvent } from './types';
 import { supabase } from './services/supabaseClient';
 
 const App: React.FC = () => {
@@ -10,6 +10,9 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [isStandaloneMode, setIsStandaloneMode] = useState(false);
   const forceLoginRef = useRef(false);
 
   useEffect(() => {
@@ -71,6 +74,54 @@ const App: React.FC = () => {
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const checkStandaloneMode = () => {
+      const isStandaloneDisplay = window.matchMedia('(display-mode: standalone)').matches;
+      const nav = window.navigator as Navigator & { standalone?: boolean };
+      const isIOSStandalone = nav.standalone === true;
+      setIsStandaloneMode(isStandaloneDisplay || isIOSStandalone);
+    };
+
+    checkStandaloneMode();
+
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const handleDisplayModeChange = (event: MediaQueryListEvent) => {
+      setIsStandaloneMode(event.matches);
+    };
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleDisplayModeChange);
+    } else if (typeof mediaQuery.addListener === 'function') {
+      mediaQuery.addListener(handleDisplayModeChange);
+    }
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      const promptEvent = event as BeforeInstallPromptEvent;
+      setInstallPromptEvent(promptEvent);
+      setShowInstallPrompt(true);
+    };
+
+    const handleAppInstalled = () => {
+      setInstallPromptEvent(null);
+      setShowInstallPrompt(false);
+      setIsStandaloneMode(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      if (typeof mediaQuery.removeEventListener === 'function') {
+        mediaQuery.removeEventListener('change', handleDisplayModeChange);
+      } else if (typeof mediaQuery.removeListener === 'function') {
+        mediaQuery.removeListener(handleDisplayModeChange);
+      }
     };
   }, []);
 
@@ -140,6 +191,23 @@ const App: React.FC = () => {
     // State listener will handle redirect
   };
 
+  const handleInstallClick = async () => {
+    if (!installPromptEvent) return;
+    try {
+      await installPromptEvent.prompt();
+      await installPromptEvent.userChoice;
+    } catch (error) {
+      console.error('Error al resolver la instalación PWA:', error);
+    } finally {
+      setShowInstallPrompt(false);
+      setInstallPromptEvent(null);
+    }
+  };
+
+  const handleDismissInstallPrompt = () => {
+    setShowInstallPrompt(false);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
@@ -183,6 +251,30 @@ const App: React.FC = () => {
       )}
       {currentScreen === Screen.DASHBOARD && currentUser && (
         <Dashboard user={currentUser} onLogout={handleLogout} />
+      )}
+      {!isStandaloneMode && showInstallPrompt && installPromptEvent && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-xs rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Instala AIFA Contratos</p>
+              <p className="mt-1 text-xs text-slate-500">Agrega el acceso directo con el icono actualizado y usa la app a pantalla completa.</p>
+            </div>
+            <button
+              type="button"
+              className="text-xs font-medium text-slate-400 transition hover:text-slate-600"
+              onClick={handleDismissInstallPrompt}
+            >
+              Cerrar
+            </button>
+          </div>
+          <button
+            type="button"
+            className="mt-3 w-full rounded-xl bg-[#0F4C3A] px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-[#0c3b2d] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#B38E5D]"
+            onClick={handleInstallClick}
+          >
+            Instalar ahora
+          </button>
+        </div>
       )}
     </div>
   );

@@ -1,9 +1,15 @@
-const CACHE_NAME = 'aifa-contratos-cache-v1';
+const CACHE_VERSION = '20241126-01';
+const CACHE_NAME = `aifa-contratos-cache-${CACHE_VERSION}`;
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
+  '/sw.js',
+  '/manifest.webmanifest?v=20241126',
   '/images/aifa-logo.png',
-  '/manifest.webmanifest'
+  '/images/aifa-icon-192.png?v=20241126',
+  '/images/aifa-icon-256.png?v=20241126',
+  '/images/aifa-icon-384.png?v=20241126',
+  '/images/aifa-icon-512.png?v=20241126'
 ];
 
 self.addEventListener('install', (event) => {
