@@ -45,297 +45,18 @@ const buildRowStyle = (baseColor: string): React.CSSProperties => (
   {
     '--row-bg': baseColor,
   } as React.CSSProperties
-);
-
-type TableFilterKey = 'annual2026' | 'paas' | 'controlPagos' | 'invoices' | 'compranet' | 'procedures' | 'pendingOct';
-type TableFilterMap = Record<TableFilterKey, string>;
-
-const normalizeSearchFragment = (value: string) =>
-  value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[^a-z0-9\s]/g, (match) => (match.trim() ? match : ''))
-    .replace(/[\u0300-\u036f]/g, '');
-
-const extractSearchableValue = (value: any): string => {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return normalizeSearchFragment(value);
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return normalizeSearchFragment(String(value));
-  }
-  if (value instanceof Date) {
-    return normalizeSearchFragment(value.toISOString());
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => extractSearchableValue(item)).join(' ');
-  }
-  if (typeof value === 'object') {
-    try {
-      return normalizeSearchFragment(JSON.stringify(value));
-    } catch (error) {
-      console.error('Error serializando valor para filtro:', error);
-      return normalizeSearchFragment(String(value));
-    }
-  }
-  return normalizeSearchFragment(String(value));
-};
-
-const buildSearchableText = (row: Record<string, any>): string => {
-  if (!row) return '';
-  const fragments: string[] = [];
-  Object.values(row).forEach((value) => {
-    const normalized = extractSearchableValue(value);
-    if (normalized) {
-      fragments.push(normalized);
-    }
-  });
-  return fragments.join(' ');
-};
-
-const rowMatchesFilter = (row: Record<string, any>, query: string): boolean => {
-  const normalizedQuery = normalizeSearchFragment(query ?? '').trim();
-  if (!normalizedQuery) return true;
-  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  if (!tokens.length) return true;
-  const haystack = buildSearchableText(row);
-  if (!haystack) return false;
-  return tokens.every((token) => haystack.includes(token));
-};
-
-const formatResultLabel = (count: number) => `${count} resultado${count === 1 ? '' : 's'}`;
-const formatColumnFilterLabel = (count: number) => (
-  count ? `${count} filtro${count === 1 ? '' : 's'} por columna` : ''
-);
-
-const COLUMN_FILTER_EMPTY_TOKEN = '__EMPTY__';
-const COLUMN_FILTER_POPOVER_WIDTH = 240; // Tailwind w-60 (15rem)
-const COLUMN_FILTER_POPOVER_MARGIN = 8;
-
-const normalizeColumnFilterToken = (value: any): string => {
-  if (value === null || value === undefined) return COLUMN_FILTER_EMPTY_TOKEN;
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value.toString();
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  const asString = String(value).replace(/\s+/g, ' ').trim().toLowerCase();
-  return asString.length ? asString : COLUMN_FILTER_EMPTY_TOKEN;
-};
-
-const formatColumnFilterOptionLabel = (value: any): string => {
-  if (value === null || value === undefined || value === '') return 'Vacío';
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value.toLocaleString('es-MX');
-  }
-  if (value instanceof Date) {
-    return value.toLocaleDateString('es-MX');
-  }
-  const compact = String(value).replace(/\s+/g, ' ').trim();
-  return compact.length ? compact : 'Vacío';
-};
-
-type ColumnFilterValueMap = Record<string, string[] | undefined>;
-type ColumnFiltersRegistry = Record<TableFilterKey, ColumnFilterValueMap>;
-
-const rowMatchesColumnFilters = (row: Record<string, any>, filters?: ColumnFilterValueMap): boolean => {
-  if (!filters) return true;
-  const entries = Object.entries(filters).filter(([, values]) => Array.isArray(values));
-  if (!entries.length) return true;
-  return entries.every(([columnKey, allowedTokens]) => {
-    const tokens = Array.isArray(allowedTokens) ? allowedTokens : [];
-    if (!tokens.length) {
-      return false;
-    }
-    const cellToken = normalizeColumnFilterToken(row?.[columnKey]);
-    return tokens.includes(cellToken);
-  });
-};
-
-const countActiveColumnFilters = (filters?: ColumnFilterValueMap) => (
-  filters ? Object.values(filters).filter((value) => Array.isArray(value)).length : 0
-);
-
-interface ColumnFilterControlProps {
-  tableKey: TableFilterKey;
-  columnKey: string;
-  label: string;
-  rows: unknown[];
-  selectedValues?: string[] | null;
-  onChange: (tableKey: TableFilterKey, columnKey: string, values: string[] | null) => void;
-}
-
-const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
-  tableKey,
-  columnKey,
-  label,
-  rows,
-  selectedValues,
-  onChange,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const hasExplicitSelection = Array.isArray(selectedValues);
-  const explicitValues = hasExplicitSelection ? selectedValues : [];
-  const isActive = hasExplicitSelection;
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (popoverRef.current?.contains(target)) return;
-      if (buttonRef.current?.contains(target)) return;
-      setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setSearchTerm('');
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      });
-    }
-  }, [isOpen]);
-
-  const updatePopoverPosition = useCallback(() => {
-    if (!isOpen) return;
-    if (typeof window === 'undefined') return;
-    const buttonEl = buttonRef.current;
-    if (!buttonEl) return;
-    const rect = buttonEl.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const scrollY = window.scrollY ?? window.pageYOffset ?? 0;
-    const scrollX = window.scrollX ?? window.pageXOffset ?? 0;
-    const halfWidth = COLUMN_FILTER_POPOVER_WIDTH / 2;
-    let left = rect.left + rect.width / 2 - halfWidth + scrollX;
-    const maxLeft = scrollX + viewportWidth - COLUMN_FILTER_POPOVER_WIDTH - 8;
-    const minLeft = scrollX + 8;
-    if (left < minLeft) left = minLeft;
-    if (left > maxLeft) left = maxLeft;
-    const top = rect.bottom + COLUMN_FILTER_POPOVER_MARGIN + scrollY;
-    setPopoverPosition({ top, left });
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    updatePopoverPosition();
-    if (typeof window === 'undefined') return;
-    const handleReposition = () => updatePopoverPosition();
-    window.addEventListener('resize', handleReposition);
-    window.addEventListener('scroll', handleReposition, true);
-    return () => {
-      window.removeEventListener('resize', handleReposition);
-      window.removeEventListener('scroll', handleReposition, true);
-    };
-  }, [isOpen, updatePopoverPosition]);
-
-  const options = useMemo(() => {
-    const optionMap = new Map<string, { token: string; label: string; count: number }>();
-    (rows as Array<Record<string, any>>).forEach((row) => {
-      const value = row?.[columnKey];
-      const token = normalizeColumnFilterToken(value);
-      const labelText = formatColumnFilterOptionLabel(value);
-      const existing = optionMap.get(token);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        optionMap.set(token, { token, label: labelText, count: 1 });
-      }
-    });
-    return Array.from(optionMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
-  }, [rows, columnKey]);
-
-  const filteredOptions = useMemo(() => {
-    if (!searchTerm.trim()) return options;
-    const normalizedSearch = searchTerm.replace(/\s+/g, ' ').trim().toLowerCase();
-    if (!normalizedSearch) return options;
-    return options.filter((option) => option.label.toLowerCase().includes(normalizedSearch));
-  }, [options, searchTerm]);
-
-  const selectedSet = useMemo(() => new Set(explicitValues), [explicitValues]);
-  const allOptionTokens = useMemo(() => options.map((option) => option.token), [options]);
-  const isAllSelected = !hasExplicitSelection || explicitValues.length >= allOptionTokens.length;
-
-  const runWithoutScrollJump = useCallback((action: () => void) => {
-    if (typeof window === 'undefined') {
-      action();
-      return;
-    }
-    const { scrollX, scrollY } = window;
-    action();
-    requestAnimationFrame(() => {
-      window.scrollTo(scrollX, scrollY);
-      requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
-    });
-  }, []);
-
-  const toggleToken = (token: string) => {
-    const baseline = hasExplicitSelection ? new Set(selectedSet) : new Set(allOptionTokens);
-    if (baseline.has(token)) {
-      baseline.delete(token);
-    } else {
-      baseline.add(token);
-    }
-    if (baseline.size === allOptionTokens.length) {
-      onChange(tableKey, columnKey, null);
-    } else {
-      onChange(tableKey, columnKey, Array.from(baseline));
-    }
-  };
-
-  const handleSelectAll = () => {
-    onChange(tableKey, columnKey, null);
-  };
-
-  const handleDeselectAll = () => {
-    runWithoutScrollJump(() => onChange(tableKey, columnKey, []));
-  };
-
-  const handleClear = () => {
-    onChange(tableKey, columnKey, null);
-    setIsOpen(false);
-  };
-
-  const handleClose = () => setIsOpen(false);
-
-  const portalTarget = typeof document !== 'undefined' ? document.body : null;
-
-  return (
-    <span className="ml-1 inline-flex">
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-label={`Filtrar columna ${label}`}
-        onClick={() => setIsOpen((prev) => !prev)}
-        className={`p-1 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 ${
-          isActive
-            ? 'bg-amber-100 text-amber-700 shadow-inner shadow-amber-200 hover:bg-amber-100'
-            : 'text-white/70 hover:text-white'
-        }`}
-      >
-        <Filter className="h-3.5 w-3.5" />
-      </button>
-      {isOpen && portalTarget && createPortal(
+                    <span className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-[#0F4C3A] focus:ring-[#0F4C3A]"
+                        checked={checked}
+                        onChange={() => toggleToken(option.token)}
+                      />
+                      <span className="text-[12px] text-slate-600">{option.label}</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      {option.count.toLocaleString('es-MX')}
+                    </span>
         <div
           ref={popoverRef}
           className="z-[2000] w-60 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-xl"
@@ -401,220 +122,15 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
                         checked={checked}
                         onChange={() => toggleToken(option.token)}
                       />
-                      <span className="truncate max-w-[160px]" title={option.label}>{option.label}</span>
+                      <span className="text-[12px] text-slate-600">{option.label}</span>
                     </span>
-                    <span className="text-[11px] text-slate-400">{option.count.toLocaleString('es-MX')}</span>
+                    <span className="text-[11px] text-slate-400">
+                      {option.count.toLocaleString('es-MX')}
+                    </span>
                   </label>
                 );
               })
             )}
-          </div>
-          <div className="mt-3 flex items-center justify-end gap-2 text-[11px] font-semibold">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="px-2 py-1 rounded-md text-slate-500 hover:text-slate-700"
-            >
-              Cerrar
-            </button>
-          </div>
-        </div>,
-        portalTarget
-      )}
-    </span>
-  );
-});
-ColumnFilterControl.displayName = 'ColumnFilterControl';
-
-// === DATOS MOCK DE RESPALDO (FALLBACK) ===
-const MOCK_CONTRACTS: Contract[] = [
-  { id: 'm1', provider_name: 'Limpieza Integral S.A.', service_concept: 'Limpieza Terminal Pasajeros', contract_number: 'C-2024-001', start_date: '2024-01-01', end_date: '2024-12-31', amount_mxn: 12500000, status: 'ACTIVO', area: 'Terminal 1' },
-  { id: 'm2', provider_name: 'Seguridad Privada Elite', service_concept: 'Vigilancia de Filtros', contract_number: 'C-2024-045', start_date: '2023-06-01', end_date: '2024-06-01', amount_mxn: 8400000, status: 'POR VENCER', area: 'Accesos' },
-  { id: 'm3', provider_name: 'Mantenimiento Pistas MX', service_concept: 'Mantenimiento Pista Central', contract_number: 'C-2023-889', start_date: '2023-01-01', end_date: '2023-12-31', amount_mxn: 45000000, status: 'VENCIDO', area: 'Pistas' },
-  { id: 'm4', provider_name: 'Tecnología Aeroportuaria', service_concept: 'Soporte FIDS', contract_number: 'C-2024-102', start_date: '2024-02-15', end_date: '2025-02-15', amount_mxn: 3200000, status: 'ACTIVO', area: 'Sistemas' },
-];
-
-const MOCK_SPACES: CommercialSpace[] = [
-  { id: 's1', space_code: 'LOC-001', tenant_name: 'Starbucks Coffee', category: 'Alimentos', monthly_rent: 85000, occupancy_status: 'OCUPADO' },
-  { id: 's2', space_code: 'LOC-002', tenant_name: 'Farmacias del Ahorro', category: 'Servicios', monthly_rent: 45000, occupancy_status: 'OCUPADO' },
-  { id: 's3', space_code: 'LOC-003', tenant_name: 'Duty Free Americas', category: 'Retail', monthly_rent: 120000, occupancy_status: 'OCUPADO' },
-  { id: 's4', space_code: 'LOC-004', tenant_name: null, category: 'Retail', monthly_rent: 40000, occupancy_status: 'DISPONIBLE' },
-  { id: 's5', space_code: 'LOC-005', tenant_name: 'Krispy Kreme', category: 'Alimentos', monthly_rent: 55000, occupancy_status: 'OCUPADO' },
-];
-
-interface DashboardProps {
-  user: User;
-  onLogout: () => void;
-}
-
-const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('overview');
-  const [activeContractSubTab, setActiveContractSubTab] = useState<'annual2026' | 'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('annual2026'); 
-  
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
-  // Database State
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [commercialSpaces, setCommercialSpaces] = useState<CommercialSpace[]>([]);
-  const [annual2026Data, setAnnual2026Data] = useState<Record<string, any>[]>([]);
-  const [paasData, setPaasData] = useState<PaasItem[]>([]);
-  const [paymentsData, setPaymentsData] = useState<PaymentControlItem[]>([]);
-  const [invoicesData, setInvoicesData] = useState<Record<string, any>[]>([]);
-  const [compranetData, setCompranetData] = useState<Record<string, any>[]>([]);
-  const [proceduresData, setProceduresData] = useState<ProcedureRecord[]>([]);
-  const [procedureStatuses, setProcedureStatuses] = useState<ProcedureStatusItem[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
-  const [changeHistory, setChangeHistory] = useState<ChangeLogEntry[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-  const [historyTableFilter, setHistoryTableFilter] = useState<string>('all');
-  const historyAvailableRef = useRef(true);
-
-  // === STATES FOR PAAS RECORD MODAL ===
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null); // ID si estamos editando, null si es nuevo
-
-  type FieldInputType = 'text' | 'number' | 'date' | 'textarea';
-
-  interface FieldInputConfig {
-    key: string;
-    label: string;
-    type: FieldInputType;
-    placeholder?: string;
-    required?: boolean;
-    helpText?: string;
-  }
-
-  interface ContractAlert {
-    id: string;
-    contractNumber: string;
-    provider: string;
-    service: string;
-    endDateLabel: string;
-    daysLeft: number;
-    amount: number;
-  }
-
-  interface ExecutiveInsight {
-    id: string;
-    title: string;
-    detail: string;
-    tone: 'neutral' | 'positive' | 'alert' | 'critical';
-    icon: React.ComponentType<{ className?: string }>;
-  }
-
-  interface ProcedureServiceSnapshot {
-    id: number | string;
-    label: string;
-    statusLabel: string | null;
-    deadlineLabel: string | null;
-    raw: ProcedureRecord;
-  }
-
-  interface ProcedureResponsibleSummary {
-    responsible: string;
-    total: number;
-    statusBreakdown: Array<{ label: string; count: number }>;
-    services: ProcedureServiceSnapshot[];
-  }
-
-  type GenericRecordEditorConfig = {
-    table: string;
-    title: string;
-    isNew: boolean;
-    primaryKey?: string | null;
-    note?: string;
-    fields: FieldInputConfig[];
-    formValues: Record<string, any>;
-    originalRow: Record<string, any> | null;
-  };
-
-  const [recordEditorConfig, setRecordEditorConfig] = useState<GenericRecordEditorConfig | null>(null);
-  const [recordEditorSaving, setRecordEditorSaving] = useState(false);
-  const [recordEditorError, setRecordEditorError] = useState<string | null>(null);
-  const [selectedResponsibleName, setSelectedResponsibleName] = useState<string | null>(null);
-  const [isProceduresEditing, setIsProceduresEditing] = useState(false);
-  const [isProceduresCompact, setIsProceduresCompact] = useState(false);
-  const [tableFilters, setTableFilters] = useState<TableFilterMap>({
-    annual2026: '',
-    paas: '',
-    controlPagos: '',
-    invoices: '',
-    compranet: '',
-    procedures: '',
-    pendingOct: '',
-  });
-  const updateTableFilter = (key: TableFilterKey, value: string) => {
-    setTableFilters((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
-
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersRegistry>({
-    annual2026: {},
-    paas: {},
-    controlPagos: {},
-    invoices: {},
-    compranet: {},
-    procedures: {},
-    pendingOct: {},
-  });
-
-  const updateColumnFilter = useCallback((tableKey: TableFilterKey, columnKey: string, values: string[] | null) => {
-    setColumnFilters((prev) => {
-      const currentForTable = prev[tableKey] ?? {};
-      const nextForTable = { ...currentForTable };
-      if (values === null) {
-        if (!Object.prototype.hasOwnProperty.call(currentForTable, columnKey)) {
-          return prev;
-        }
-        delete nextForTable[columnKey];
-      } else {
-        const sanitizedValues = Array.isArray(values)
-          ? Array.from(new Set(values.filter((token) => typeof token === 'string' && token.length)))
-          : [];
-        const existing = currentForTable[columnKey];
-        const hasSameValues = Array.isArray(existing)
-          && existing.length === sanitizedValues.length
-          && sanitizedValues.every((token) => existing.includes(token));
-        if (hasSameValues) return prev;
-        nextForTable[columnKey] = sanitizedValues;
-      }
-
-      return {
-        ...prev,
-        [tableKey]: nextForTable,
-      };
-    });
-  }, []);
-
-  const clearColumnFilters = useCallback((tableKey: TableFilterKey) => {
-    setColumnFilters((prev) => {
-      if (!Object.keys(prev[tableKey] ?? {}).length) return prev;
-      return {
-        ...prev,
-        [tableKey]: {},
-      };
-    });
-  }, []);
-
-  const renderColumnFilterControl = useCallback((
-    tableKey: TableFilterKey,
-    columnKey: string,
-    label: string,
-    rowsSource: unknown[]
-  ) => (
-    <ColumnFilterControl
-      tableKey={tableKey}
-      columnKey={columnKey}
-      label={label}
-      rows={rowsSource}
-      selectedValues={columnFilters[tableKey]?.[columnKey]}
-      onChange={updateColumnFilter}
-    />
-  ), [columnFilters, updateColumnFilter]);
 
   const renderActiveColumnFilterBadges = useCallback((
     tableKey: TableFilterKey,
@@ -665,6 +181,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     empresa: 'Empresa',
     mes_factura_nota: 'Mes factura / nota',
     observacion_pago: 'Observación de Pago',
+    __actions: 'Acciones',
   }), []);
 
   const resolvePendingOctColumnLabel = useCallback((columnKey: string) => (
@@ -689,6 +206,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setIsProceduresEditing(false);
     }
   }, [proceduresData.length, isProceduresEditing]);
+
+  useEffect(() => {
+    if (!procedureStatuses.length && isPendingOctEditing) {
+      setIsPendingOctEditing(false);
+    }
+  }, [procedureStatuses.length, isPendingOctEditing]);
 
   const proceduresSizing = useMemo(() => {
     if (isProceduresCompact) {
@@ -723,6 +246,103 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     } as const;
   }, [isProceduresCompact]);
 
+  const pendingOctSizing = useMemo(() => {
+    if (isPendingOctCompact) {
+      return {
+        tableTextClass: 'text-[11px]',
+        headerRowClass: 'h-11',
+        headerCellPadding: 'px-3 py-2',
+        bodyCellPadding: 'px-3 py-2',
+        editorMinHeightClass: 'min-h-[20px]',
+      } as const;
+    }
+    return {
+      tableTextClass: 'text-sm',
+      headerRowClass: 'h-14',
+      headerCellPadding: 'px-6 py-4',
+      bodyCellPadding: 'px-6 py-4',
+      editorMinHeightClass: 'min-h-[26px]',
+    } as const;
+  }, [isPendingOctCompact]);
+
+  const annualTableSizing = useMemo(() => (
+    isAnnualCompact
+      ? {
+          tableTextClass: 'text-[11px]',
+          headerRowClass: 'h-11',
+          headerCellPadding: 'px-3 py-2',
+          bodyCellPadding: 'px-3 py-2',
+        }
+      : {
+          tableTextClass: 'text-xs sm:text-sm',
+          headerRowClass: 'h-14',
+          headerCellPadding: 'px-5 py-4',
+          bodyCellPadding: 'px-5 py-4',
+        }
+  ), [isAnnualCompact]);
+
+  const paasTableSizing = useMemo(() => (
+    isPaasCompact
+      ? {
+          tableTextClass: 'text-[11px]',
+          headerCellPadding: 'px-3 py-2',
+          bodyCellPadding: 'px-3 py-2',
+        }
+      : {
+          tableTextClass: 'text-sm',
+          headerCellPadding: 'px-5 py-4',
+          bodyCellPadding: 'px-4 py-3',
+        }
+  ), [isPaasCompact]);
+
+  const paymentsTableSizing = useMemo(() => (
+    isPaymentsCompact
+      ? {
+          tableTextClass: 'text-[11px]',
+          headerCellPadding: 'px-3 py-2',
+          stickyCellPadding: 'px-4 py-3',
+          bodyCellPadding: 'px-3 py-2',
+        }
+      : {
+          tableTextClass: 'text-sm',
+          headerCellPadding: 'px-6 py-4',
+          stickyCellPadding: 'px-6 py-4',
+          bodyCellPadding: 'px-6 py-4',
+        }
+  ), [isPaymentsCompact]);
+
+  const invoicesTableSizing = useMemo(() => (
+    isInvoicesCompact
+      ? {
+          tableTextClass: 'text-[11px]',
+          headerRowClass: 'h-11',
+          headerCellPadding: 'px-3 py-2',
+          bodyCellPadding: 'px-3 py-2',
+        }
+      : {
+          tableTextClass: 'text-xs sm:text-sm',
+          headerRowClass: 'h-14',
+          headerCellPadding: 'px-5 py-4',
+          bodyCellPadding: 'px-5 py-4',
+        }
+  ), [isInvoicesCompact]);
+
+  const compranetTableSizing = useMemo(() => (
+    isCompranetCompact
+      ? {
+          tableTextClass: 'text-[11px]',
+          headerRowClass: 'h-11',
+          headerCellPadding: 'px-3 py-2',
+          bodyCellPadding: 'px-3 py-2',
+        }
+      : {
+          tableTextClass: 'text-xs sm:text-sm',
+          headerRowClass: 'h-14',
+          headerCellPadding: 'px-5 py-4',
+          bodyCellPadding: 'px-5 py-4',
+        }
+  ), [isCompranetCompact]);
+
   const PRIMARY_KEY_HINTS: Record<string, string> = {
     'año_2026': 'id',
     'balance_paas_2026': 'id',
@@ -746,6 +366,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       });
     return template;
   };
+
+  const createPendingObservationTemplate = () => ({
+    id: null,
+    created_at: new Date().toISOString(),
+    contrato: '',
+    descripcion: '',
+    empresa: '',
+    mes_factura_nota: '',
+    observacion_pago: '',
+  } as ProcedureStatusItem);
 
   const resolvePrimaryKey = (row: Record<string, any> | null | undefined, table: string, explicit?: string | null) => {
     if (!row) return explicit ?? PRIMARY_KEY_HINTS[table] ?? null;
@@ -1164,6 +794,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
   };
 
+                      <span className="text-[12px] text-slate-600">{option.label}</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      {option.count.toLocaleString('es-MX')}
+                    </span>
   const handleSaveGenericRecord = async () => {
     if (!recordEditorConfig) return;
     if (!requireManagePermission()) return;
@@ -1590,6 +1225,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
   }, [procedureStatuses, tableFilters.pendingOct, columnFilters.pendingOct]);
 
+  const pendingOctColumns = useMemo(() => Array.from(PENDING_OCT_BASE_COLUMNS), []);
+  const pendingOctColumnsToRender = useMemo(() => (
+    canManageRecords ? [...pendingOctColumns, '__actions'] : pendingOctColumns
+  ), [canManageRecords, pendingOctColumns]);
+  const pendingOctColumnCount = pendingOctColumnsToRender.length;
+
   // === HANDLE FORM INPUT CHANGE ===
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -1994,6 +1635,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const stringValue = normalizeWhitespace(String(value));
     const parsed = parsePotentialDate(stringValue);
     return parsed ? formatDateToDDMMYYYY(parsed) : stringValue;
+  };
+
+  const getEditableCellValue = (rawValue: any) => {
+    if (rawValue === null || rawValue === undefined) return '';
+    if (rawValue instanceof Date) return formatDateToDDMMYYYY(rawValue);
+    if (typeof rawValue === 'string') {
+      const parsedForEdit = parsePotentialDate(rawValue);
+      return parsedForEdit ? formatDateToDDMMYYYY(parsedForEdit) : rawValue;
+    }
+    if (typeof rawValue === 'object') {
+      try {
+        return JSON.stringify(rawValue);
+      } catch (err) {
+        console.error('Error serializando valor para edición:', err);
+        return String(rawValue);
+      }
+    }
+    return String(rawValue);
   };
 
   interface FieldInsights {
@@ -2487,6 +2146,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     return { columns, stickyMeta, lastStickyKey };
   }, []);
+
+  const paasColumnKeys = useMemo(() => paasTableConfig.columns.map((column) => column.key), [paasTableConfig]);
 
   const paasOrderedRows = useMemo(() => {
     const extractSequence = (value: unknown) => {
@@ -3673,6 +3334,144 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setIsProceduresEditing(true);
   }, [proceduresTableColumns]);
 
+  const handleAddAnnualRow = useCallback(() => {
+    if (!annualTableColumns.length) return;
+    const template = generateTemplateFromColumns(annualTableColumns);
+    const newRow = { ...template, id: null } as Record<string, any>;
+    setAnnual2026Data((prev) => [...prev, newRow]);
+    setIsAnnualEditing(true);
+  }, [annualTableColumns]);
+
+  const handleAddPaasRow = useCallback(() => {
+    if (!paasColumnKeys.length) return;
+    const template = generateTemplateFromColumns(paasColumnKeys);
+    const newRow = { ...template, id: null } as PaasItem;
+    setPaasData((prev) => [...prev, newRow]);
+    setIsPaasEditing(true);
+  }, [paasColumnKeys]);
+
+  const handleAddPaymentRow = useCallback(() => {
+    if (!paymentsFieldList.length) return;
+    const template = generateTemplateFromColumns(paymentsFieldList);
+    const newRow = { id: -Date.now(), ...template } as PaymentControlItem;
+    setPaymentsData((prev) => [...prev, newRow]);
+    setIsPaymentsEditing(true);
+  }, [paymentsFieldList]);
+
+  const handleAddInvoiceRow = useCallback(() => {
+    if (!invoicesTableColumns.length) return;
+    const template = generateTemplateFromColumns(invoicesTableColumns);
+    const newRow = { ...template, id: null } as Record<string, any>;
+    setInvoicesData((prev) => [...prev, newRow]);
+    setIsInvoicesEditing(true);
+  }, [invoicesTableColumns]);
+
+  const handleAddCompranetRow = useCallback(() => {
+    if (!compranetTableColumns.length) return;
+    const template = generateTemplateFromColumns(compranetTableColumns);
+    const newRow = { ...template, id: null } as Record<string, any>;
+    setCompranetData((prev) => [...prev, newRow]);
+    setIsCompranetEditing(true);
+  }, [compranetTableColumns]);
+
+  const handlePendingObservationCellEdit = async (rowRef: ProcedureStatusItem, column: string, rawInput: string) => {
+    if (!requireManagePermission()) return;
+    const normalizedInput = rawInput.replace(/\u00A0/g, ' ').trim();
+    const currentValue = (rowRef as Record<string, any>)[column];
+    const lowerColumn = column.toLowerCase();
+    const columnSuggestsDate = column === 'created_at' || lowerColumn.includes('fecha');
+    const inputSuggestsDate = /[-\/]/.test(normalizedInput) || /\d{1,2}\s+de\s+\w+/i.test(normalizedInput) || /\d{1,2}:\d{2}/.test(normalizedInput) || /t\d{2}:/i.test(normalizedInput);
+
+    let nextValue: any;
+    if (!normalizedInput.length) {
+      nextValue = null;
+    } else {
+      let parsedDateInput: Date | null = null;
+      if (columnSuggestsDate || inputSuggestsDate) {
+        parsedDateInput = parsePotentialDate(normalizedInput);
+      }
+
+      if (parsedDateInput) {
+        const isoDate = `${parsedDateInput.getFullYear()}-${String(parsedDateInput.getMonth() + 1).padStart(2, '0')}-${String(parsedDateInput.getDate()).padStart(2, '0')}`;
+        const hasTime = /\d{1,2}:\d{2}/.test(normalizedInput) || /t\d{2}:/i.test(normalizedInput);
+        if (hasTime) {
+          const hours = String(parsedDateInput.getHours()).padStart(2, '0');
+          const minutes = String(parsedDateInput.getMinutes()).padStart(2, '0');
+          const seconds = String(parsedDateInput.getSeconds()).padStart(2, '0');
+          nextValue = `${isoDate}T${hours}:${minutes}:${seconds}`;
+        } else {
+          nextValue = isoDate;
+        }
+      } else {
+        nextValue = normalizedInput;
+      }
+    }
+
+    const normalizedCurrent = currentValue === undefined ? null : currentValue;
+    const normalizedNext = nextValue === undefined ? null : nextValue;
+    if (deepEqual(normalizedCurrent, normalizedNext)) return;
+
+    const resolvedKey = resolvePrimaryKey(rowRef, 'estatus_procedimiento', PRIMARY_KEY_HINTS['estatus_procedimiento']);
+    if (!resolvedKey) {
+      alert('No se identificó una clave primaria para este registro. Usa el formulario "Editar" para actualizarlo.');
+      return;
+    }
+
+    const normalizeIdValue = (value: any): string | null => {
+      if (value === undefined || value === null) return null;
+      const trimmed = typeof value === 'string' ? value.trim() : value;
+      if (trimmed === '') return null;
+      return String(trimmed);
+    };
+
+    const recordId = (rowRef as Record<string, any>)[resolvedKey];
+    const comparableId = normalizeIdValue(recordId);
+    if (!comparableId) {
+      alert('Este registro todavía no existe en Supabase. Usa "Nuevo registro" para crearlo antes de editar en línea.');
+      return;
+    }
+
+    const matchesTarget = (entry: ProcedureStatusItem) => normalizeIdValue((entry as Record<string, any>)[resolvedKey]) === comparableId;
+    const beforeRecord = sanitizeRecord(rowRef) ?? { ...rowRef };
+    const optimisticSnapshot = { ...beforeRecord, [column]: nextValue };
+
+    setProcedureStatuses((prev) => prev.map((entry) => (matchesTarget(entry) ? { ...entry, [column]: nextValue } : entry)));
+
+    try {
+      const { data, error } = await supabase
+        .from('estatus_procedimiento')
+        .update({ [column]: nextValue })
+        .eq(resolvedKey, recordId)
+        .select();
+
+      if (error) {
+        throw error;
+      }
+
+      const updatedRecord = Array.isArray(data) ? data[0] ?? null : null;
+      if (updatedRecord) {
+        setProcedureStatuses((prev) => prev.map((entry) => (matchesTarget(entry) ? { ...entry, ...updatedRecord } : entry)));
+      }
+
+      await logChange({
+        table: 'estatus_procedimiento',
+        action: 'UPDATE',
+        recordId,
+        before: beforeRecord,
+        after: updatedRecord ?? optimisticSnapshot,
+      });
+    } catch (error) {
+      console.error('Error guardando cambio en observaciones:', error);
+      alert('No se pudo guardar el cambio en Supabase. Se restauró el valor anterior.');
+      setProcedureStatuses((prev) => prev.map((entry) => (matchesTarget(entry) ? { ...entry, ...beforeRecord } : entry)));
+    }
+  };
+
+  const handleAddPendingObservationRow = useCallback(() => {
+    setProcedureStatuses((prev) => [createPendingObservationTemplate(), ...prev]);
+    setIsPendingOctEditing(true);
+  }, []);
+
   const executiveInsights = useMemo<ExecutiveInsight[]>(() => {
     const insights: ExecutiveInsight[] = [];
     const nextExpiring = contractTimelineInsights.upcoming[0] ?? null;
@@ -4746,24 +4545,78 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
 
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-slate-800">Detalle de Registros</h3>
-                          <p className="text-sm text-slate-500 mt-1">Visualización directa de los campos almacenados en la tabla `año_2026` con navegación horizontal similar al módulo de Pagos.</p>
+                      <div className="p-6 border-b border-slate-100 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800">Detalle de Registros</h3>
+                            <p className="text-sm text-slate-500 mt-1">Visualización directa de los campos almacenados en la tabla `año_2026` con navegación horizontal similar al módulo de Pagos.</p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                            {annual2026Data.length > 0 && (
+                              <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {annualTableColumns.length}</span>
+                            )}
+                            {canManageRecords && (
+                              <button
+                                onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, null, null, 'Revisa los campos clave y evita duplicar identificadores.')}
+                                className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                              >
+                                <Plus className="h-4 w-4" />
+                                Nuevo registro
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          {annual2026Data.length > 0 && (
-                            <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {annualTableColumns.length}</span>
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                          <button
+                            type="button"
+                            onClick={() => setIsAnnualCompact((prev) => !prev)}
+                            className={buildToggleButtonClass(isAnnualCompact)}
+                          >
+                            {isAnnualCompact ? (
+                              <>
+                                <Minimize2 className="h-4 w-4" />
+                                Vista estándar
+                              </>
+                            ) : (
+                              <>
+                                <Maximize2 className="h-4 w-4" />
+                                Vista compacta
+                              </>
+                            )}
+                          </button>
+                          {canManageRecords && (
+                            <button
+                              type="button"
+                              onClick={() => setIsAnnualEditing((prev) => !prev)}
+                              className={buildToggleButtonClass(isAnnualEditing)}
+                            >
+                              {isAnnualEditing ? (
+                                <>
+                                  <Save className="h-4 w-4" />
+                                  Salir de edición
+                                </>
+                              ) : (
+                                <>
+                                  <Pencil className="h-4 w-4" />
+                                  Editar
+                                </>
+                              )}
+                            </button>
                           )}
                           {canManageRecords && (
                             <button
-                              onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, null, null, 'Revisa los campos clave y evita duplicar identificadores.')}
-                              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                              type="button"
+                              onClick={handleAddAnnualRow}
+                              disabled={!annualTableColumns.length}
+                              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${annualTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
                             >
                               <Plus className="h-4 w-4" />
-                              Nuevo registro
+                              Agregar fila
                             </button>
                           )}
+                          <span>
+                            Registros: <span className="font-semibold text-slate-700">{annual2026Data.length}</span>
+                          </span>
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100">
@@ -4804,16 +4657,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
                         {renderActiveColumnFilterBadges('annual2026')}
                       </div>
+                      {canManageRecords && isAnnualEditing && (
+                        <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4" />
+                          Modo edición activo: habilita los botones de acción por fila para actualizar o eliminar registros.
+                        </div>
+                      )}
                       <div className="overflow-auto h-[68vh] relative">
-                        <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
-                          <thead className="uppercase tracking-wider text-white">
-                            <tr className="h-14">
+                          <table className={`${annualTableSizing.tableTextClass} text-center w-max min-w-full border-collapse`}>
+                            <thead className="uppercase tracking-wider text-white">
+                              <tr className={annualTableSizing.headerRowClass}>
                               {(annualColumnsToRender.length ? annualColumnsToRender : annualTableColumns.length ? annualTableColumns : ['sin_datos']).map((column) => {
                                 if (column === '__actions') {
                                   return (
                                     <th
-                                      key="__actions"
-                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                        key="__actions"
+                                        className={`${annualTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                       style={{
                                         position: 'sticky',
                                         top: 0,
@@ -4832,7 +4691,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   return (
                                     <th
                                       key="sin_datos"
-                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      className={`${annualTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                       style={{ position: 'sticky', top: 0, backgroundColor: '#14532d', color: '#fff' }}
                                     >
                                       Sin datos
@@ -4866,7 +4725,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 return (
                                   <th
                                     key={column}
-                                    className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                    className={`${annualTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                     style={headerStyle}
                                   >
                                     <div className="flex items-center justify-center gap-1 text-white">
@@ -4907,26 +4766,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         return (
                                           <td
                                             key={`actions-${rowKey}`}
-                                            className="px-4 py-3 text-center"
+                                            className={`${annualTableSizing.bodyCellPadding} text-center`
                                             style={{ minWidth: '160px' }}
                                           >
                                             {canManageRecords ? (
-                                              <div className="flex justify-center gap-2">
-                                                <button
-                                                  onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, row)}
-                                                  className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
-                                                  title="Editar"
-                                                >
-                                                  <Pencil className="h-4 w-4" />
-                                                </button>
-                                                <button
-                                                  onClick={() => handleDeleteGenericRecord('año_2026', row, 'Registro año_2026')}
-                                                  className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                                  title="Eliminar"
-                                                >
-                                                  <Trash2 className="h-4 w-4" />
-                                                </button>
-                                              </div>
+                                              isAnnualEditing ? (
+                                                <div className="flex justify-center gap-2">
+                                                  <button
+                                                    onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, row)}
+                                                    className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                                    title="Editar"
+                                                  >
+                                                    <Pencil className="h-4 w-4" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => handleDeleteGenericRecord('año_2026', row, 'Registro año_2026')}
+                                                    className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                    title="Eliminar"
+                                                  >
+                                                    <Trash2 className="h-4 w-4" />
+                                                  </button>
+                                                </div>
+                                              ) : (
+                                                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Activa “Editar”</span>
+                                              )
                                             ) : (
                                               <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
                                             )}
@@ -4963,7 +4826,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       return (
                                         <td
                                           key={column}
-                                          className={`px-5 py-4 text-slate-600 align-top whitespace-pre-wrap break-words ${alignmentClass} ${fontClass} ${isSticky ? 'sticky-cell' : ''}`}
+                                          className={`${annualTableSizing.bodyCellPadding} text-slate-600 align-top whitespace-pre-wrap break-words ${alignmentClass} ${fontClass} ${isSticky ? 'sticky-cell' : ''}`}
                                           style={cellStyle}
                                         >
                                           {formatTableValue(column, rawValue)}
@@ -5150,46 +5013,122 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                     {/* Table Section */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="px-6 pt-6 pb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100">
-                          <div className="relative w-full sm:w-80">
-                            <Search className="table-filter-icon" aria-hidden="true" />
-                            <input
-                              type="text"
-                              value={tableFilters.paas}
-                              onChange={(event) => updateTableFilter('paas', event.target.value)}
-                              placeholder="Filtra por clave, servicio o gerencia"
-                              className="table-filter-input"
-                            />
-                            {tableFilters.paas && (
+                        <div className="px-6 pt-6 pb-3 border-b border-slate-100 space-y-4">
+                          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                            <div>
+                              <h3 className="text-lg font-bold text-slate-800">Detalle PAAS 2026</h3>
+                              <p className="text-sm text-slate-500">Consulta los registros completos provenientes de la tabla `balance_paas_2026`.</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                               <button
                                 type="button"
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
-                                onClick={() => updateTableFilter('paas', '')}
+                                onClick={() => setIsPaasCompact((prev) => !prev)}
+                                className={buildToggleButtonClass(isPaasCompact)}
                               >
-                                Limpiar
+                                {isPaasCompact ? (
+                                  <>
+                                    <Minimize2 className="h-4 w-4" />
+                                    Vista estándar
+                                  </>
+                                ) : (
+                                  <>
+                                    <Maximize2 className="h-4 w-4" />
+                                    Vista compacta
+                                  </>
+                                )}
                               </button>
-                            )}
+                              {canManageRecords && (
+                                <button
+                                  type="button"
+                                  onClick={() => setIsPaasEditing((prev) => !prev)}
+                                  className={buildToggleButtonClass(isPaasEditing)}
+                                >
+                                  {isPaasEditing ? (
+                                    <>
+                                      <Save className="h-4 w-4" />
+                                      Salir de edición
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Pencil className="h-4 w-4" />
+                                      Editar
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              {canManageRecords && (
+                                <button
+                                  type="button"
+                                  onClick={handleAddPaasRow}
+                                  disabled={!paasColumnKeys.length}
+                                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${paasColumnKeys.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                  Agregar fila
+                                </button>
+                              )}
+                              {canManageRecords && (
+                                <button
+                                  type="button"
+                                  onClick={openNewRecordModal}
+                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                  Nuevo registro
+                                </button>
+                              )}
+                              <span>
+                                Registros: <span className="font-semibold text-slate-700">{paasData.length}</span>
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-semibold pr-6 sm:pr-0">
-                            {paasColumnFiltersCount > 0 && (
-                              <button
-                                type="button"
-                                className="text-[#0F4C3A] hover:text-[#0c3b2d] underline-offset-2 hover:underline"
-                                onClick={() => clearColumnFilters('paas')}
-                              >
-                                Limpiar filtros por columna
-                              </button>
-                            )}
-                            <span className="text-slate-500">
-                              {formatResultLabel(paasOrderedRows.length)}
-                              {tableFilters.paas.trim() ? ' · filtro general' : ''}
-                              {paasColumnFiltersCount ? ` · ${formatColumnFilterLabel(paasColumnFiltersCount)}` : ''}
-                            </span>
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="relative w-full sm:w-80">
+                              <Search className="table-filter-icon" aria-hidden="true" />
+                              <input
+                                type="text"
+                                value={tableFilters.paas}
+                                onChange={(event) => updateTableFilter('paas', event.target.value)}
+                                placeholder="Filtra por clave, servicio o gerencia"
+                                className="table-filter-input"
+                              />
+                              {tableFilters.paas && (
+                                <button
+                                  type="button"
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
+                                  onClick={() => updateTableFilter('paas', '')}
+                                >
+                                  Limpiar
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-semibold">
+                              {paasColumnFiltersCount > 0 && (
+                                <button
+                                  type="button"
+                                  className="text-[#0F4C3A] hover:text-[#0c3b2d] underline-offset-2 hover:underline"
+                                  onClick={() => clearColumnFilters('paas')}
+                                >
+                                  Limpiar filtros por columna
+                                </button>
+                              )}
+                              <span className="text-slate-500">
+                                {formatResultLabel(paasOrderedRows.length)}
+                                {tableFilters.paas.trim() ? ' · filtro general' : ''}
+                                {paasColumnFiltersCount ? ` · ${formatColumnFilterLabel(paasColumnFiltersCount)}` : ''}
+                              </span>
+                            </div>
+                            {renderActiveColumnFilterBadges('paas')}
                           </div>
-                          {renderActiveColumnFilterBadges('paas')}
                         </div>
+                        {canManageRecords && isPaasEditing && (
+                          <div className="px-6 py-3 border-b border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4" />
+                            Modo edición activo: habilita los botones de acción y permite registrar cambios en los montos del PAAS.
+                          </div>
+                        )}
                         <div className="overflow-auto max-h-[70vh] relative">
-                          <table className="min-w-full text-sm text-center border-collapse">
+                          <table className={`min-w-full ${paasTableSizing.tableTextClass} text-center border-collapse`}>
                             <thead>
                               <tr className="uppercase tracking-wider text-white">
                                 {paasTableConfig.columns.map((column) => {
@@ -5220,7 +5159,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     return (
                                       <th
                                         key={column.key}
-                                        className="px-5 py-4 text-xs font-semibold border-b border-white/10 text-center"
+                                        className={`${paasTableSizing.headerCellPadding} text-xs font-semibold border-b border-white/10 text-center`}
                                         style={headerStyle}
                                       >
                                         {column.label}
@@ -5231,7 +5170,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   return (
                                     <th
                                       key={column.key}
-                                      className="px-5 py-4 text-xs font-semibold border-b border-white/10 text-center"
+                                      className={`${paasTableSizing.headerCellPadding} text-xs font-semibold border-b border-white/10 text-center`}
                                       style={headerStyle}
                                     >
                                       <div className="flex items-center justify-center gap-1">
@@ -5262,9 +5201,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   const zebraBackground = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
                                   const rowStyle = buildRowStyle(zebraBackground);
 
+                                  const rowKey = item.id ?? `paas-row-${rowIndex}`;
                                   return (
                                     <tr
-                                      key={item.id}
+                                      key={rowKey}
                                       className="table-row transition-colors"
                                       style={rowStyle}
                                     >
@@ -5276,7 +5216,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           : column.align === 'left'
                                             ? 'text-left'
                                             : 'text-center';
-                                        const cellClasses = ['px-4', 'py-3', 'text-sm', 'align-top', alignClass, 'transition-colors'];
+                                        const cellClasses = [paasTableSizing.bodyCellPadding, 'text-sm', 'align-top', alignClass, 'transition-colors'];
                                         if (column.mono || column.isCurrency) cellClasses.push('font-mono');
                                         if (column.className) cellClasses.push(column.className);
 
@@ -5301,22 +5241,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                                         if (column.key === '__actions') {
                                           displayValue = canManageRecords ? (
-                                            <div className="flex justify-center gap-2">
-                                              <button
-                                                onClick={() => openEditRecordModal(item)}
-                                                className="p-1.5 text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 rounded-md transition-colors"
-                                                title="Editar"
-                                              >
-                                                <Pencil className="h-4 w-4" />
-                                              </button>
-                                              <button
-                                                onClick={() => handleDeleteRecord(item.id)}
-                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                                                title="Eliminar"
-                                              >
-                                                <Trash2 className="h-4 w-4" />
-                                              </button>
-                                            </div>
+                                            isPaasEditing ? (
+                                              <div className="flex justify-center gap-2">
+                                                <button
+                                                  onClick={() => openEditRecordModal(item)}
+                                                  className="p-1.5 text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 rounded-md transition-colors"
+                                                  title="Editar"
+                                                >
+                                                  <Pencil className="h-4 w-4" />
+                                                </button>
+                                                <button
+                                                  onClick={() => handleDeleteRecord(item.id)}
+                                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                                  title="Eliminar"
+                                                >
+                                                  <Trash2 className="h-4 w-4" />
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Activa “Editar”</span>
+                                            )
                                           ) : (
                                             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Solo lectura</span>
                                           );
@@ -5384,7 +5328,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       return (
                                         <td
                                           key={`total-${column.key}`}
-                                          className={`px-4 py-3 text-sm ${alignClass} ${column.mono || column.isCurrency ? 'font-mono' : ''}`}
+                                          className={`${paasTableSizing.bodyCellPadding} text-sm ${alignClass} ${column.mono || column.isCurrency ? 'font-mono' : ''}`}
                                           style={totalCellStyle}
                                         >
                                           {displayValue}
@@ -5451,20 +5395,74 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
 
                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
-                     <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                       <div>
-                         <h3 className="text-lg font-bold text-slate-800">Control de Pagos</h3>
-                         <p className="text-xs text-slate-500">Edite los registros de la tabla `control_pagos`, incluidos montos mensuales y observaciones.</p>
+                     <div className="px-6 py-4 border-b border-slate-100 space-y-3">
+                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                         <div>
+                           <h3 className="text-lg font-bold text-slate-800">Control de Pagos</h3>
+                           <p className="text-xs text-slate-500">Edite los registros de la tabla `control_pagos`, incluidos montos mensuales y observaciones.</p>
+                         </div>
+                         {canManageRecords && (
+                           <button
+                             onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, null, null, 'Captura montos con números válidos y respeta el formato de fechas.')}
+                             className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                           >
+                             <Plus className="h-4 w-4" />
+                             Nuevo registro
+                           </button>
+                         )}
                        </div>
-                       {canManageRecords && (
+                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                          <button
-                                       onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, null, null, 'Captura montos con números válidos y respeta el formato de fechas.')}
-                           className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                           type="button"
+                           onClick={() => setIsPaymentsCompact((prev) => !prev)}
+                           className={buildToggleButtonClass(isPaymentsCompact)}
                          >
-                           <Plus className="h-4 w-4" />
-                           Nuevo registro
+                           {isPaymentsCompact ? (
+                             <>
+                               <Minimize2 className="h-4 w-4" />
+                               Vista estándar
+                             </>
+                           ) : (
+                             <>
+                               <Maximize2 className="h-4 w-4" />
+                               Vista compacta
+                             </>
+                           )}
                          </button>
-                       )}
+                         {canManageRecords && (
+                           <button
+                             type="button"
+                             onClick={() => setIsPaymentsEditing((prev) => !prev)}
+                             className={buildToggleButtonClass(isPaymentsEditing)}
+                           >
+                             {isPaymentsEditing ? (
+                               <>
+                                 <Save className="h-4 w-4" />
+                                 Salir de edición
+                               </>
+                             ) : (
+                               <>
+                                 <Pencil className="h-4 w-4" />
+                                 Editar
+                               </>
+                             )}
+                           </button>
+                         )}
+                         {canManageRecords && (
+                           <button
+                             type="button"
+                             onClick={handleAddPaymentRow}
+                             disabled={!paymentsFieldList.length}
+                             className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${paymentsFieldList.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
+                           >
+                             <Plus className="h-4 w-4" />
+                             Agregar fila
+                           </button>
+                         )}
+                         <span>
+                           Registros: <span className="font-semibold text-slate-700">{paymentsData.length}</span>
+                         </span>
+                       </div>
                      </div>
                      <div className="px-6 py-3 flex flex-wrap items-center justify-between gap-3 bg-slate-50 border-b border-slate-100">
                        <div className="relative w-full md:w-96">
@@ -5504,9 +5502,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                        </div>
                         {renderActiveColumnFilterBadges('controlPagos')}
                      </div>
+                       {canManageRecords && isPaymentsEditing && (
+                         <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                           <AlertCircle className="h-4 w-4" />
+                           Modo edición activo: habilita los botones de acción y permite actualizar cada contrato desde el registro detallado.
+                         </div>
+                       )}
                      {/* Contenedor con Scroll Horizontal y Altura Fija */}
-                     <div className="overflow-auto h-[70vh] relative">
-                       <table className="text-sm text-center w-max min-w-full border-collapse">
+                       <div className="overflow-auto h-[70vh] relative">
+                         <table className={`${paymentsTableSizing.tableTextClass} text-center w-max min-w-full border-collapse`}>
                          <thead className="text-white uppercase tracking-wider">
                            <tr className="h-14">
                              {/* COLUMNAS FIJAS - CORNER LOCKING (TOP & LEFT) */}
@@ -5688,22 +5692,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                <td className="px-6 py-4 text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center">{item.observaciones || '-'}</td>
                                {canManageRecords && (
                                  <td className="px-6 py-4 text-center" style={{ minWidth: '160px' }}>
-                                   <div className="flex justify-center gap-2">
-                                     <button
-                                       onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, item)}
-                                       className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
-                                       title="Editar"
-                                     >
-                                       <Pencil className="h-4 w-4" />
-                                     </button>
-                                     <button
-                                       onClick={() => handleDeleteGenericRecord('control_pagos', item as unknown as Record<string, any>, 'Control de Pagos')}
-                                       className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                       title="Eliminar"
-                                     >
-                                       <Trash2 className="h-4 w-4" />
-                                     </button>
-                                   </div>
+                                   {isPaymentsEditing ? (
+                                     <div className="flex justify-center gap-2">
+                                       <button
+                                         onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, item)}
+                                         className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                         title="Editar"
+                                       >
+                                         <Pencil className="h-4 w-4" />
+                                       </button>
+                                       <button
+                                         onClick={() => handleDeleteGenericRecord('control_pagos', item as unknown as Record<string, any>, 'Control de Pagos')}
+                                         className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                         title="Eliminar"
+                                       >
+                                         <Trash2 className="h-4 w-4" />
+                                       </button>
+                                     </div>
+                                   ) : (
+                                     <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Activa “Editar”</span>
+                                   )}
                                  </td>
                                )}
                              </tr>
@@ -5816,24 +5824,78 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
 
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-slate-800">Detalle de Facturas</h3>
-                          <p className="text-sm text-slate-500 mt-1">Tabla completa con los campos detectados en `estatus_facturas`.</p>
+                      <div className="p-6 border-b border-slate-100 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800">Detalle de Facturas</h3>
+                            <p className="text-sm text-slate-500 mt-1">Tabla completa con los campos detectados en `estatus_facturas`.</p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                            {invoicesData.length > 0 && (
+                              <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {invoicesTableColumns.length}</span>
+                            )}
+                            {canManageRecords && (
+                              <button
+                                onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, null, null, 'Registra folios, montos y estatus tal como aparecen en los registros existentes.')}
+                                className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                              >
+                                <Plus className="h-4 w-4" />
+                                Nuevo registro
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          {invoicesData.length > 0 && (
-                            <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {invoicesTableColumns.length}</span>
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                          <button
+                            type="button"
+                            onClick={() => setIsInvoicesCompact((prev) => !prev)}
+                            className={buildToggleButtonClass(isInvoicesCompact)}
+                          >
+                            {isInvoicesCompact ? (
+                              <>
+                                <Minimize2 className="h-4 w-4" />
+                                Vista estándar
+                              </>
+                            ) : (
+                              <>
+                                <Maximize2 className="h-4 w-4" />
+                                Vista compacta
+                              </>
+                            )}
+                          </button>
+                          {canManageRecords && (
+                            <button
+                              type="button"
+                              onClick={() => setIsInvoicesEditing((prev) => !prev)}
+                              className={buildToggleButtonClass(isInvoicesEditing)}
+                            >
+                              {isInvoicesEditing ? (
+                                <>
+                                  <Save className="h-4 w-4" />
+                                  Salir de edición
+                                </>
+                              ) : (
+                                <>
+                                  <Pencil className="h-4 w-4" />
+                                  Editar
+                                </>
+                              )}
+                            </button>
                           )}
                           {canManageRecords && (
                             <button
-                              onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, null, null, 'Registra folios, montos y estatus tal como aparecen en los registros existentes.')}
-                              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                              type="button"
+                              onClick={handleAddInvoiceRow}
+                              disabled={!invoicesTableColumns.length}
+                              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${invoicesTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
                             >
                               <Plus className="h-4 w-4" />
-                              Nuevo registro
+                              Agregar fila
                             </button>
                           )}
+                          <span>
+                            Registros: <span className="font-semibold text-slate-700">{invoicesData.length}</span>
+                          </span>
                         </div>
                       </div>
                       <div className="px-6 py-3 flex flex-wrap items-center justify-between gap-3 bg-slate-50 border-b border-slate-100">
@@ -5874,16 +5936,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
                         {renderActiveColumnFilterBadges('invoices')}
                       </div>
+                      {canManageRecords && isInvoicesEditing && (
+                        <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4" />
+                          Modo edición activo: los botones de acción están habilitados para actualizar o depurar facturas.
+                        </div>
+                      )}
                       <div className="overflow-auto h-[68vh] relative">
-                        <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
+                        <table className={`${invoicesTableSizing.tableTextClass} text-center w-max min-w-full border-collapse`}>
                           <thead className="uppercase tracking-wider text-white">
-                            <tr className="h-14">
+                            <tr className={invoicesTableSizing.headerRowClass}>
                               {(invoicesColumnsToRender.length ? invoicesColumnsToRender : invoicesTableColumns.length ? invoicesTableColumns : ['sin_datos']).map((column) => {
                                 if (column === '__actions') {
                                   return (
                                     <th
                                       key="invoice-actions"
-                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      className={`${invoicesTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                       style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#14532d', color: '#fff', minWidth: '160px' }}
                                     >
                                       Acciones
@@ -5895,7 +5963,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   return (
                                     <th
                                       key="invoice-empty"
-                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      className={`${invoicesTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                       style={{ position: 'sticky', top: 0, backgroundColor: '#14532d', color: '#fff' }}
                                     >
                                       Sin datos
@@ -5929,7 +5997,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 return (
                                   <th
                                     key={column}
-                                    className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                    className={`${invoicesTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                     style={headerStyle}
                                   >
                                     <div className="flex items-center justify-center gap-1">
@@ -5970,26 +6038,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         return (
                                           <td
                                             key={`invoice-actions-${rowKey}`}
-                                            className="px-5 py-4 text-center"
+                                            className={`${invoicesTableSizing.bodyCellPadding} text-center`}
                                             style={{ minWidth: '160px' }}
                                           >
                                             {canManageRecords ? (
-                                              <div className="flex justify-center gap-2">
-                                                <button
-                                                  onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, row)}
-                                                  className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
-                                                  title="Editar"
-                                                >
-                                                  <Pencil className="h-4 w-4" />
-                                                </button>
-                                                <button
-                                                  onClick={() => handleDeleteGenericRecord('estatus_facturas', row as Record<string, any>, 'Registro estatus_facturas')}
-                                                  className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                                  title="Eliminar"
-                                                >
-                                                  <Trash2 className="h-4 w-4" />
-                                                </button>
-                                              </div>
+                                              isInvoicesEditing ? (
+                                                <div className="flex justify-center gap-2">
+                                                  <button
+                                                    onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, row)}
+                                                    className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                                    title="Editar"
+                                                  >
+                                                    <Pencil className="h-4 w-4" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => handleDeleteGenericRecord('estatus_facturas', row as Record<string, any>, 'Registro estatus_facturas')}
+                                                    className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                    title="Eliminar"
+                                                  >
+                                                    <Trash2 className="h-4 w-4" />
+                                                  </button>
+                                                </div>
+                                              ) : (
+                                                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Activa “Editar”</span>
+                                              )
                                             ) : (
                                               <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
                                             )}
@@ -6025,7 +6097,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       return (
                                         <td
                                           key={column}
-                                          className={`px-5 py-4 text-slate-600 align-top whitespace-pre-wrap break-words border-b border-slate-100 ${alignmentClass} ${fontClass} ${isSticky ? 'sticky-cell' : ''}`}
+                                          className={`${invoicesTableSizing.bodyCellPadding} text-slate-600 align-top whitespace-pre-wrap break-words border-b border-slate-100 ${alignmentClass} ${fontClass} ${isSticky ? 'sticky-cell' : ''}`}
                                           style={cellStyle}
                                         >
                                           {formatTableValue(column, rawValue)}
@@ -6562,11 +6634,62 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-6 border-b border-slate-100 flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                        <AlertCircle className="h-4 w-4 text-[#B38E5D]" />
-                        Observaciones a servicios pendientes de pago (Octubre)
+                      <div>
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <AlertCircle className="h-4 w-4 text-[#B38E5D]" />
+                          Observaciones a servicios pendientes de pago (Octubre)
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Da seguimiento a cada servicio con filtros por columna y edición directa.
+                        </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <button
+                          type="button"
+                          onClick={() => setIsPendingOctCompact((prev) => !prev)}
+                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isPendingOctCompact ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                        >
+                          {isPendingOctCompact ? (
+                            <>
+                              <Minimize2 className="h-4 w-4" />
+                              Vista estándar
+                            </>
+                          ) : (
+                            <>
+                              <Maximize2 className="h-4 w-4" />
+                              Vista compacta
+                            </>
+                          )}
+                        </button>
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={() => setIsPendingOctEditing((prev) => !prev)}
+                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isPendingOctEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                          >
+                            {isPendingOctEditing ? (
+                              <>
+                                <Save className="h-4 w-4" />
+                                Salir de edición
+                              </>
+                            ) : (
+                              <>
+                                <Pencil className="h-4 w-4" />
+                                Editar
+                              </>
+                            )}
+                          </button>
+                        )}
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={handleAddPendingObservationRow}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A] transition-colors"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Agregar fila
+                          </button>
+                        )}
                         <span>
                           Total registros: <span className="font-semibold text-slate-700">{procedureStatuses.length}</span>
                         </span>
@@ -6588,7 +6711,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           type="text"
                           value={tableFilters.pendingOct}
                           onChange={(event) => updateTableFilter('pendingOct', event.target.value)}
-                          placeholder="Filtra contrato, empresa u observación"
+                          placeholder="Filtra empresa, contrato u observación"
                           className="table-filter-input"
                         />
                         {tableFilters.pendingOct && (
@@ -6601,7 +6724,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </button>
                         )}
                       </div>
-                      <div className="flex flex-col md:flex-row md:items-center gap-2 text-[11px] font-semibold">
+                      <div className="flex flex-col md:flex-row md:items-center gap-2 text-[11px] font-semibold text-slate-500">
                         {pendingOctColumnFiltersCount > 0 && (
                           <button
                             type="button"
@@ -6611,66 +6734,62 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             Limpiar filtros por columna
                           </button>
                         )}
-                        <span className="text-slate-500">
+                        <span>
                           {formatResultLabel(filteredPendingOctData.length)}
                           {tableFilters.pendingOct.trim() ? ' · filtro general' : ''}
                           {pendingOctColumnFiltersCount ? ` · ${formatColumnFilterLabel(pendingOctColumnFiltersCount)}` : ''}
                         </span>
                       </div>
-                      {renderActiveColumnFilterBadges('pendingOct', resolvePendingOctColumnLabel)}
+                      {renderActiveColumnFilterBadges('pendingOct')}
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-center">
-                        <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
-                          <tr>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <span>Registro</span>
-                                {renderColumnFilterControl('pendingOct', 'created_at', 'Registro', procedureStatuses)}
-                              </div>
-                            </th>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <span>Contrato</span>
-                                {renderColumnFilterControl('pendingOct', 'contrato', 'Contrato', procedureStatuses)}
-                              </div>
-                            </th>
-                            <th className="px-6 py-3 font-semibold text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <span>Descripción del Servicio</span>
-                                {renderColumnFilterControl('pendingOct', 'descripcion', 'Descripción del Servicio', procedureStatuses)}
-                              </div>
-                            </th>
-                            <th className="px-6 py-3 font-semibold text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <span>Empresa</span>
-                                {renderColumnFilterControl('pendingOct', 'empresa', 'Empresa', procedureStatuses)}
-                              </div>
-                            </th>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <span>Mes factura / nota</span>
-                                {renderColumnFilterControl('pendingOct', 'mes_factura_nota', 'Mes factura / nota', procedureStatuses)}
-                              </div>
-                            </th>
-                            <th className="px-6 py-3 font-semibold text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <span>Observación de Pago</span>
-                                {renderColumnFilterControl('pendingOct', 'observacion_pago', 'Observación de Pago', procedureStatuses)}
-                              </div>
-                            </th>
-                            {canManageRecords && (
-                              <th className="px-6 py-3 font-semibold text-center">Acciones</th>
-                            )}
+                    {isPendingOctEditing && (
+                      <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
+                      </div>
+                    )}
+                    <div className="relative max-h-[70vh] overflow-auto">
+                      <table className={`min-w-full ${pendingOctSizing.tableTextClass} text-center border-collapse`}>
+                        <thead className="uppercase tracking-wider text-white">
+                          <tr className={pendingOctSizing.headerRowClass}>
+                            {pendingOctColumnsToRender.map((column) => {
+                              if (column === '__actions') {
+                                return (
+                                  <th
+                                    key="pendingOct-actions"
+                                    className={`${pendingOctSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center`}
+                                    style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#0F4C3A', minWidth: '140px' }}
+                                  >
+                                    Acciones
+                                  </th>
+                                );
+                              }
+
+                              const label = resolvePendingOctColumnLabel(column);
+                              const minWidth = column === 'descripcion' || column === 'observacion_pago' ? 280 : column === 'empresa' ? 220 : column === 'contrato' ? 200 : 170;
+
+                              return (
+                                <th
+                                  key={column}
+                                  className={`${pendingOctSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center`}
+                                  style={{ position: 'sticky', top: 0, backgroundColor: '#0F4C3A', color: '#fff', minWidth: `${minWidth}px`, zIndex: 40 }}
+                                >
+                                  <div className="flex items-center justify-center gap-1">
+                                    <span className="truncate" title={label}>{label}</span>
+                                    {renderColumnFilterControl('pendingOct', column, label, procedureStatuses)}
+                                  </div>
+                                </th>
+                              );
+                            })}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {loadingData ? (
-                            <tr><td colSpan={canManageRecords ? 7 : 6} className="text-center py-8">Cargando observaciones...</td></tr>
+                            <tr><td colSpan={pendingOctColumnCount} className="text-center py-8">Cargando observaciones...</td></tr>
                           ) : procedureStatuses.length === 0 ? (
-                            <tr><td colSpan={canManageRecords ? 7 : 6} className="text-center py-8 text-slate-500">No hay observaciones registradas.</td></tr>
+                            <tr><td colSpan={pendingOctColumnCount} className="text-center py-8 text-slate-500">No hay observaciones registradas.</td></tr>
                           ) : filteredPendingOctData.length === 0 ? (
-                            <tr><td colSpan={canManageRecords ? 7 : 6} className="text-center py-8 text-slate-500">Sin coincidencias para el filtro aplicado.</td></tr>
+                            <tr><td colSpan={pendingOctColumnCount} className="text-center py-8 text-slate-500">Sin coincidencias para el filtro aplicado.</td></tr>
                           ) : filteredPendingOctData.map((item, rowIndex) => {
                             const rowKey = item.id ?? `pending-oct-${rowIndex}`;
                             const zebraBackground = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
@@ -6681,37 +6800,75 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 className="transition-colors table-row"
                                 style={rowStyle}
                               >
-                              <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap text-center">{formatDateTime(item.created_at)}</td>
-                              <td className="px-6 py-4 text-slate-700 font-semibold text-center">{item.contrato || '-'}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.descripcion || '-'}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.empresa || '-'}</td>
-                              <td className="px-6 py-4 text-slate-500 text-xs whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.mes_factura_nota)}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.observacion_pago)}</td>
-                              {canManageRecords && (
-                                <td className="px-6 py-4 text-center">
-                                  <div className="flex justify-center gap-2">
-                                    <button
-                                      onClick={() => openRecordEditor('estatus_procedimiento', 'Observación de Pago', procedureFieldList, item as unknown as Record<string, any>)}
-                                      className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
-                                      title="Editar"
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteGenericRecord('estatus_procedimiento', item as unknown as Record<string, any>, 'Observación de Pago')}
-                                      className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                      title="Eliminar"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </button>
-                                  </div>
-                                </td>
-                              )}
+                                {pendingOctColumnsToRender.map((column) => {
+                                  if (column === '__actions') {
+                                    return (
+                                      <td key={`${rowKey}-actions`} className={`${pendingOctSizing.bodyCellPadding} text-center`} style={{ minWidth: '140px' }}>
+                                        {canManageRecords ? (
+                                          <div className="flex justify-center gap-2">
+                                            <button
+                                              onClick={() => openRecordEditor('estatus_procedimiento', 'Observación de Pago', procedureFieldList, item as unknown as Record<string, any>)}
+                                              className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                              title="Editar"
+                                            >
+                                              <Pencil className="h-4 w-4" />
+                                            </button>
+                                            <button
+                                              onClick={() => handleDeleteGenericRecord('estatus_procedimiento', item as unknown as Record<string, any>, 'Observación de Pago')}
+                                              className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                              title="Eliminar"
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
+                                        )}
+                                      </td>
+                                    );
+                                  }
+
+                                  const rawValue = (item as Record<string, any>)[column];
+                                  const isDateColumn = column === 'created_at';
+                                  const baseClasses = isDateColumn
+                                    ? `${pendingOctSizing.bodyCellPadding} text-xs text-slate-500 font-mono text-center`
+                                    : `${pendingOctSizing.bodyCellPadding} text-slate-700 whitespace-pre-wrap break-words text-center`;
+                                  const isCellEditable = isPendingOctEditing;
+                                  const cellClasses = isCellEditable ? `${baseClasses} cursor-text` : baseClasses;
+                                  const displayValue = isDateColumn ? formatDateTime(rawValue) : formatTableValue(column, rawValue);
+                                  const editingValue = getEditableCellValue(rawValue);
+
+                                  return (
+                                    <td key={`${rowKey}-${column}`} className={cellClasses}>
+                                      {isCellEditable ? (
+                                        <div
+                                          contentEditable
+                                          suppressContentEditableWarning
+                                          className={`inline-block w-full ${pendingOctSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                          onBlur={(event) => handlePendingObservationCellEdit(item, column, event.currentTarget.textContent ?? '')}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter') {
+                                              event.preventDefault();
+                                              (event.currentTarget as HTMLDivElement).blur();
+                                            }
+                                          }}
+                                        >
+                                          {editingValue}
+                                        </div>
+                                      ) : (
+                                        displayValue
+                                      )}
+                                    </td>
+                                  );
+                                })}
                               </tr>
                             );
                           })}
                         </tbody>
                       </table>
+                    </div>
+                    <div className="p-3 bg-slate-50 text-xs text-slate-400 border-t border-slate-100 text-center">
+                      Captura información adicional en Supabase para enriquecer este resumen.
                     </div>
                   </div>
                 </div>
@@ -6840,7 +6997,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     )}
 
                     {selectedResponsibleSummary && (
-                      <div className="mt-8 bg-[#0F4C3A]/5 border border-[#0F4C3A]/20 rounded-xl p-6">
+                      <div className="mt-8 bg-[#0F4C3A]/5 border border-[#0F4C3A]/20 rounded-xl p-6 space-y-6">
                         <div className="flex flex-wrap items-start justify-between gap-4">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-widest text-[#0F4C3A]">Detalle de carga</p>
@@ -6859,78 +7016,64 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             Regresar a responsables
                           </button>
                         </div>
-
-                        <div className="mt-4 flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-[#0F4C3A]">
                           {selectedResponsibleSummary.statusBreakdown.length ? (
                             selectedResponsibleSummary.statusBreakdown.map((item) => (
-                              <span key={`${selectedResponsibleSummary.responsible}-chip-${item.label}`} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white text-[#0F4C3A] shadow-sm">
+                              <span key={`${item.label}-${item.count}`} className="px-3 py-1 rounded-full bg-white/70 border border-[#0F4C3A]/20">
                                 {item.label} · {item.count}
                               </span>
                             ))
                           ) : (
-                            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white text-slate-400 shadow-sm">
-                              Sin estatus capturado
-                            </span>
+                            <span className="px-3 py-1 rounded-full bg-white/70 border border-[#0F4C3A]/20 text-[#0F4C3A]">Sin estatus clasificado</span>
                           )}
                         </div>
-
-                        <div className="mt-6 grid gap-4">
-                          {selectedResponsibleSummary.services.map((service, index) => {
-                            const highlightKeys = proceduresHighlightKeys;
-                            const hasDetails = highlightKeys.some((key) => {
-                              if (!key) return false;
-                              if (!Object.prototype.hasOwnProperty.call(service.raw, key)) return false;
-                              const value = service.raw[key];
-                              return value !== null && value !== undefined && value !== '';
-                            });
-
-                            return (
-                              <div key={String(service.id ?? index)} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div>
-                                    <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Servicio</p>
-                                    <h5 className="mt-1 text-base font-semibold text-slate-800 break-words max-w-xl">
-                                      {service.label || `Servicio ${index + 1}`}
-                                    </h5>
-                                  </div>
-                                  <div className="flex flex-col gap-2 items-end text-right">
-                                    {service.statusLabel && (
-                                      <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#0F4C3A]/10 text-xs font-semibold text-[#0F4C3A]">
-                                        <AlertCircle className="h-3.5 w-3.5" />
-                                        {service.statusLabel}
-                                      </span>
-                                    )}
-                                    {service.deadlineLabel && (
-                                      <span className="text-[11px] font-medium text-slate-500">
-                                        Próximo hito: {service.deadlineLabel}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                {hasDetails ? (
-                                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-600">
-                                    {highlightKeys.map((key) => {
-                                      if (!key) return null;
-                                      if (!Object.prototype.hasOwnProperty.call(service.raw, key)) return null;
-                                      const rawValue = service.raw[key];
-                                      if (rawValue === null || rawValue === undefined || rawValue === '') return null;
-                                      return (
-                                        <div key={`${service.id}-${key}`}>
-                                          <p className="font-semibold uppercase tracking-widest text-[11px] text-slate-400">{humanizeKey(key)}</p>
-                                          <p className="mt-1 text-slate-700 whitespace-pre-wrap break-words">{formatTableValue(key, rawValue)}</p>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <p className="mt-4 text-xs text-slate-400 italic">
-                                    Captura información adicional en Supabase para enriquecer este resumen.
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })}
+                        <div className="overflow-auto border border-[#0F4C3A]/20 rounded-lg bg-white">
+                          {selectedResponsibleSummary.services.length ? (
+                            <table className="min-w-full text-xs">
+                              <thead className="bg-[#0F4C3A]/90 text-white uppercase tracking-wide">
+                                <tr>
+                                  <th className="px-4 py-2 text-left font-semibold">Servicio</th>
+                                  <th className="px-4 py-2 text-left font-semibold">Estatus</th>
+                                  <th className="px-4 py-2 text-left font-semibold">Fecha objetivo</th>
+                                  {proceduresHighlightKeys.map((column) => (
+                                    <th key={`responsable-${column}`} className="px-4 py-2 text-left font-semibold whitespace-nowrap">
+                                      {humanizeKey(column)}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedResponsibleSummary.services.map((service, index) => {
+                                  const zebraBackground = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+                                  const rowStyle = buildRowStyle(zebraBackground);
+                                  return (
+                                    <tr key={service.id} className="border-t border-slate-100 table-row transition-colors" style={rowStyle}>
+                                      <td className="px-4 py-2 text-slate-800 font-semibold align-top">
+                                        {service.label || 'Sin servicio capturado'}
+                                      </td>
+                                      <td className="px-4 py-2 text-slate-600 align-top">
+                                        {service.statusLabel || 'Sin dato'}
+                                      </td>
+                                      <td className="px-4 py-2 text-slate-600 align-top">
+                                        {service.deadlineLabel || '—'}
+                                      </td>
+                                      {proceduresHighlightKeys.map((column) => (
+                                        <td key={`${service.id}-${column}`} className="px-4 py-2 text-slate-700 align-top whitespace-pre-wrap break-words">
+                                          {formatTableValue(column, service.raw[column])}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <div className="p-6 text-xs text-slate-500 text-center">Sin servicios asociados a este responsable.</div>
+                          )}
                         </div>
+                        <p className="text-[11px] text-slate-500">
+                          Ajusta los campos destacados directamente en Supabase para mantener la trazabilidad de cada servicio.
+                        </p>
                       </div>
                     )}
                   </div>

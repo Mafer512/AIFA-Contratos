@@ -1,6 +1,36 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+/**
+ * Minimal Deno typing so the repo's Node-focused TS tooling stops flagging this file.
+ * The actual Edge runtime provides the real implementations.
+ */
+declare const Deno:
+  | {
+      env: { get(key: string): string | undefined };
+      serve?: (handler: (req: Request) => Response | Promise<Response>) => void;
+    }
+  | undefined;
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+interface FetchEvent extends Event {
+  request: Request;
+  respondWith(response: Promise<Response> | Response): void;
+}
+
+const serve = (handler: (req: Request) => Response | Promise<Response>) => {
+  if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
+    Deno.serve(handler);
+    return;
+  }
+
+  if (typeof addEventListener === "function") {
+    addEventListener("fetch", (event: FetchEvent) => {
+      event.respondWith(Promise.resolve(handler(event.request)));
+    });
+    return;
+  }
+
+  throw new Error("Edge runtime no disponible para servir la función");
+};
+
+const RESEND_API_KEY = typeof Deno !== "undefined" ? Deno.env.get("RESEND_API_KEY") : undefined;
 const DEFAULT_TARGET_EMAIL = "isaacazhael161f@gmail.com";
 
 const sendResendEmail = async ({
