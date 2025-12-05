@@ -8,7 +8,7 @@ import {
   DollarSign, PieChart as PieChartIcon,
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
   CreditCard, Calendar, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
-  Search, Filter
+  Search, Filter, ChevronDown, Layers, Target, CheckCircle2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line } from 'recharts';
 import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff } from '../types';
@@ -16,6 +16,115 @@ import { supabase } from '../services/supabaseClient';
 
 const chartPalette = ['#B38E5D', '#2563EB', '#0F4C3A', '#9E1B32', '#7C3AED', '#F97316', '#14B8A6', '#64748B'];
 const invoicesPalette = ['#0F4C3A', '#B38E5D', '#2563EB', '#F97316', '#9E1B32', '#7C3AED', '#14B8A6', '#64748B'];
+
+type StageProgressVariant = 'phase' | 'status';
+
+interface StageProgressData {
+  percent: number;
+  ratio: string;
+  currentLabel: string;
+}
+
+interface StageProgressTheme {
+  label: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  wrapper: string;
+  iconBg: string;
+  iconColor: string;
+  accent: string;
+  track: string;
+  fill: string;
+  stepActive: string;
+  stepInactive: string;
+}
+
+interface StageProgressProps {
+  variant: StageProgressVariant;
+  progress: StageProgressData;
+  percent: number;
+  totalSteps: number;
+}
+
+const clampPercent = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+};
+
+const stageProgressThemes: Record<StageProgressVariant, StageProgressTheme> = {
+  phase: {
+    label: 'Avance de fase',
+    icon: Layers,
+    wrapper: 'border-slate-200 bg-gradient-to-br from-white via-white to-[#f4f8f6]',
+    iconBg: 'bg-[#0F4C3A]/10',
+    iconColor: 'text-[#0F4C3A]',
+    accent: 'text-[#0F4C3A]',
+    track: 'bg-slate-200',
+    fill: 'from-[#0F4C3A] via-[#1c6b56] to-[#2c8f71]',
+    stepActive: 'bg-[#0F4C3A]',
+    stepInactive: 'bg-slate-200',
+  },
+  status: {
+    label: 'Avance de estatus',
+    icon: Target,
+    wrapper: 'border-slate-200 bg-gradient-to-br from-white via-white to-[#f3f5fb]',
+    iconBg: 'bg-[#1f3b64]/10',
+    iconColor: 'text-[#1f3b64]',
+    accent: 'text-[#1f3b64]',
+    track: 'bg-slate-200',
+    fill: 'from-[#1f3b64] via-[#294d83] to-[#3a66a7]',
+    stepActive: 'bg-[#1f3b64]',
+    stepInactive: 'bg-slate-200',
+  },
+};
+
+const StageProgressCard: React.FC<StageProgressProps> = ({ variant, progress, percent, totalSteps }) => {
+  const theme = stageProgressThemes[variant];
+  const Icon = theme.icon;
+  const safePercent = clampPercent(Number.isFinite(percent) ? percent : progress.percent || 0);
+  const segments = Math.max(1, totalSteps || 1);
+  const progressParts = progress.ratio.split('/');
+  const completedSegments = Math.max(
+    0,
+    Math.min(segments, Number.parseInt(progressParts[0], 10) || 0),
+  );
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${theme.wrapper}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${theme.iconBg}`}>
+            <Icon className={`h-5 w-5 ${theme.iconColor}`} />
+          </span>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{theme.label}</p>
+            <p className="text-sm font-semibold text-slate-900">{progress.currentLabel}</p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className={`text-2xl font-bold ${theme.accent}`}>{safePercent}%</p>
+          <p className="text-[11px] font-semibold text-slate-400">{progress.ratio}</p>
+        </div>
+      </div>
+      <div className="mt-4">
+        <div className={`relative h-3 w-full overflow-hidden rounded-full ${theme.track}`}>
+          <div
+            className={`absolute inset-y-0 left-0 rounded-full bg-gradient-to-r ${theme.fill}`}
+            style={{ width: `${safePercent}%` }}
+          />
+          <div className="absolute inset-0 bg-white/30" />
+        </div>
+        <div className="mt-3 flex items-center gap-1">
+          {Array.from({ length: segments }).map((_, index) => (
+            <span
+              key={`${variant}-segment-${index}`}
+              className={`h-1.5 flex-1 rounded-full ${index < completedSegments ? theme.stepActive : theme.stepInactive}`}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const CONTRACT_SOON_WINDOW_DAYS = 60;
@@ -442,6 +551,24 @@ const MOCK_SPACES: CommercialSpace[] = [
   { id: 's5', space_code: 'LOC-005', tenant_name: 'Krispy Kreme', category: 'Alimentos', monthly_rent: 55000, occupancy_status: 'OCUPADO' },
 ];
 
+const PHASE_STEP_LABELS = ['Revisión DGPYP.', 'Trámite Autorizado', 'Ordinaria'];
+const STATUS_STEP_LABELS = [
+  'Ficha técnica en elaboración',
+  'Investigación de mercado.',
+  'Revisión defensa (DN3)',
+  'Procedimiento de contratación',
+  'Adjudicado',
+  'Validación por el área',
+  'Revisión defensa (DN10)'
+];
+
+const STATUS_CARD_GRADIENTS = [
+  'from-emerald-500 via-emerald-400 to-lime-400',
+  'from-cyan-500 via-sky-500 to-indigo-500',
+  'from-amber-500 via-orange-500 to-rose-500',
+  'from-fuchsia-500 via-purple-500 to-sky-500',
+];
+
 interface DashboardProps {
   user: User;
   onLogout: () => void;
@@ -519,6 +646,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     services: ProcedureServiceSnapshot[];
   }
 
+  interface AnnualStatusEntry {
+    id: string | number;
+    serviceName: string;
+    faseLabel: string;
+    estatusLabel: string;
+    phaseIndex: number;
+    statusIndex: number;
+    monetary: Array<{ label: string; value: number }>;
+  }
+
   type GenericRecordEditorConfig = {
     table: string;
     title: string;
@@ -536,6 +673,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [selectedResponsibleName, setSelectedResponsibleName] = useState<string | null>(null);
   const [isProceduresEditing, setIsProceduresEditing] = useState(false);
   const [isProceduresCompact, setIsProceduresCompact] = useState(false);
+  const [expandedStatusId, setExpandedStatusId] = useState<string | number | null>(null);
+  const [statusSearch, setStatusSearch] = useState('');
   const [tableFilters, setTableFilters] = useState<TableFilterMap>({
     annual2026: '',
     paas: '',
@@ -2209,6 +2348,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     .replace(/[º°#]/g, '')
     .trim();
 
+  const normalizeValueToken = (value: any) => {
+    if (value === null || value === undefined) return '';
+    return normalizeAnnualKey(String(value));
+  };
+
+  const abbreviateLabel = (label: string, wordLimit = 2) => {
+    const cleaned = label.replace(/\(.+?\)/g, '').trim();
+    const words = cleaned.split(/\s+/).slice(0, wordLimit);
+    return words.join(' ') || cleaned;
+  };
+
+  const phaseSteps = useMemo(() => PHASE_STEP_LABELS.map((label) => ({
+    label,
+    token: normalizeValueToken(label),
+    short: abbreviateLabel(label, 1),
+  })), []);
+
+  const statusSteps = useMemo(() => STATUS_STEP_LABELS.map((label) => ({
+    label,
+    token: normalizeValueToken(label),
+    short: abbreviateLabel(label, 2),
+  })), []);
+
+  const resolveProgressIndex = (rawValue: any, steps: { token: string }[]) => {
+    const normalizedValue = normalizeValueToken(rawValue);
+    if (!normalizedValue) return -1;
+    return steps.findIndex((step) => normalizedValue.includes(step.token));
+  };
+
+  const buildProgressInfo = (currentIndex: number, steps: { label: string }[]): StageProgressData => {
+    if (!steps.length || currentIndex < 0) {
+      return { percent: 0, ratio: `0/${steps.length || 0}`, currentLabel: 'Sin dato' };
+    }
+    const safeIndex = Math.min(currentIndex, steps.length - 1);
+    const percent = ((safeIndex + 1) / steps.length) * 100;
+    return {
+      percent,
+      ratio: `${safeIndex + 1}/${steps.length}`,
+      currentLabel: steps[safeIndex]?.label ?? 'Sin dato',
+    };
+  };
   const categorizeObservation = (value: string | null | undefined) => {
     if (!value) return 'Sin observación';
     const text = value.toLowerCase();
@@ -3077,6 +3257,132 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (!annualTableColumns.length) return [] as string[];
     return canManageRecords ? [...annualTableColumns, '__actions'] : [...annualTableColumns];
   }, [annualTableColumns, canManageRecords]);
+
+  const annualMonetaryColumns = useMemo(() => {
+    if (!annualTableColumns.length) return [] as string[];
+    const monetaryTokens = ['monto', 'importe', 'presupuesto', 'modificado', 'costo', 'ejercido'];
+    return annualTableColumns.filter((column) => {
+      const normalized = normalizeAnnualKey(column);
+      return monetaryTokens.some((token) => normalized.includes(token));
+    });
+  }, [annualTableColumns]);
+
+  const estatusServiceEntries = useMemo<AnnualStatusEntry[]>(() => {
+    if (!annual2026Data.length) return [];
+
+    const serviceFragments = ['nombre del servicio', 'servicio', 'concepto', 'descripcion', 'objeto'];
+    const faseFragments = ['fase'];
+    const statusFragments = ['estatus', 'status'];
+    const claveFragments = ['clave cucop', 'clave'];
+
+    const serviceColumn = findColumnByFragments(annualTableColumns, serviceFragments);
+    const faseColumn = findColumnByFragments(annualTableColumns, faseFragments);
+    const statusColumn = findColumnByFragments(annualTableColumns, statusFragments);
+    const claveColumn = findColumnByFragments(annualTableColumns, claveFragments);
+
+    const getValueFromRow = (row: Record<string, any>, fragments: string[]) => {
+      const column = findColumnByFragments(Object.keys(row), fragments);
+      return column ? row[column] : null;
+    };
+
+    const resolveMonetarySnapshot = (row: Record<string, any>) => {
+      if (!annualMonetaryColumns.length) return [] as Array<{ label: string; value: number }>;
+      const snapshot: Array<{ label: string; value: number }> = [];
+      annualMonetaryColumns.forEach((column) => {
+        const raw = row[column];
+        if (raw === null || raw === undefined || raw === '') return;
+        const numeric = parseNumericValue(raw);
+        if (!Number.isFinite(numeric)) return;
+        snapshot.push({ label: humanizeKey(column), value: numeric });
+      });
+      return snapshot.sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 3);
+    };
+
+    return annual2026Data.map((row, index) => {
+      const serviceValue = serviceColumn ? row[serviceColumn] : getValueFromRow(row, serviceFragments);
+      const faseValue = faseColumn ? row[faseColumn] : getValueFromRow(row, faseFragments);
+      const statusValue = statusColumn ? row[statusColumn] : getValueFromRow(row, statusFragments);
+      const claveValue = claveColumn ? row[claveColumn] : getValueFromRow(row, claveFragments);
+
+      const idValue = row.id ?? row.ID ?? claveValue ?? `annual-${index}`;
+      const serviceName = (typeof serviceValue === 'string' && serviceValue.trim().length)
+        ? serviceValue.trim()
+        : `Servicio ${index + 1}`;
+
+      return {
+        id: idValue,
+        serviceName,
+        faseLabel: faseValue ? String(faseValue) : 'Sin fase capturada',
+        estatusLabel: statusValue ? String(statusValue) : 'Sin estatus registrado',
+        phaseIndex: resolveProgressIndex(faseValue, phaseSteps),
+        statusIndex: resolveProgressIndex(statusValue, statusSteps),
+        monetary: resolveMonetarySnapshot(row as Record<string, any>),
+      } as AnnualStatusEntry;
+    }).filter((entry) => Boolean(entry.serviceName));
+  }, [annual2026Data, annualTableColumns, annualMonetaryColumns, phaseSteps, statusSteps]);
+
+  const filteredStatusEntries = useMemo(() => {
+    if (!estatusServiceEntries.length) return [] as AnnualStatusEntry[];
+    const query = statusSearch.trim();
+    if (!query) return estatusServiceEntries;
+    const normalized = normalizeSearchFragment(query);
+    if (!normalized) return estatusServiceEntries;
+    return estatusServiceEntries.filter((entry) => {
+      const haystack = normalizeSearchFragment(`${entry.serviceName} ${entry.faseLabel} ${entry.estatusLabel}`);
+      return haystack.includes(normalized);
+    });
+  }, [estatusServiceEntries, statusSearch]);
+
+  const statusSummary = useMemo(() => {
+    const total = estatusServiceEntries.length;
+    if (!total) {
+      return { total: 0, phaseCompleted: 0, statusCompleted: 0, phasePct: 0, statusPct: 0 };
+    }
+    const phaseCompleted = estatusServiceEntries.filter((entry) => entry.phaseIndex === phaseSteps.length - 1 && entry.phaseIndex >= 0).length;
+    const statusCompleted = estatusServiceEntries.filter((entry) => entry.statusIndex === statusSteps.length - 1 && entry.statusIndex >= 0).length;
+    const phasePct = Math.round((phaseCompleted / total) * 100);
+    const statusPct = Math.round((statusCompleted / total) * 100);
+    return {
+      total,
+      phaseCompleted,
+      statusCompleted,
+      phasePct,
+      statusPct,
+    };
+  }, [estatusServiceEntries, phaseSteps, statusSteps]);
+
+  const hasStatusFilter = Boolean(statusSearch.trim());
+
+  const statusSummaryCards = useMemo(() => ([
+    {
+      id: 'total',
+      label: 'Servicios monitoreados',
+      value: statusSummary.total,
+      helper: statusSummary.total ? 'Fuente: tabla año_2026.' : 'Carga registros para habilitar esta vista.',
+      icon: Layers,
+      gradient: 'from-[#0f1f23] via-[#152c33] to-[#1f3b43]',
+      glow: 'shadow-slate-900/40',
+    },
+    {
+      id: 'phase',
+      label: 'Fase concluida',
+      value: statusSummary.phaseCompleted,
+      helper: statusSummary.total ? `${statusSummary.phasePct}% del total` : 'Sin datos disponibles',
+      icon: Target,
+      gradient: 'from-[#0F4C3A] via-[#155b45] to-[#1d6c52]',
+      glow: 'shadow-emerald-900/40',
+    },
+    {
+      id: 'status',
+      label: 'Estatus finalizado',
+      value: statusSummary.statusCompleted,
+      helper: statusSummary.total ? `${statusSummary.statusPct}% del total` : 'Sin datos disponibles',
+      icon: CheckCircle2,
+      gradient: 'from-[#14213d] via-[#1d2f53] to-[#263c67]',
+      glow: 'shadow-blue-900/40',
+    },
+  ]), [statusSummary]);
+
 
   const annualStickyInfo = useMemo(() => {
     const definitions: Array<{ id: string; match: string[]; width: number }> = [
@@ -3997,8 +4303,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         </div>
 
         <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
-          {[
+          {[ 
             { id: 'overview', icon: LayoutDashboard, label: 'Resumen' },
+            { id: 'status', icon: BarChart2, label: 'Estatus servicios' },
             { id: 'contracts', icon: FileText, label: 'Gestión Contratos' },
             { id: 'history', icon: History, label: 'Historial' }
           ].map((item) => (
@@ -4364,7 +4671,166 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </div>
                 </div>
               </div>
+
             </>
+          )}
+
+          {activeTab === 'status' && (
+            <div className="space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">Estatus de servicios</h1>
+                  <p className="text-slate-500 text-sm mt-1">
+                    Seguimiento resumido de todas las partidas del análisis 2026 con barras lineales fáciles de comparar.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full lg:w-auto">
+                  {statusSummaryCards.map((card) => (
+                    <div
+                      key={card.id}
+                      className={`relative overflow-hidden rounded-2xl p-5 text-white shadow-lg shadow-black/10 bg-gradient-to-br ${card.gradient} ${card.glow}`}
+                    >
+                      <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/80">{card.label}</p>
+                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/20">
+                          <card.icon className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className="text-3xl font-bold mt-3">
+                        {card.value.toLocaleString('es-MX')}
+                      </p>
+                      <p className="text-xs mt-2 text-white/80 font-medium">
+                        {card.helper}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div className="relative w-full md:max-w-md">
+                    <Search className="table-filter-icon" aria-hidden="true" />
+                    <input
+                      type="text"
+                      value={statusSearch}
+                      onChange={(event) => setStatusSearch(event.target.value)}
+                      placeholder="Buscar servicio, fase o estatus"
+                      className="table-filter-input"
+                    />
+                    {hasStatusFilter && (
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
+                        onClick={() => setStatusSearch('')}
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500 font-semibold">
+                    {formatResultLabel(filteredStatusEntries.length)}
+                    {hasStatusFilter ? ' · filtro activo' : ''}
+                  </div>
+                </div>
+
+                <div className="mt-6 space-y-4">
+                  {loadingData ? (
+                    <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                      Preparando estatus...
+                    </div>
+                  ) : !estatusServiceEntries.length ? (
+                    <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500 bg-slate-50">
+                      Integra registros en la tabla <span className="font-semibold">año_2026</span> para calcular el avance por fase y estatus.
+                    </div>
+                  ) : filteredStatusEntries.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-amber-200 p-4 text-sm text-amber-700 bg-amber-50">
+                      No hay servicios que coincidan con la búsqueda actual.
+                    </div>
+                  ) : (
+                    filteredStatusEntries.map((entry) => {
+                      const safeId = entry.id ?? entry.serviceName;
+                      const phaseProgress = buildProgressInfo(entry.phaseIndex, phaseSteps);
+                      const statusProgress = buildProgressInfo(entry.statusIndex, statusSteps);
+                      const phasePercent = Math.max(0, Math.min(100, Math.round(phaseProgress.percent || 0)));
+                      const statusPercent = Math.max(0, Math.min(100, Math.round(statusProgress.percent || 0)));
+                      const isExpanded = expandedStatusId === safeId;
+                      const monetaryValues = Array.isArray(entry.monetary) ? entry.monetary : [];
+                      return (
+                        <div
+                          key={safeId}
+                          className="rounded-2xl border border-slate-100 bg-white/90 p-5 shadow-sm shadow-slate-100 hover:border-[#0F4C3A]/40 transition-colors"
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-base font-semibold text-slate-900">{entry.serviceName || 'Servicio sin nombre'}</p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Referencia directa del anteproyecto anual.
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <span className="inline-flex items-center gap-1 rounded-full border border-[#0F4C3A]/30 bg-[#0F4C3A]/5 px-3 py-1 text-[11px] font-semibold text-[#0F4C3A]">
+                                <Layers className="h-3.5 w-3.5 text-[#0F4C3A]" />
+                                {entry.faseLabel || 'Sin fase'}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-full border border-[#1f3b64]/30 bg-[#1f3b64]/5 px-3 py-1 text-[11px] font-semibold text-[#1f3b64]">
+                                <Target className="h-3.5 w-3.5 text-[#1f3b64]" />
+                                {entry.estatusLabel || 'Sin estatus'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <StageProgressCard
+                              variant="phase"
+                              progress={phaseProgress}
+                              percent={phasePercent}
+                              totalSteps={phaseSteps.length}
+                            />
+                            <StageProgressCard
+                              variant="status"
+                              progress={statusProgress}
+                              percent={statusPercent}
+                              totalSteps={statusSteps.length}
+                            />
+                          </div>
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-600">
+                              <CreditCard className="h-3.5 w-3.5 text-slate-500" />
+                              {monetaryValues.length ? `${monetaryValues.length} campo${monetaryValues.length === 1 ? '' : 's'} con monto` : 'Sin columnas monetarias'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedStatusId((prev) => (prev === safeId ? null : safeId))}
+                              className="inline-flex items-center gap-2 text-xs font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
+                            >
+                              {isExpanded ? 'Ocultar montos' : 'Ver montos'}
+                              <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
+                          </div>
+                          {isExpanded && (
+                            <div className="mt-4 border-t border-slate-100 pt-4">
+                              {monetaryValues.length ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  {monetaryValues.map((item, index) => (
+                                    <div key={`${safeId}-${index}`} className="rounded-lg bg-slate-50 p-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
+                                      <p className="text-sm font-bold text-slate-900 mt-1">{formatCurrency(item.value)}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-500">No se detectaron columnas de monto para este servicio.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
           {activeTab === 'history' && (

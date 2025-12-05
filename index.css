@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   --table-row-hover-bg: #e5f4ef;
   --table-row-transition: 140ms;
