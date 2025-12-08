@@ -45,6 +45,8 @@ interface StageProgressProps {
   totalSteps: number;
 }
 
+type StatusCardFilter = 'all' | 'phase' | 'status';
+
 const clampPercent = (value: number) => {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, value));
@@ -54,26 +56,26 @@ const stageProgressThemes: Record<StageProgressVariant, StageProgressTheme> = {
   phase: {
     label: 'Avance de fase',
     icon: Layers,
-    wrapper: 'border-slate-200 bg-gradient-to-br from-white via-white to-[#f4f8f6]',
-    iconBg: 'bg-[#0F4C3A]/10',
+    wrapper: 'border border-[#0F4C3A]/15 bg-gradient-to-br from-white via-[#f6fbf8] to-[#e6f4ed]',
+    iconBg: 'bg-gradient-to-br from-[#0F4C3A]/15 to-[#2fa57a]/10',
     iconColor: 'text-[#0F4C3A]',
     accent: 'text-[#0F4C3A]',
-    track: 'bg-slate-200',
-    fill: 'from-[#0F4C3A] via-[#1c6b56] to-[#2c8f71]',
-    stepActive: 'bg-[#0F4C3A]',
-    stepInactive: 'bg-slate-200',
+    track: 'bg-[#dfe9e3]',
+    fill: 'from-[#0F4C3A] via-[#1d6c52] to-[#53b08f]',
+    stepActive: 'bg-[#1d6c52]',
+    stepInactive: 'bg-[#dfe9e3]',
   },
   status: {
     label: 'Avance de estatus',
     icon: Target,
-    wrapper: 'border-slate-200 bg-gradient-to-br from-white via-white to-[#f3f5fb]',
-    iconBg: 'bg-[#1f3b64]/10',
+    wrapper: 'border border-[#1f3b64]/15 bg-gradient-to-br from-white via-[#f4f6fb] to-[#e9edfb]',
+    iconBg: 'bg-gradient-to-br from-[#1f3b64]/15 to-[#4a6eb1]/10',
     iconColor: 'text-[#1f3b64]',
     accent: 'text-[#1f3b64]',
-    track: 'bg-slate-200',
-    fill: 'from-[#1f3b64] via-[#294d83] to-[#3a66a7]',
-    stepActive: 'bg-[#1f3b64]',
-    stepInactive: 'bg-slate-200',
+    track: 'bg-[#dfe4ef]',
+    fill: 'from-[#1f3b64] via-[#2f4f8f] to-[#4b6fb8]',
+    stepActive: 'bg-[#2f4f8f]',
+    stepInactive: 'bg-[#dfe4ef]',
   },
 };
 
@@ -89,7 +91,7 @@ const StageProgressCard: React.FC<StageProgressProps> = ({ variant, progress, pe
   );
 
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${theme.wrapper}`}>
+    <div className={`rounded-2xl p-4 shadow-sm shadow-black/5 ${theme.wrapper}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${theme.iconBg}`}>
@@ -156,7 +158,7 @@ const buildRowStyle = (baseColor: string): React.CSSProperties => (
   } as React.CSSProperties
 );
 
-type TableFilterKey = 'annual2026' | 'paas' | 'controlPagos' | 'invoices' | 'compranet' | 'procedures' | 'pendingOct';
+type TableFilterKey = 'annual2026' | 'servicios2026' | 'paas' | 'controlPagos' | 'invoices' | 'compranet' | 'procedures' | 'pendingOct';
 type TableFilterMap = Record<TableFilterKey, string>;
 
 const normalizeSearchFragment = (value: string) =>
@@ -584,6 +586,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [commercialSpaces, setCommercialSpaces] = useState<CommercialSpace[]>([]);
   const [annual2026Data, setAnnual2026Data] = useState<Record<string, any>[]>([]);
+  const [servicios2026Data, setServicios2026Data] = useState<Record<string, any>[]>([]);
   const [paasData, setPaasData] = useState<PaasItem[]>([]);
   const [paymentsData, setPaymentsData] = useState<PaymentControlItem[]>([]);
   const [invoicesData, setInvoicesData] = useState<Record<string, any>[]>([]);
@@ -675,8 +678,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [isProceduresCompact, setIsProceduresCompact] = useState(false);
   const [expandedStatusId, setExpandedStatusId] = useState<string | number | null>(null);
   const [statusSearch, setStatusSearch] = useState('');
+  const [statusCardFilter, setStatusCardFilter] = useState<StatusCardFilter>('all');
   const [tableFilters, setTableFilters] = useState<TableFilterMap>({
     annual2026: '',
+    servicios2026: '',
     paas: '',
     controlPagos: '',
     invoices: '',
@@ -693,6 +698,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersRegistry>({
     annual2026: {},
+    servicios2026: {},
     paas: {},
     controlPagos: {},
     invoices: {},
@@ -755,6 +761,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     />
   ), [columnFilters, updateColumnFilter]);
 
+  const handleStatusCardFilterToggle = useCallback((target: StatusCardFilter) => {
+    setStatusCardFilter((prev) => {
+      if (target === 'all') return 'all';
+      return prev === target ? 'all' : target;
+    });
+  }, []);
+
   const renderActiveColumnFilterBadges = useCallback((
     tableKey: TableFilterKey,
     labelResolver?: (columnKey: string) => string
@@ -790,6 +803,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [columnFilters, updateColumnFilter]);
 
   const annualColumnFiltersCount = countActiveColumnFilters(columnFilters.annual2026);
+  const serviciosColumnFiltersCount = countActiveColumnFilters(columnFilters.servicios2026);
   const paasColumnFiltersCount = countActiveColumnFilters(columnFilters.paas);
   const paymentsColumnFiltersCount = countActiveColumnFilters(columnFilters.controlPagos);
   const invoicesColumnFiltersCount = countActiveColumnFilters(columnFilters.invoices);
@@ -864,6 +878,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const PRIMARY_KEY_HINTS: Record<string, string> = {
     'año_2026': 'id',
+    'servicios_2026': 'id',
     'balance_paas_2026': 'id',
     'control_pagos': 'id',
     'estatus_facturas': 'id',
@@ -1205,6 +1220,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     switch (table) {
       case 'año_2026':
         await fetchAnnual2026Data();
+        break;
+      case 'servicios_2026':
+        await fetchServicios2026Data();
         break;
           return 'DD-MM-YYYY';
         await fetchPaasData();
@@ -1559,6 +1577,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   };
 
+  const fetchServicios2026Data = async () => {
+    const { data, error } = await supabase
+      .from('servicios_2026')
+      .select('*');
+
+    if (error) console.error('Error fetching servicios_2026:', error.message);
+
+    if (data !== null) {
+      setServicios2026Data(data ?? []);
+    }
+  };
+
   const fetchInvoicesData = async () => {
     const { data: invoices, error } = await supabase
       .from('estatus_facturas')
@@ -1627,6 +1657,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         await fetchContractsData();
         await fetchCommercialSpacesData();
         await fetchAnnual2026Data();
+        await fetchServicios2026Data();
         await fetchPaasData();
         await fetchPaymentsData();
         await fetchInvoicesData();
@@ -1656,6 +1687,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       return true;
     });
   }, [annual2026Data, tableFilters.annual2026, columnFilters.annual2026]);
+
+  const filteredServicios2026Data = useMemo(() => {
+    const query = tableFilters.servicios2026.trim();
+    const columnMap = columnFilters.servicios2026;
+    const hasColumnFilters = Object.keys(columnMap ?? {}).length > 0;
+    if (!query && !hasColumnFilters) return servicios2026Data;
+    return servicios2026Data.filter((row) => {
+      if (query && !rowMatchesFilter(row as Record<string, any>, query)) return false;
+      if (hasColumnFilters && !rowMatchesColumnFilters(row as Record<string, any>, columnMap)) return false;
+      return true;
+    });
+  }, [servicios2026Data, tableFilters.servicios2026, columnFilters.servicios2026]);
 
   const filteredPaasData = useMemo(() => {
     const query = tableFilters.paas.trim();
@@ -2150,6 +2193,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     switch (table) {
       case 'año_2026':
         return annual2026Data as Record<string, any>[];
+      case 'servicios_2026':
+        return servicios2026Data as Record<string, any>[];
       case 'balance_paas_2026':
         return paasData as unknown as Record<string, any>[];
       case 'control_pagos':
@@ -2370,6 +2415,36 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     token: normalizeValueToken(label),
     short: abbreviateLabel(label, 2),
   })), []);
+
+    const finalPhaseIndex = useMemo(() => (
+      phaseSteps.length ? phaseSteps.length - 1 : -1
+    ), [phaseSteps.length]);
+
+    const finalStatusIndex = useMemo(() => (
+      statusSteps.length ? statusSteps.length - 1 : -1
+    ), [statusSteps.length]);
+
+    const matchesPhaseCompletion = useCallback((entry: AnnualStatusEntry | null | undefined) => {
+      if (!entry) return false;
+      const normalized = normalizeSearchFragment(entry.faseLabel || '');
+      const hasKeyword = normalized.includes('conclu')
+        || normalized.includes('finaliz')
+        || normalized.includes('terminad')
+        || normalized.includes('cerrad');
+      const indexMatch = finalPhaseIndex >= 0 && entry.phaseIndex === finalPhaseIndex && entry.phaseIndex >= 0;
+      return indexMatch || hasKeyword;
+    }, [finalPhaseIndex]);
+
+    const matchesStatusCompletion = useCallback((entry: AnnualStatusEntry | null | undefined) => {
+      if (!entry) return false;
+      const normalized = normalizeSearchFragment(entry.estatusLabel || '');
+      const hasKeyword = normalized.includes('finaliz')
+        || normalized.includes('terminad')
+        || normalized.includes('cerrad')
+        || normalized.includes('complet');
+      const indexMatch = finalStatusIndex >= 0 && entry.statusIndex === finalStatusIndex && entry.statusIndex >= 0;
+      return indexMatch || hasKeyword;
+    }, [finalStatusIndex]);
 
   const resolveProgressIndex = (rawValue: any, steps: { token: string }[]) => {
     const normalizedValue = normalizeValueToken(rawValue);
@@ -3323,23 +3398,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const filteredStatusEntries = useMemo(() => {
     if (!estatusServiceEntries.length) return [] as AnnualStatusEntry[];
+
+    let filtered = estatusServiceEntries;
+
+    if (statusCardFilter === 'phase') {
+      filtered = filtered.filter((entry) => matchesPhaseCompletion(entry));
+    } else if (statusCardFilter === 'status') {
+      filtered = filtered.filter((entry) => matchesStatusCompletion(entry));
+    }
+
     const query = statusSearch.trim();
-    if (!query) return estatusServiceEntries;
+    if (!query) return filtered;
     const normalized = normalizeSearchFragment(query);
-    if (!normalized) return estatusServiceEntries;
-    return estatusServiceEntries.filter((entry) => {
+    if (!normalized) return filtered;
+    return filtered.filter((entry) => {
       const haystack = normalizeSearchFragment(`${entry.serviceName} ${entry.faseLabel} ${entry.estatusLabel}`);
       return haystack.includes(normalized);
     });
-  }, [estatusServiceEntries, statusSearch]);
+  }, [estatusServiceEntries, statusSearch, statusCardFilter, matchesPhaseCompletion, matchesStatusCompletion]);
 
   const statusSummary = useMemo(() => {
     const total = estatusServiceEntries.length;
     if (!total) {
       return { total: 0, phaseCompleted: 0, statusCompleted: 0, phasePct: 0, statusPct: 0 };
     }
-    const phaseCompleted = estatusServiceEntries.filter((entry) => entry.phaseIndex === phaseSteps.length - 1 && entry.phaseIndex >= 0).length;
-    const statusCompleted = estatusServiceEntries.filter((entry) => entry.statusIndex === statusSteps.length - 1 && entry.statusIndex >= 0).length;
+    const phaseCompleted = estatusServiceEntries.filter((entry) => matchesPhaseCompletion(entry)).length;
+    const statusCompleted = estatusServiceEntries.filter((entry) => matchesStatusCompletion(entry)).length;
     const phasePct = Math.round((phaseCompleted / total) * 100);
     const statusPct = Math.round((statusCompleted / total) * 100);
     return {
@@ -3349,9 +3433,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       phasePct,
       statusPct,
     };
-  }, [estatusServiceEntries, phaseSteps, statusSteps]);
+  }, [estatusServiceEntries, matchesPhaseCompletion, matchesStatusCompletion]);
 
-  const hasStatusFilter = Boolean(statusSearch.trim());
+  const hasStatusSearchFilter = Boolean(statusSearch.trim());
+  const hasStatusCardFilter = statusCardFilter !== 'all';
+  const statusFilterDescription = useMemo(() => {
+    const descriptors: string[] = [];
+    if (hasStatusSearchFilter) descriptors.push('búsqueda');
+    if (hasStatusCardFilter) {
+      descriptors.push(statusCardFilter === 'phase' ? 'fase concluida' : 'estatus finalizado');
+    }
+    return descriptors.length ? ` · filtro ${descriptors.join(' + ')}` : '';
+  }, [hasStatusSearchFilter, hasStatusCardFilter, statusCardFilter]);
 
   const statusSummaryCards = useMemo(() => ([
     {
@@ -3360,8 +3453,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       value: statusSummary.total,
       helper: statusSummary.total ? 'Fuente: tabla año_2026.' : 'Carga registros para habilitar esta vista.',
       icon: Layers,
-      gradient: 'from-[#0f1f23] via-[#152c33] to-[#1f3b43]',
-      glow: 'shadow-slate-900/40',
+      gradient: 'from-[#0F4C3A] via-[#1c6a50] to-[#31a073]',
+      glow: 'shadow-[#0F4C3A]/35',
+      filterKey: null as StatusCardFilter | null,
     },
     {
       id: 'phase',
@@ -3369,8 +3463,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       value: statusSummary.phaseCompleted,
       helper: statusSummary.total ? `${statusSummary.phasePct}% del total` : 'Sin datos disponibles',
       icon: Target,
-      gradient: 'from-[#0F4C3A] via-[#155b45] to-[#1d6c52]',
-      glow: 'shadow-emerald-900/40',
+      gradient: 'from-[#1f3b64] via-[#2d4f88] to-[#4a6eb1]',
+      glow: 'shadow-[#2d4f88]/30',
+      filterKey: 'phase' as StatusCardFilter,
     },
     {
       id: 'status',
@@ -3378,8 +3473,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       value: statusSummary.statusCompleted,
       helper: statusSummary.total ? `${statusSummary.statusPct}% del total` : 'Sin datos disponibles',
       icon: CheckCircle2,
-      gradient: 'from-[#14213d] via-[#1d2f53] to-[#263c67]',
-      glow: 'shadow-blue-900/40',
+      gradient: 'from-[#B38E5D] via-[#cda56b] to-[#f5cb7a]',
+      glow: 'shadow-[#b38e5d]/35',
+      filterKey: 'status' as StatusCardFilter,
     },
   ]), [statusSummary]);
 
@@ -3435,6 +3531,89 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [invoicesTableColumns]);
 
   const invoicesLastStickyKey = invoicesStickyInfo.order[invoicesStickyInfo.order.length - 1];
+
+  const serviciosPreferredOrderHints = [
+    ['id'],
+    ['no', 'no.', '#'],
+    ['clave cucop', 'clave servicio', 'clave'],
+    ['nombre del servicio', 'servicio', 'descripcion del servicio', 'concepto', 'objeto'],
+    ['gerencia', 'subdireccion', 'area', 'direccion', 'coordinacion'],
+    ['responsable', 'responsable gpyc'],
+    ['proveedor', 'empresa', 'contratista'],
+    ['estatus', 'status', 'estado'],
+    ['monto', 'importe', 'total', 'costo', 'presupuesto', 'pago'],
+    ['fecha inicio', 'fecha fin', 'vigencia', 'fecha', 'plazo'],
+    ['observaciones', 'notas', 'comentarios', 'detalle']
+  ];
+
+  const serviciosStickyDefinitions = [
+    { id: 'indice', match: ['id', 'no', 'no.', '#'], width: 90 },
+    { id: 'clave', match: ['clave cucop', 'clave servicio', 'clave'], width: 150 },
+    { id: 'servicio', match: ['nombre del servicio', 'servicio', 'descripcion del servicio', 'concepto'], width: 360 },
+  ];
+
+  const serviciosTableColumns = useMemo(() => {
+    if (!servicios2026Data.length) return [] as string[];
+
+    const priorityMap = new Map<string, number>();
+    serviciosPreferredOrderHints.forEach((synonyms, index) => {
+      synonyms.forEach((label) => {
+        priorityMap.set(normalizeAnnualKey(label), index);
+      });
+    });
+
+    const columns = new Set<string>();
+    servicios2026Data.forEach((row) => {
+      if (!row) return;
+      Object.keys(row).forEach((key) => {
+        if (key) columns.add(key);
+      });
+    });
+
+    return Array.from(columns).sort((a, b) => {
+      const normalizedA = normalizeAnnualKey(a);
+      const normalizedB = normalizeAnnualKey(b);
+      const priorityA = priorityMap.get(normalizedA);
+      const priorityB = priorityMap.get(normalizedB);
+
+      if (priorityA !== undefined && priorityB !== undefined && priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      if (priorityA !== undefined && priorityB === undefined) return -1;
+      if (priorityB !== undefined && priorityA === undefined) return 1;
+      return normalizedA.localeCompare(normalizedB, 'es');
+    });
+  }, [servicios2026Data]);
+
+  const serviciosColumnsToRender = useMemo(() => {
+    if (!serviciosTableColumns.length) return [] as string[];
+    return canManageRecords ? [...serviciosTableColumns, '__actions'] : [...serviciosTableColumns];
+  }, [serviciosTableColumns, canManageRecords]);
+
+  const serviciosColumnCount = Math.max(serviciosColumnsToRender.length || serviciosTableColumns.length || 1, 1);
+
+  const serviciosStickyInfo = useMemo(() => {
+    const meta = new Map<string, { left: number; width: number }>();
+    const order: string[] = [];
+    let left = 0;
+
+    serviciosStickyDefinitions.forEach((definition) => {
+      const matchedColumn = serviciosTableColumns.find((column) => {
+        const normalized = normalizeAnnualKey(column);
+        return definition.match.some((target) => normalized === target);
+      });
+
+      if (matchedColumn) {
+        meta.set(matchedColumn, { left, width: definition.width });
+        order.push(matchedColumn);
+        left += definition.width;
+      }
+    });
+
+    return { meta, order };
+  }, [serviciosTableColumns]);
+
+  const serviciosLastStickyKey = serviciosStickyInfo.order[serviciosStickyInfo.order.length - 1];
 
   const compranetPreferredOrderHints = [
     ['id'],
@@ -3570,6 +3749,76 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [proceduresTableColumns, canManageRecords]);
 
   const proceduresColumnCount = Math.max(proceduresColumnsToRender.length || proceduresTableColumns.length || 1, 1);
+
+  const serviciosMonetaryColumns = useMemo(() => {
+    if (!serviciosTableColumns.length) return [] as string[];
+    const tokens = ['monto', 'importe', 'total', 'presupuesto', 'costo', 'pago', 'modificado'];
+    return serviciosTableColumns.filter((column) => {
+      const normalized = normalizeAnnualKey(column);
+      return tokens.some((token) => normalized.includes(token));
+    });
+  }, [serviciosTableColumns]);
+
+  const serviciosMonetaryTotals = useMemo(() => {
+    if (!serviciosMonetaryColumns.length || !servicios2026Data.length) {
+      return [] as { key: string; value: number }[];
+    }
+    const totals = serviciosMonetaryColumns.map((column) => {
+      const sum = servicios2026Data.reduce((acc, row) => acc + parseNumericValue(row?.[column]), 0);
+      return { key: column, value: sum };
+    });
+    return totals
+      .filter((item) => Number.isFinite(item.value))
+      .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  }, [serviciosMonetaryColumns, servicios2026Data]);
+
+  const serviciosPrimaryMetric = serviciosMonetaryTotals[0] ?? null;
+  const serviciosSecondaryMetric = serviciosMonetaryTotals[1] ?? null;
+
+  const serviciosCategoryField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['gerencia', 'subdireccion', 'area', 'direccion', 'categoria', 'clasificacion', 'estatus', 'status'])
+  ), [serviciosTableColumns]);
+
+  const serviciosCategoryBreakdown = useMemo(() => {
+    if (!servicios2026Data.length || !serviciosCategoryField) return [] as { name: string; value: number }[];
+    const metricKey = serviciosPrimaryMetric?.key ?? null;
+    const buckets = new Map<string, number>();
+
+    servicios2026Data.forEach((row) => {
+      const rawLabel = row?.[serviciosCategoryField];
+      const label = normalizeWhitespace(String(rawLabel ?? 'Sin categoría')) || 'Sin categoría';
+      const increment = metricKey ? parseNumericValue(row?.[metricKey]) : 1;
+      const current = buckets.get(label) ?? 0;
+      buckets.set(label, current + increment);
+    });
+
+    return Array.from(buckets.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+  }, [servicios2026Data, serviciosCategoryField, serviciosPrimaryMetric]);
+
+  const serviciosDominantCategory = serviciosCategoryBreakdown[0] ?? null;
+
+  const serviciosLastUpdatedLabel = useMemo(() => {
+    if (!servicios2026Data.length) return null as string | null;
+    const updateColumn = findColumnByFragments(serviciosTableColumns, [
+      'updated_at',
+      'ultima actualizacion',
+      'fecha actualizacion',
+      'fecha actualización',
+      'fecha actualizada',
+      'created_at',
+      'fecha captura',
+    ]);
+    if (!updateColumn) return null;
+    const timestamps = servicios2026Data
+      .map((row) => parsePotentialDate(row?.[updateColumn]))
+      .filter((value): value is Date => Boolean(value))
+      .sort((a, b) => b.getTime() - a.getTime());
+    if (!timestamps.length) return null;
+    return formatDateToDDMMYYYY(timestamps[0]);
+  }, [servicios2026Data, serviciosTableColumns]);
 
   const sortedProceduresData = useMemo(() => {
     if (!filteredProceduresData.length) return [] as ProcedureRecord[];
@@ -4306,6 +4555,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           {[ 
             { id: 'overview', icon: LayoutDashboard, label: 'Resumen' },
             { id: 'status', icon: BarChart2, label: 'Estatus servicios' },
+            { id: 'analysis2026', icon: PieChartIcon, label: 'Servicios 2026' },
             { id: 'contracts', icon: FileText, label: 'Gestión Contratos' },
             { id: 'history', icon: History, label: 'Historial' }
           ].map((item) => (
@@ -4685,26 +4935,53 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full lg:w-auto">
-                  {statusSummaryCards.map((card) => (
-                    <div
-                      key={card.id}
-                      className={`relative overflow-hidden rounded-2xl p-5 text-white shadow-lg shadow-black/10 bg-gradient-to-br ${card.gradient} ${card.glow}`}
-                    >
-                      <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
-                      <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/80">{card.label}</p>
-                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/20">
-                          <card.icon className="h-4 w-4" />
-                        </span>
-                      </div>
-                      <p className="text-3xl font-bold mt-3">
-                        {card.value.toLocaleString('es-MX')}
-                      </p>
-                      <p className="text-xs mt-2 text-white/80 font-medium">
-                        {card.helper}
-                      </p>
-                    </div>
-                  ))}
+                  {statusSummaryCards.map((card) => {
+                    const isFilterable = Boolean(card.filterKey);
+                    const isActive = Boolean(card.filterKey && statusCardFilter === card.filterKey);
+                    const baseClasses = `relative overflow-hidden rounded-2xl p-5 text-white shadow-lg shadow-black/10 bg-gradient-to-br ${card.gradient} ${card.glow} ${isFilterable ? 'transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-white/60 cursor-pointer' : ''} ${isActive ? 'ring-2 ring-white/70' : ''}`;
+                    const content = (
+                      <>
+                        <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
+                        <div className="flex items-center justify-between">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-white/80">{card.label}</p>
+                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/20">
+                            <card.icon className="h-4 w-4" />
+                          </span>
+                        </div>
+                        <p className="text-3xl font-bold mt-3">
+                          {card.value.toLocaleString('es-MX')}
+                        </p>
+                        <p className="text-xs mt-2 text-white/80 font-medium">
+                          {card.helper}
+                        </p>
+                        {isFilterable && (
+                          <span className={`mt-4 inline-flex items-center rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${isActive ? 'bg-white/35 text-[#0F4C3A]' : 'bg-white/20 text-white/90'}`}>
+                            {isActive ? 'Mostrando' : 'Ver solo'}
+                          </span>
+                        )}
+                      </>
+                    );
+
+                    if (!isFilterable || !card.filterKey) {
+                      return (
+                        <div key={card.id} className={baseClasses}>
+                          {content}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <button
+                        key={card.id}
+                        type="button"
+                        onClick={() => handleStatusCardFilterToggle(card.filterKey as StatusCardFilter)}
+                        className={`${baseClasses} text-left focus:outline-none`}
+                        aria-pressed={isActive}
+                      >
+                        {content}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -4719,7 +4996,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       placeholder="Buscar servicio, fase o estatus"
                       className="table-filter-input"
                     />
-                    {hasStatusFilter && (
+                    {hasStatusSearchFilter && (
                       <button
                         type="button"
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
@@ -4729,9 +5006,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </button>
                     )}
                   </div>
-                  <div className="text-xs text-slate-500 font-semibold">
-                    {formatResultLabel(filteredStatusEntries.length)}
-                    {hasStatusFilter ? ' · filtro activo' : ''}
+                  <div className="text-xs text-slate-500 font-semibold flex flex-col items-start md:items-end gap-1">
+                    <span>
+                      {formatResultLabel(filteredStatusEntries.length)}
+                      {statusFilterDescription}
+                    </span>
+                    {hasStatusCardFilter && (
+                      <button
+                        type="button"
+                        onClick={() => handleStatusCardFilterToggle('all')}
+                        className="text-[11px] font-semibold text-[#1f3b64] hover:text-[#0F4C3A]"
+                      >
+                        Quitar filtro de tarjeta
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -4760,7 +5048,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       return (
                         <div
                           key={safeId}
-                          className="rounded-2xl border border-slate-100 bg-white/90 p-5 shadow-sm shadow-slate-100 hover:border-[#0F4C3A]/40 transition-colors"
+                          className="rounded-2xl border border-slate-100 bg-gradient-to-br from-white via-[#fbfbfb] to-[#eef2f7] p-5 shadow-md shadow-slate-200/50 hover:border-[#0F4C3A]/30 transition-colors"
                         >
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
@@ -4770,12 +5058,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               </p>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              <span className="inline-flex items-center gap-1 rounded-full border border-[#0F4C3A]/30 bg-[#0F4C3A]/5 px-3 py-1 text-[11px] font-semibold text-[#0F4C3A]">
-                                <Layers className="h-3.5 w-3.5 text-[#0F4C3A]" />
+                              <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#0F4C3A]/90 via-[#1d6c52]/90 to-[#2fa57a]/85 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-black/20">
+                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20">
+                                  <Layers className="h-3 w-3 text-white" />
+                                </span>
                                 {entry.faseLabel || 'Sin fase'}
                               </span>
-                              <span className="inline-flex items-center gap-1 rounded-full border border-[#1f3b64]/30 bg-[#1f3b64]/5 px-3 py-1 text-[11px] font-semibold text-[#1f3b64]">
-                                <Target className="h-3.5 w-3.5 text-[#1f3b64]" />
+                              <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#1f3b64]/90 via-[#2d4f88]/90 to-[#4a6eb1]/85 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-black/20">
+                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20">
+                                  <Target className="h-3 w-3 text-white" />
+                                </span>
                                 {entry.estatusLabel || 'Sin estatus'}
                               </span>
                             </div>
@@ -4795,8 +5087,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             />
                           </div>
                           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-600">
-                              <CreditCard className="h-3.5 w-3.5 text-slate-500" />
+                            <span className="inline-flex items-center gap-2 rounded-full border border-[#b38e5d]/30 bg-gradient-to-r from-[#f9f4ec] via-[#f2e8d5] to-[#e9dbbe] px-3 py-1 text-[11px] font-semibold text-[#7a5b2e] shadow-inner shadow-[#b38e5d]/10">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#b38e5d]/20">
+                                <CreditCard className="h-3 w-3 text-[#b38e5d]" />
+                              </span>
                               {monetaryValues.length ? `${monetaryValues.length} campo${monetaryValues.length === 1 ? '' : 's'} con monto` : 'Sin columnas monetarias'}
                             </span>
                             <button
@@ -4828,6 +5122,346 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       );
                     })
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'analysis2026' && (
+            <div className="space-y-8">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">Servicios 2026</h1>
+                  <p className="text-slate-500 text-sm mt-1">
+                    Lectura tabular directa de la tabla <code className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 text-xs">servicios_2026</code> con búsqueda, filtros y acciones rápidas.
+                  </p>
+                </div>
+                {canManageRecords && (
+                  <button
+                    onClick={() => openRecordEditor('servicios_2026', 'Servicio 2026', serviciosTableColumns, null, null, 'Respeta la nomenclatura vigente para gerencias, claves y montos capturados.')}
+                    className="inline-flex items-center gap-2 self-start rounded-lg bg-[#B38E5D] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#9c7a4d] transition-colors"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Nuevo registro
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                  <div className="absolute right-0 top-0 p-4 opacity-10">
+                    <Calendar className="h-16 w-16 text-slate-400" />
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Registros sincronizados</p>
+                  <h3 className="text-3xl font-bold text-slate-900 mt-2">{loadingData ? '...' : servicios2026Data.length}</h3>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {serviciosLastUpdatedLabel
+                      ? `Última actualización detectada: ${serviciosLastUpdatedLabel}`
+                      : 'Carga o edita registros para detectar una fecha de actualización.'}
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                  <div className="absolute right-0 top-0 p-4 opacity-10">
+                    <Layers className="h-16 w-16 text-[#0F4C3A]" />
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Columnas activas</p>
+                  <h3 className="text-3xl font-bold text-slate-900 mt-2">{serviciosTableColumns.length}</h3>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {serviciosCategoryField
+                      ? `Agrupa por ${humanizeKey(serviciosCategoryField)} para detectar concentraciones.`
+                      : 'Añade columnas de gerencia, área o estatus para segmentar la vista.'}
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
+                  <div className="absolute right-0 top-0 p-4 opacity-10">
+                    <TrendingUp className="h-16 w-16 text-[#B38E5D]" />
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Métrica principal</p>
+                  <h3 className="text-2xl font-bold text-slate-900 mt-2">
+                    {serviciosPrimaryMetric ? formatMetricValue(serviciosPrimaryMetric.key, serviciosPrimaryMetric.value) : '--'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {serviciosPrimaryMetric
+                      ? humanizeKey(serviciosPrimaryMetric.key)
+                      : 'Detecta montos o importes para mostrar tendencias monetarias.'}
+                  </p>
+                  {serviciosSecondaryMetric && (
+                    <p className="text-[11px] text-slate-400 mt-3">
+                      Segundo indicador: {humanizeKey(serviciosSecondaryMetric.key)} · {formatMetricValue(serviciosSecondaryMetric.key, serviciosSecondaryMetric.value)}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">Distribución rápida por agrupador</h3>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {serviciosDominantCategory
+                        ? `Categoría dominante: ${serviciosDominantCategory.name} (${serviciosPrimaryMetric ? 'por monto acumulado' : 'por número de registros'}).`
+                        : 'Cuando exista una columna de gerencia o estatus podrás identificar concentraciones.'}
+                    </p>
+                  </div>
+                  {serviciosCategoryField && (
+                    <span className="text-[11px] font-semibold text-[#0F4C3A] bg-[#0F4C3A]/10 px-3 py-1 rounded-full uppercase tracking-wider">
+                      Campo base: {humanizeKey(serviciosCategoryField)}
+                    </span>
+                  )}
+                </div>
+                {serviciosCategoryBreakdown.length ? (
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {serviciosCategoryBreakdown.map((item) => (
+                      <div key={item.name} className="border border-slate-100 rounded-lg p-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{item.name}</p>
+                          <p className="text-xs text-slate-500 mt-1">{serviciosPrimaryMetric ? 'Monto agregado' : 'Registros'}</p>
+                        </div>
+                        <p className="text-sm font-bold text-slate-900">
+                          {serviciosPrimaryMetric ? formatMetricValue(serviciosPrimaryMetric.key, item.value) : item.value.toLocaleString('es-MX')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 text-center">
+                    No se detectó un campo categórico. Captura gerencia, subdirección o estatus para habilitar este resumen.
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">Servicios 2026 · vista tabular</h3>
+                    <p className="text-xs text-slate-500 mt-1">Explora, filtra y edita los registros del anteproyecto 2026.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                    <span>Columnas detectadas: {serviciosTableColumns.length}</span>
+                    {canManageRecords && (
+                      <button
+                        onClick={() => openRecordEditor('servicios_2026', 'Servicio 2026', serviciosTableColumns, null, null, 'Incluye montos y estatus con la misma redacción indicada por Supabase.')}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#0F4C3A] px-3 py-2 font-semibold text-white shadow hover:bg-[#0d3f31] transition-colors"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Nuevo registro
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100">
+                  <div className="relative w-full sm:w-80">
+                    <Search className="table-filter-icon" aria-hidden="true" />
+                    <input
+                      type="text"
+                      value={tableFilters.servicios2026}
+                      onChange={(event) => updateTableFilter('servicios2026', event.target.value)}
+                      placeholder="Filtra por servicio, clave o monto"
+                      className="table-filter-input"
+                    />
+                    {tableFilters.servicios2026 && (
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
+                        onClick={() => updateTableFilter('servicios2026', '')}
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-semibold">
+                    {serviciosColumnFiltersCount > 0 && (
+                      <button
+                        type="button"
+                        className="text-[#0F4C3A] hover:text-[#0c3b2d] underline-offset-2 hover:underline"
+                        onClick={() => clearColumnFilters('servicios2026')}
+                      >
+                        Limpiar filtros por columna
+                      </button>
+                    )}
+                    <span className="text-slate-500">
+                      {formatResultLabel(filteredServicios2026Data.length)}
+                      {tableFilters.servicios2026.trim() ? ' · filtro general' : ''}
+                      {serviciosColumnFiltersCount ? ` · ${formatColumnFilterLabel(serviciosColumnFiltersCount)}` : ''}
+                    </span>
+                  </div>
+                  {renderActiveColumnFilterBadges('servicios2026')}
+                </div>
+                <div className="overflow-auto h-[68vh] relative">
+                  <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
+                    <thead className="uppercase tracking-wider text-white">
+                      <tr className="h-14">
+                        {(serviciosColumnsToRender.length ? serviciosColumnsToRender : serviciosTableColumns.length ? serviciosTableColumns : ['sin_datos']).map((column) => {
+                          if (column === '__actions') {
+                            return (
+                              <th
+                                key="servicios-actions"
+                                className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#0F4C3A', color: '#fff', minWidth: '160px' }}
+                              >
+                                Acciones
+                              </th>
+                            );
+                          }
+
+                          if (!serviciosTableColumns.length && column === 'sin_datos') {
+                            return (
+                              <th
+                                key="servicios-empty"
+                                className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                style={{ position: 'sticky', top: 0, backgroundColor: '#0F4C3A', color: '#fff' }}
+                              >
+                                Sin datos
+                              </th>
+                            );
+                          }
+
+                          const stickyMeta = serviciosStickyInfo.meta.get(column);
+                          const isSticky = Boolean(stickyMeta);
+                          const isLastSticky = isSticky && serviciosLastStickyKey === column;
+                          const baseColor = '#0F4C3A';
+                          const stickyColor = '#0a3324';
+                          const headerStyle: React.CSSProperties = {
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: isSticky ? 60 : 50,
+                            backgroundColor: isSticky ? stickyColor : baseColor,
+                            color: '#fff',
+                            minWidth: stickyMeta ? `${stickyMeta.width}px` : '220px',
+                          };
+
+                          if (stickyMeta) {
+                            headerStyle.left = stickyMeta.left;
+                            headerStyle.width = `${stickyMeta.width}px`;
+                          }
+
+                          if (isLastSticky) {
+                            headerStyle.boxShadow = '6px 0 10px -4px rgba(15,64,42,0.35)';
+                          }
+
+                          return (
+                            <th
+                              key={column}
+                              className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                              style={headerStyle}
+                            >
+                              <div className="flex items-center justify-center gap-1 text-white">
+                                <span className="truncate">{humanizeKey(column)}</span>
+                                {renderColumnFilterControl('servicios2026', column, humanizeKey(column), servicios2026Data)}
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white">
+                      {loadingData ? (
+                        <tr>
+                          <td colSpan={serviciosColumnCount} className="text-center py-10 text-slate-500">
+                            Cargando registros...
+                          </td>
+                        </tr>
+                      ) : servicios2026Data.length === 0 ? (
+                        <tr>
+                          <td colSpan={serviciosColumnCount} className="text-center py-10 text-slate-500">
+                            Registra filas en la tabla <code className="bg-slate-100 px-1 py-0.5 rounded">servicios_2026</code> para mostrarlas aquí.
+                          </td>
+                        </tr>
+                      ) : !filteredServicios2026Data.length ? (
+                        <tr>
+                          <td colSpan={serviciosColumnCount} className="text-center py-10 text-slate-500">
+                            Sin coincidencias para el filtro aplicado.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredServicios2026Data.map((row, rowIndex) => {
+                          const baseKey = row.id ?? row.ID ?? row.Id ?? row['No.'] ?? row['clave'] ?? `servicio-row-${rowIndex}`;
+                          const rowKey = `${baseKey}-${rowIndex}`;
+                          const zebraBackground = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                          const rowStyle = buildRowStyle(zebraBackground);
+                          const columns = serviciosColumnsToRender.length ? serviciosColumnsToRender : serviciosTableColumns;
+                          return (
+                            <tr
+                              key={rowKey}
+                              className="group table-row transition-colors"
+                              style={rowStyle}
+                            >
+                              {columns.map((column) => {
+                                if (column === '__actions') {
+                                  return (
+                                    <td
+                                      key={`servicios-actions-${rowKey}`}
+                                      className="px-4 py-3 text-center"
+                                      style={{ minWidth: '160px' }}
+                                    >
+                                      {canManageRecords ? (
+                                        <div className="flex justify-center gap-2">
+                                          <button
+                                            onClick={() => openRecordEditor('servicios_2026', 'Servicio 2026', serviciosTableColumns, row as Record<string, any>)}
+                                            className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                            title="Editar"
+                                          >
+                                            <Pencil className="h-4 w-4" />
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteGenericRecord('servicios_2026', row as Record<string, any>, 'Servicio 2026')}
+                                            className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                            title="Eliminar"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
+                                      )}
+                                    </td>
+                                  );
+                                }
+
+                                const stickyMeta = serviciosStickyInfo.meta.get(column);
+                                const isSticky = Boolean(stickyMeta);
+                                const isLastSticky = isSticky && serviciosLastStickyKey === column;
+                                const cellStyle: React.CSSProperties = {
+                                  minWidth: stickyMeta ? `${stickyMeta.width}px` : '220px',
+                                };
+
+                                if (stickyMeta) {
+                                  cellStyle.position = 'sticky';
+                                  cellStyle.left = stickyMeta.left;
+                                  cellStyle.width = `${stickyMeta.width}px`;
+                                  cellStyle.zIndex = 40;
+                                  cellStyle.backgroundColor = 'var(--row-bg, #ffffff)';
+                                }
+
+                                if (isLastSticky) {
+                                  cellStyle.boxShadow = '6px 0 8px -4px rgba(15,60,40,0.25)';
+                                }
+
+                                const normalizedColumn = normalizeAnnualKey(column);
+                                const rawValue = row[column];
+                                const isNumericCell = typeof rawValue === 'number';
+                                const isCurrencyColumn = normalizedColumn.includes('monto') || normalizedColumn.includes('importe') || normalizedColumn.includes('total');
+                                const alignmentClass = isNumericCell || isCurrencyColumn ? 'text-center font-mono' : '';
+
+                                return (
+                                  <td
+                                    key={column}
+                                    className={`px-5 py-4 text-slate-600 align-top whitespace-pre-wrap break-words ${alignmentClass} ${isSticky ? 'sticky-cell' : ''}`.trim()}
+                                    style={cellStyle}
+                                  >
+                                    {formatTableValue(column, rawValue)}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="p-3 bg-slate-50 text-[11px] text-slate-400 border-t border-slate-100 text-center">
+                  Desplázate horizontalmente o usa la búsqueda del navegador (Ctrl/Cmd + F) para localizar un servicio específico.
                 </div>
               </div>
             </div>
