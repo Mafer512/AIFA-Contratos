@@ -7,126 +7,32 @@ import {
   X, FileText, Briefcase,
   DollarSign, PieChart as PieChartIcon,
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
-  CreditCard, Calendar, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
-  Search, Filter, ChevronDown, Layers, Target, CheckCircle2
+  CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
+  Search, Filter, Layers, Sparkles, CalendarDays
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line } from 'recharts';
+import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
+import { format, parse, startOfWeek, getDay } from 'date-fns';
+import { es } from 'date-fns/locale';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+
+const locales = {
+  'es': es,
+};
+
+const localizer = dateFnsLocalizer({
+  format,
+  parse,
+  startOfWeek,
+  getDay,
+  locales,
+});
+
 import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff } from '../types';
 import { supabase } from '../services/supabaseClient';
 
 const chartPalette = ['#B38E5D', '#2563EB', '#0F4C3A', '#9E1B32', '#7C3AED', '#F97316', '#14B8A6', '#64748B'];
 const invoicesPalette = ['#0F4C3A', '#B38E5D', '#2563EB', '#F97316', '#9E1B32', '#7C3AED', '#14B8A6', '#64748B'];
-
-type StageProgressVariant = 'phase' | 'status';
-
-interface StageProgressData {
-  percent: number;
-  ratio: string;
-  currentLabel: string;
-}
-
-interface StageProgressTheme {
-  label: string;
-  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
-  wrapper: string;
-  iconBg: string;
-  iconColor: string;
-  accent: string;
-  track: string;
-  fill: string;
-  stepActive: string;
-  stepInactive: string;
-}
-
-interface StageProgressProps {
-  variant: StageProgressVariant;
-  progress: StageProgressData;
-  percent: number;
-  totalSteps: number;
-}
-
-type StatusCardFilter = 'all' | 'phase' | 'status';
-
-const clampPercent = (value: number) => {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, value));
-};
-
-const stageProgressThemes: Record<StageProgressVariant, StageProgressTheme> = {
-  phase: {
-    label: 'Avance de fase',
-    icon: Layers,
-    wrapper: 'border border-[#0F4C3A]/15 bg-gradient-to-br from-white via-[#f6fbf8] to-[#e6f4ed]',
-    iconBg: 'bg-gradient-to-br from-[#0F4C3A]/15 to-[#2fa57a]/10',
-    iconColor: 'text-[#0F4C3A]',
-    accent: 'text-[#0F4C3A]',
-    track: 'bg-[#dfe9e3]',
-    fill: 'from-[#0F4C3A] via-[#1d6c52] to-[#53b08f]',
-    stepActive: 'bg-[#1d6c52]',
-    stepInactive: 'bg-[#dfe9e3]',
-  },
-  status: {
-    label: 'Avance de estatus',
-    icon: Target,
-    wrapper: 'border border-[#1f3b64]/15 bg-gradient-to-br from-white via-[#f4f6fb] to-[#e9edfb]',
-    iconBg: 'bg-gradient-to-br from-[#1f3b64]/15 to-[#4a6eb1]/10',
-    iconColor: 'text-[#1f3b64]',
-    accent: 'text-[#1f3b64]',
-    track: 'bg-[#dfe4ef]',
-    fill: 'from-[#1f3b64] via-[#2f4f8f] to-[#4b6fb8]',
-    stepActive: 'bg-[#2f4f8f]',
-    stepInactive: 'bg-[#dfe4ef]',
-  },
-};
-
-const StageProgressCard: React.FC<StageProgressProps> = ({ variant, progress, percent, totalSteps }) => {
-  const theme = stageProgressThemes[variant];
-  const Icon = theme.icon;
-  const safePercent = clampPercent(Number.isFinite(percent) ? percent : progress.percent || 0);
-  const segments = Math.max(1, totalSteps || 1);
-  const progressParts = progress.ratio.split('/');
-  const completedSegments = Math.max(
-    0,
-    Math.min(segments, Number.parseInt(progressParts[0], 10) || 0),
-  );
-
-  return (
-    <div className={`rounded-2xl p-4 shadow-sm shadow-black/5 ${theme.wrapper}`}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${theme.iconBg}`}>
-            <Icon className={`h-5 w-5 ${theme.iconColor}`} />
-          </span>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{theme.label}</p>
-            <p className="text-sm font-semibold text-slate-900">{progress.currentLabel}</p>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className={`text-2xl font-bold ${theme.accent}`}>{safePercent}%</p>
-          <p className="text-[11px] font-semibold text-slate-400">{progress.ratio}</p>
-        </div>
-      </div>
-      <div className="mt-4">
-        <div className={`relative h-3 w-full overflow-hidden rounded-full ${theme.track}`}>
-          <div
-            className={`absolute inset-y-0 left-0 rounded-full bg-gradient-to-r ${theme.fill}`}
-            style={{ width: `${safePercent}%` }}
-          />
-          <div className="absolute inset-0 bg-white/30" />
-        </div>
-        <div className="mt-3 flex items-center gap-1">
-          {Array.from({ length: segments }).map((_, index) => (
-            <span
-              key={`${variant}-segment-${index}`}
-              className={`h-1.5 flex-1 rounded-full ${index < completedSegments ? theme.stepActive : theme.stepInactive}`}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const CONTRACT_SOON_WINDOW_DAYS = 60;
@@ -553,23 +459,47 @@ const MOCK_SPACES: CommercialSpace[] = [
   { id: 's5', space_code: 'LOC-005', tenant_name: 'Krispy Kreme', category: 'Alimentos', monthly_rent: 55000, occupancy_status: 'OCUPADO' },
 ];
 
-const PHASE_STEP_LABELS = ['Revisión DGPYP.', 'Trámite Autorizado', 'Ordinaria'];
-const STATUS_STEP_LABELS = [
+const SERVICIOS_STATUS_STEPS = [
   'Ficha técnica en elaboración',
-  'Investigación de mercado.',
-  'Revisión defensa (DN3)',
-  'Procedimiento de contratación',
+  'Investigación de mercado',
+  'Revisión Defensa (DN3)',
+  'Procedimiento de Contratación',
   'Adjudicado',
-  'Validación por el área',
-  'Revisión defensa (DN10)'
+  'Validación por área',
+  'Revisión Defensa (DN10)',
 ];
 
-const STATUS_CARD_GRADIENTS = [
-  'from-emerald-500 via-emerald-400 to-lime-400',
-  'from-cyan-500 via-sky-500 to-indigo-500',
-  'from-amber-500 via-orange-500 to-rose-500',
-  'from-fuchsia-500 via-purple-500 to-sky-500',
+const SERVICIOS_STATUS_ACCENTS = [
+  {
+    surface: 'from-white via-rose-50 to-amber-50',
+    progress: 'from-rose-500 via-orange-400 to-amber-400',
+    badge: 'bg-rose-50 text-rose-700 border border-rose-200',
+    glow: 'shadow-[0_20px_45px_rgba(249,115,22,0.18)]',
+  },
+  {
+    surface: 'from-white via-emerald-50 to-teal-50',
+    progress: 'from-emerald-400 via-teal-400 to-cyan-400',
+    badge: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+    glow: 'shadow-[0_20px_45px_rgba(16,185,129,0.18)]',
+  },
+  {
+    surface: 'from-white via-sky-50 to-indigo-50',
+    progress: 'from-sky-400 via-indigo-400 to-purple-500',
+    badge: 'bg-sky-50 text-sky-700 border border-sky-200',
+    glow: 'shadow-[0_20px_45px_rgba(56,189,248,0.18)]',
+  },
+  {
+    surface: 'from-white via-amber-50 to-lime-50',
+    progress: 'from-amber-400 via-yellow-400 to-lime-400',
+    badge: 'bg-amber-50 text-amber-700 border border-amber-200',
+    glow: 'shadow-[0_20px_45px_rgba(251,191,36,0.20)]',
+  },
 ];
+
+const getServicioStatusAccent = (stageIndex: number) => {
+  const index = stageIndex >= 0 ? stageIndex % SERVICIOS_STATUS_ACCENTS.length : 0;
+  return SERVICIOS_STATUS_ACCENTS[index];
+};
 
 interface DashboardProps {
   user: User;
@@ -579,6 +509,9 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [activeContractSubTab, setActiveContractSubTab] = useState<'annual2026' | 'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('annual2026'); 
+  const [statusTab, setStatusTab] = useState<'dashboard' | 'calendar'>('dashboard');
+  const [calendarView, setCalendarView] = useState<View>('month');
+  const [calendarDate, setCalendarDate] = useState(new Date());
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -649,13 +582,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     services: ProcedureServiceSnapshot[];
   }
 
-  interface AnnualStatusEntry {
+  interface ServicioStatusEntry {
     id: string | number;
     serviceName: string;
-    faseLabel: string;
-    estatusLabel: string;
-    phaseIndex: number;
-    statusIndex: number;
+    clave?: string | number | null;
+    statusLabel: string;
+    stageIndex: number;
+    stageLabel?: string | null;
+    stageShort?: string | null;
     monetary: Array<{ label: string; value: number }>;
   }
 
@@ -676,9 +610,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [selectedResponsibleName, setSelectedResponsibleName] = useState<string | null>(null);
   const [isProceduresEditing, setIsProceduresEditing] = useState(false);
   const [isProceduresCompact, setIsProceduresCompact] = useState(false);
-  const [expandedStatusId, setExpandedStatusId] = useState<string | number | null>(null);
-  const [statusSearch, setStatusSearch] = useState('');
-  const [statusCardFilter, setStatusCardFilter] = useState<StatusCardFilter>('all');
+  const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [tableFilters, setTableFilters] = useState<TableFilterMap>({
     annual2026: '',
     servicios2026: '',
@@ -760,13 +692,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       onChange={updateColumnFilter}
     />
   ), [columnFilters, updateColumnFilter]);
-
-  const handleStatusCardFilterToggle = useCallback((target: StatusCardFilter) => {
-    setStatusCardFilter((prev) => {
-      if (target === 'all') return 'all';
-      return prev === target ? 'all' : target;
-    });
-  }, []);
 
   const renderActiveColumnFilterBadges = useCallback((
     tableKey: TableFilterKey,
@@ -878,7 +803,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const PRIMARY_KEY_HINTS: Record<string, string> = {
     'año_2026': 'id',
-    'servicios_2026': 'id',
+    'estatus_servicios_2026': 'id',
     'balance_paas_2026': 'id',
     'control_pagos': 'id',
     'estatus_facturas': 'id',
@@ -1221,7 +1146,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       case 'año_2026':
         await fetchAnnual2026Data();
         break;
-      case 'servicios_2026':
+      case 'estatus_servicios_2026':
         await fetchServicios2026Data();
         break;
           return 'DD-MM-YYYY';
@@ -1579,10 +1504,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const fetchServicios2026Data = async () => {
     const { data, error } = await supabase
-      .from('servicios_2026')
+      .from('estatus_servicios_2026')
       .select('*');
 
-    if (error) console.error('Error fetching servicios_2026:', error.message);
+    if (error) console.error('Error fetching estatus_servicios_2026:', error.message);
 
     if (data !== null) {
       setServicios2026Data(data ?? []);
@@ -1675,6 +1600,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     fetchAllData();
   }, [fetchChangeHistory]);
+
+  useEffect(() => {
+    if (activeTab !== 'serviciosStatus') {
+      setExpandedServicioStatusId(null);
+    }
+  }, [activeTab]);
 
   const filteredAnnualData = useMemo(() => {
     const query = tableFilters.annual2026.trim();
@@ -2193,7 +2124,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     switch (table) {
       case 'año_2026':
         return annual2026Data as Record<string, any>[];
-      case 'servicios_2026':
+      case 'estatus_servicios_2026':
         return servicios2026Data as Record<string, any>[];
       case 'balance_paas_2026':
         return paasData as unknown as Record<string, any>[];
@@ -2404,66 +2335,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return words.join(' ') || cleaned;
   };
 
-  const phaseSteps = useMemo(() => PHASE_STEP_LABELS.map((label) => ({
-    label,
-    token: normalizeValueToken(label),
-    short: abbreviateLabel(label, 1),
-  })), []);
-
-  const statusSteps = useMemo(() => STATUS_STEP_LABELS.map((label) => ({
-    label,
-    token: normalizeValueToken(label),
-    short: abbreviateLabel(label, 2),
-  })), []);
-
-    const finalPhaseIndex = useMemo(() => (
-      phaseSteps.length ? phaseSteps.length - 1 : -1
-    ), [phaseSteps.length]);
-
-    const finalStatusIndex = useMemo(() => (
-      statusSteps.length ? statusSteps.length - 1 : -1
-    ), [statusSteps.length]);
-
-    const matchesPhaseCompletion = useCallback((entry: AnnualStatusEntry | null | undefined) => {
-      if (!entry) return false;
-      const normalized = normalizeSearchFragment(entry.faseLabel || '');
-      const hasKeyword = normalized.includes('conclu')
-        || normalized.includes('finaliz')
-        || normalized.includes('terminad')
-        || normalized.includes('cerrad');
-      const indexMatch = finalPhaseIndex >= 0 && entry.phaseIndex === finalPhaseIndex && entry.phaseIndex >= 0;
-      return indexMatch || hasKeyword;
-    }, [finalPhaseIndex]);
-
-    const matchesStatusCompletion = useCallback((entry: AnnualStatusEntry | null | undefined) => {
-      if (!entry) return false;
-      const normalized = normalizeSearchFragment(entry.estatusLabel || '');
-      const hasKeyword = normalized.includes('finaliz')
-        || normalized.includes('terminad')
-        || normalized.includes('cerrad')
-        || normalized.includes('complet');
-      const indexMatch = finalStatusIndex >= 0 && entry.statusIndex === finalStatusIndex && entry.statusIndex >= 0;
-      return indexMatch || hasKeyword;
-    }, [finalStatusIndex]);
-
-  const resolveProgressIndex = (rawValue: any, steps: { token: string }[]) => {
-    const normalizedValue = normalizeValueToken(rawValue);
-    if (!normalizedValue) return -1;
-    return steps.findIndex((step) => normalizedValue.includes(step.token));
-  };
-
-  const buildProgressInfo = (currentIndex: number, steps: { label: string }[]): StageProgressData => {
-    if (!steps.length || currentIndex < 0) {
-      return { percent: 0, ratio: `0/${steps.length || 0}`, currentLabel: 'Sin dato' };
-    }
-    const safeIndex = Math.min(currentIndex, steps.length - 1);
-    const percent = ((safeIndex + 1) / steps.length) * 100;
-    return {
-      percent,
-      ratio: `${safeIndex + 1}/${steps.length}`,
-      currentLabel: steps[safeIndex]?.label ?? 'Sin dato',
-    };
-  };
+  
   const categorizeObservation = (value: string | null | undefined) => {
     if (!value) return 'Sin observación';
     const text = value.toLowerCase();
@@ -3211,7 +3083,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       helper: overdue
         ? `${overdue} contrato${overdue === 1 ? '' : 's'} vencido${overdue === 1 ? '' : 's'}`
         : 'Sin vencimientos registrados.',
-      icon: Calendar,
+      icon: CalendarIcon,
       accentBg: 'bg-amber-100',
       accentText: 'text-amber-700',
     });
@@ -3342,143 +3214,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
   }, [annualTableColumns]);
 
-  const estatusServiceEntries = useMemo<AnnualStatusEntry[]>(() => {
-    if (!annual2026Data.length) return [];
-
-    const serviceFragments = ['nombre del servicio', 'servicio', 'concepto', 'descripcion', 'objeto'];
-    const faseFragments = ['fase'];
-    const statusFragments = ['estatus', 'status'];
-    const claveFragments = ['clave cucop', 'clave'];
-
-    const serviceColumn = findColumnByFragments(annualTableColumns, serviceFragments);
-    const faseColumn = findColumnByFragments(annualTableColumns, faseFragments);
-    const statusColumn = findColumnByFragments(annualTableColumns, statusFragments);
-    const claveColumn = findColumnByFragments(annualTableColumns, claveFragments);
-
-    const getValueFromRow = (row: Record<string, any>, fragments: string[]) => {
-      const column = findColumnByFragments(Object.keys(row), fragments);
-      return column ? row[column] : null;
-    };
-
-    const resolveMonetarySnapshot = (row: Record<string, any>) => {
-      if (!annualMonetaryColumns.length) return [] as Array<{ label: string; value: number }>;
-      const snapshot: Array<{ label: string; value: number }> = [];
-      annualMonetaryColumns.forEach((column) => {
-        const raw = row[column];
-        if (raw === null || raw === undefined || raw === '') return;
-        const numeric = parseNumericValue(raw);
-        if (!Number.isFinite(numeric)) return;
-        snapshot.push({ label: humanizeKey(column), value: numeric });
-      });
-      return snapshot.sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 3);
-    };
-
-    return annual2026Data.map((row, index) => {
-      const serviceValue = serviceColumn ? row[serviceColumn] : getValueFromRow(row, serviceFragments);
-      const faseValue = faseColumn ? row[faseColumn] : getValueFromRow(row, faseFragments);
-      const statusValue = statusColumn ? row[statusColumn] : getValueFromRow(row, statusFragments);
-      const claveValue = claveColumn ? row[claveColumn] : getValueFromRow(row, claveFragments);
-
-      const idValue = row.id ?? row.ID ?? claveValue ?? `annual-${index}`;
-      const serviceName = (typeof serviceValue === 'string' && serviceValue.trim().length)
-        ? serviceValue.trim()
-        : `Servicio ${index + 1}`;
-
-      return {
-        id: idValue,
-        serviceName,
-        faseLabel: faseValue ? String(faseValue) : 'Sin fase capturada',
-        estatusLabel: statusValue ? String(statusValue) : 'Sin estatus registrado',
-        phaseIndex: resolveProgressIndex(faseValue, phaseSteps),
-        statusIndex: resolveProgressIndex(statusValue, statusSteps),
-        monetary: resolveMonetarySnapshot(row as Record<string, any>),
-      } as AnnualStatusEntry;
-    }).filter((entry) => Boolean(entry.serviceName));
-  }, [annual2026Data, annualTableColumns, annualMonetaryColumns, phaseSteps, statusSteps]);
-
-  const filteredStatusEntries = useMemo(() => {
-    if (!estatusServiceEntries.length) return [] as AnnualStatusEntry[];
-
-    let filtered = estatusServiceEntries;
-
-    if (statusCardFilter === 'phase') {
-      filtered = filtered.filter((entry) => matchesPhaseCompletion(entry));
-    } else if (statusCardFilter === 'status') {
-      filtered = filtered.filter((entry) => matchesStatusCompletion(entry));
-    }
-
-    const query = statusSearch.trim();
-    if (!query) return filtered;
-    const normalized = normalizeSearchFragment(query);
-    if (!normalized) return filtered;
-    return filtered.filter((entry) => {
-      const haystack = normalizeSearchFragment(`${entry.serviceName} ${entry.faseLabel} ${entry.estatusLabel}`);
-      return haystack.includes(normalized);
-    });
-  }, [estatusServiceEntries, statusSearch, statusCardFilter, matchesPhaseCompletion, matchesStatusCompletion]);
-
-  const statusSummary = useMemo(() => {
-    const total = estatusServiceEntries.length;
-    if (!total) {
-      return { total: 0, phaseCompleted: 0, statusCompleted: 0, phasePct: 0, statusPct: 0 };
-    }
-    const phaseCompleted = estatusServiceEntries.filter((entry) => matchesPhaseCompletion(entry)).length;
-    const statusCompleted = estatusServiceEntries.filter((entry) => matchesStatusCompletion(entry)).length;
-    const phasePct = Math.round((phaseCompleted / total) * 100);
-    const statusPct = Math.round((statusCompleted / total) * 100);
-    return {
-      total,
-      phaseCompleted,
-      statusCompleted,
-      phasePct,
-      statusPct,
-    };
-  }, [estatusServiceEntries, matchesPhaseCompletion, matchesStatusCompletion]);
-
-  const hasStatusSearchFilter = Boolean(statusSearch.trim());
-  const hasStatusCardFilter = statusCardFilter !== 'all';
-  const statusFilterDescription = useMemo(() => {
-    const descriptors: string[] = [];
-    if (hasStatusSearchFilter) descriptors.push('búsqueda');
-    if (hasStatusCardFilter) {
-      descriptors.push(statusCardFilter === 'phase' ? 'fase concluida' : 'estatus finalizado');
-    }
-    return descriptors.length ? ` · filtro ${descriptors.join(' + ')}` : '';
-  }, [hasStatusSearchFilter, hasStatusCardFilter, statusCardFilter]);
-
-  const statusSummaryCards = useMemo(() => ([
-    {
-      id: 'total',
-      label: 'Servicios monitoreados',
-      value: statusSummary.total,
-      helper: statusSummary.total ? 'Fuente: tabla año_2026.' : 'Carga registros para habilitar esta vista.',
-      icon: Layers,
-      gradient: 'from-[#0F4C3A] via-[#1c6a50] to-[#31a073]',
-      glow: 'shadow-[#0F4C3A]/35',
-      filterKey: null as StatusCardFilter | null,
-    },
-    {
-      id: 'phase',
-      label: 'Fase concluida',
-      value: statusSummary.phaseCompleted,
-      helper: statusSummary.total ? `${statusSummary.phasePct}% del total` : 'Sin datos disponibles',
-      icon: Target,
-      gradient: 'from-[#1f3b64] via-[#2d4f88] to-[#4a6eb1]',
-      glow: 'shadow-[#2d4f88]/30',
-      filterKey: 'phase' as StatusCardFilter,
-    },
-    {
-      id: 'status',
-      label: 'Estatus finalizado',
-      value: statusSummary.statusCompleted,
-      helper: statusSummary.total ? `${statusSummary.statusPct}% del total` : 'Sin datos disponibles',
-      icon: CheckCircle2,
-      gradient: 'from-[#B38E5D] via-[#cda56b] to-[#f5cb7a]',
-      glow: 'shadow-[#b38e5d]/35',
-      filterKey: 'status' as StatusCardFilter,
-    },
-  ]), [statusSummary]);
-
 
   const annualStickyInfo = useMemo(() => {
     const definitions: Array<{ id: string; match: string[]; width: number }> = [
@@ -3534,22 +3269,35 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const serviciosPreferredOrderHints = [
     ['id'],
-    ['no', 'no.', '#'],
-    ['clave cucop', 'clave servicio', 'clave'],
-    ['nombre del servicio', 'servicio', 'descripcion del servicio', 'concepto', 'objeto'],
-    ['gerencia', 'subdireccion', 'area', 'direccion', 'coordinacion'],
-    ['responsable', 'responsable gpyc'],
-    ['proveedor', 'empresa', 'contratista'],
+    ['clave_cucop', 'clave cucop', 'clave servicio', 'clave'],
+    ['nombre_servicio', 'nombre del servicio', 'servicio', 'descripcion del servicio'],
+    ['subdireccion', 'subdirección'],
+    ['gerencia'],
     ['estatus', 'status', 'estado'],
-    ['monto', 'importe', 'total', 'costo', 'presupuesto', 'pago'],
-    ['fecha inicio', 'fecha fin', 'vigencia', 'fecha', 'plazo'],
-    ['observaciones', 'notas', 'comentarios', 'detalle']
+    ['fase'],
+    ['monto_maximo_2026', 'monto maximo 2026', 'monto 2026'],
+    ['monto_solicitado_anteproyecto_2026', 'monto solicitado'],
+    ['monto_suficiencia_presupuestal', 'monto suficiencia'],
+    ['monto_maximo_2025', 'monto 2025'],
+    ['monto_maximo_2024', 'monto 2024'],
+    ['documentacion_soporte', 'documentación soporte'],
+    ['investigacion_mercado', 'investigación mercado'],
+    ['suficiencia_presupuestal', 'suficiencia presupuestal'],
+    ['procedimiento_contratacion', 'procedimiento contratación'],
+    ['fecha_remision_investigacion_mercado', 'fecha remisión im'],
+    ['fecha_recepcion_investigacion_mercado', 'fecha recepción im'],
+    ['publicacion_convocatoria', 'publicación convocatoria'],
+    ['visita_instalaciones', 'visita instalaciones'],
+    ['junta_aclaraciones', 'junta aclaraciones'],
+    ['apertura_proposiciones', 'apertura proposiciones'],
+    ['fallo'],
+    ['diferimiento_fallo', 'diferimiento fallo']
   ];
 
   const serviciosStickyDefinitions = [
     { id: 'indice', match: ['id', 'no', 'no.', '#'], width: 90 },
-    { id: 'clave', match: ['clave cucop', 'clave servicio', 'clave'], width: 150 },
-    { id: 'servicio', match: ['nombre del servicio', 'servicio', 'descripcion del servicio', 'concepto'], width: 360 },
+    { id: 'clave', match: ['clave_cucop', 'clave cucop', 'clave servicio', 'clave'], width: 150 },
+    { id: 'servicio', match: ['nombre_servicio', 'nombre del servicio', 'servicio', 'descripcion del servicio', 'concepto'], width: 360 },
   ];
 
   const serviciosTableColumns = useMemo(() => {
@@ -3819,6 +3567,196 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (!timestamps.length) return null;
     return formatDateToDDMMYYYY(timestamps[0]);
   }, [servicios2026Data, serviciosTableColumns]);
+
+  const serviciosStatusField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['estatus', 'status', 'avance', 'fase'])
+  ), [serviciosTableColumns]);
+
+  const serviciosServiceNameField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['nombre del servicio', 'servicio', 'descripcion', 'concepto', 'objeto'])
+  ), [serviciosTableColumns]);
+
+  const serviciosClaveField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['clave cucop', 'clave servicio', 'clave'])
+  ), [serviciosTableColumns]);
+
+  const serviciosStatusSteps = useMemo(() => (
+    SERVICIOS_STATUS_STEPS.map((label) => ({
+      label,
+      token: normalizeValueToken(label),
+      short: abbreviateLabel(label, 2),
+    }))
+  ), []);
+
+  const serviciosStatusStepCount = serviciosStatusSteps.length;
+
+  const resolveServicioStatusIndex = useCallback((rawValue: any) => {
+    const normalized = normalizeValueToken(rawValue);
+    if (!normalized) return -1;
+    for (let index = serviciosStatusSteps.length - 1; index >= 0; index -= 1) {
+      if (normalized.includes(serviciosStatusSteps[index].token)) {
+        return index;
+      }
+    }
+    return -1;
+  }, [serviciosStatusSteps]);
+
+  const buildServicioMonetarySnapshot = useCallback((row: Record<string, any>) => {
+    if (!serviciosMonetaryColumns.length) return [] as Array<{ label: string; value: number }>;
+    const snapshot: Array<{ label: string; value: number }> = [];
+    serviciosMonetaryColumns.forEach((column) => {
+      const raw = row?.[column];
+      if (raw === null || raw === undefined || raw === '') return;
+      const numeric = parseNumericValue(raw);
+      if (!Number.isFinite(numeric)) return;
+      snapshot.push({ label: humanizeKey(column), value: numeric });
+    });
+    return snapshot.sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 3);
+  }, [serviciosMonetaryColumns]);
+
+  const serviciosStatusEntries = useMemo<ServicioStatusEntry[]>(() => {
+    if (!filteredServicios2026Data.length) return [];
+    return filteredServicios2026Data.map((row, index) => {
+      const idValue = row.id ?? row.ID ?? row.clave ?? row['Clave cucop'] ?? `servicios-2026-${index}`;
+      const rawName = serviciosServiceNameField ? row?.[serviciosServiceNameField] : null;
+      const serviceName = normalizeWhitespace(String(rawName ?? `Servicio ${index + 1}`));
+      const statusValue = serviciosStatusField ? row?.[serviciosStatusField] : null;
+      const stageIndex = resolveServicioStatusIndex(statusValue);
+      const stageMeta = stageIndex >= 0 ? serviciosStatusSteps[stageIndex] : null;
+      return {
+        id: idValue,
+        serviceName,
+        clave: serviciosClaveField ? row?.[serviciosClaveField] : null,
+        statusLabel: statusValue ? String(statusValue) : 'Sin estatus registrado',
+        stageIndex,
+        stageLabel: stageMeta?.label ?? null,
+        stageShort: stageMeta?.short ?? null,
+        monetary: buildServicioMonetarySnapshot(row as Record<string, any>),
+      };
+    });
+  }, [buildServicioMonetarySnapshot, filteredServicios2026Data, resolveServicioStatusIndex, serviciosClaveField, serviciosServiceNameField, serviciosStatusField, serviciosStatusSteps]);
+
+  const serviciosStatusEntriesOrdered = useMemo(() => (
+    [...serviciosStatusEntries].sort((a, b) => {
+      const aIndex = a.stageIndex >= 0 ? a.stageIndex : -1;
+      const bIndex = b.stageIndex >= 0 ? b.stageIndex : -1;
+      if (aIndex !== bIndex) return bIndex - aIndex;
+      return a.serviceName.localeCompare(b.serviceName, 'es');
+    })
+  ), [serviciosStatusEntries]);
+
+  const serviciosStatusSummary = useMemo(() => {
+    const total = serviciosStatusEntries.length;
+    if (!total) {
+      return { total: 0, completed: 0, completedPct: 0, avgPercent: 0 };
+    }
+    const completed = serviciosStatusEntries.filter((entry) => entry.stageIndex === serviciosStatusStepCount - 1).length;
+    const percentSum = serviciosStatusEntries.reduce((acc, entry) => {
+      if (entry.stageIndex < 0) return acc;
+      return acc + ((entry.stageIndex + 1) / serviciosStatusStepCount) * 100;
+    }, 0);
+    return {
+      total,
+      completed,
+      completedPct: Math.round((completed / total) * 100),
+      avgPercent: Math.round(percentSum / total),
+    };
+  }, [serviciosStatusEntries, serviciosStatusStepCount]);
+
+  const procContratacionField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['procedimiento de contratacion', 'procedimiento', 'contratacion'])
+  ), [serviciosTableColumns]);
+
+  const fechaRemisionIMField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['fecha remision investigacion mercado', 'remision im', 'remision investigacion'])
+  ), [serviciosTableColumns]);
+
+  const fechaRecepcionIMField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['fecha recepcion investigacion mercado', 'recepcion im', 'recepcion investigacion'])
+  ), [serviciosTableColumns]);
+
+  const publicacionConvocatoriaField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['publicacion convocatoria', 'convocatoria'])
+  ), [serviciosTableColumns]);
+
+  const visitaInstalacionesField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['visita instalaciones', 'visita'])
+  ), [serviciosTableColumns]);
+
+  const juntaAclaracionesField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['junta aclaraciones', 'junta'])
+  ), [serviciosTableColumns]);
+
+  const aperturaProposicionesField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['apertura proposiciones', 'apertura'])
+  ), [serviciosTableColumns]);
+
+  const falloField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['fallo'])
+  ), [serviciosTableColumns]);
+
+  const calendarEvents = useMemo(() => {
+    const events: any[] = [];
+    
+    servicios2026Data.forEach((service) => {
+      const procContratacion = procContratacionField ? service[procContratacionField] : null;
+      
+      // Check for "SI" or "TRUE" (case insensitive)
+      const isProc = String(procContratacion).trim().toUpperCase();
+      if (isProc !== 'SI' && isProc !== 'TRUE') {
+        return;
+      }
+
+      const serviceName = serviciosServiceNameField ? service[serviciosServiceNameField] : 'Servicio sin nombre';
+
+      const dateFields = [
+        { key: fechaRemisionIMField, label: 'Remisión IM', color: '#3B82F6' },
+        { key: fechaRecepcionIMField, label: 'Recepción IM', color: '#8B5CF6' },
+        { key: publicacionConvocatoriaField, label: 'Publicación Convocatoria', color: '#10B981' },
+        { key: visitaInstalacionesField, label: 'Visita Instalaciones', color: '#F59E0B' },
+        { key: juntaAclaracionesField, label: 'Junta Aclaraciones', color: '#F97316' },
+        { key: aperturaProposicionesField, label: 'Apertura Proposiciones', color: '#EC4899' },
+        { key: falloField, label: 'Fallo', color: '#EF4444' },
+      ];
+
+      dateFields.forEach(({ key, label, color }) => {
+        if (!key) return;
+        const dateVal = service[key];
+        if (dateVal) {
+            let date = parsePotentialDate(dateVal);
+            if (date && !isNaN(date.getTime())) {
+                // Fix: If the input is a simple date string (YYYY-MM-DD), it is parsed as UTC.
+                // We need to adjust it to local time so it appears on the correct day in the calendar.
+                if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateVal.trim())) {
+                    const offset = date.getTimezoneOffset();
+                    date = new Date(date.getTime() + offset * 60000);
+                }
+
+                events.push({
+                title: `${label}: ${serviceName}`,
+                start: date,
+                end: date,
+                allDay: true,
+                resource: { color, serviceName, type: label }
+                });
+            }
+        }
+      });
+    });
+
+    return events;
+  }, [
+    servicios2026Data, 
+    procContratacionField, 
+    serviciosServiceNameField,
+    fechaRemisionIMField,
+    fechaRecepcionIMField,
+    publicacionConvocatoriaField,
+    visitaInstalacionesField,
+    juntaAclaracionesField,
+    aperturaProposicionesField,
+    falloField
+  ]);
 
   const sortedProceduresData = useMemo(() => {
     if (!filteredProceduresData.length) return [] as ProcedureRecord[];
@@ -4258,7 +4196,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         title: `Próximo vencimiento: ${nextExpiring.endDateLabel}`,
         detail: `${nextExpiring.provider} (${nextExpiring.contractNumber}) · ${describeDaysUntil(nextExpiring.daysLeft)} · ${formatCurrency(nextExpiring.amount || 0)}`,
         tone: nextExpiring.daysLeft <= 15 ? 'alert' : 'neutral',
-        icon: Calendar,
+        icon: CalendarIcon,
       });
     } else if (contractTimelineInsights.total > 0 && !topOverdue) {
       insights.push({
@@ -4554,7 +4492,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
           {[ 
             { id: 'overview', icon: LayoutDashboard, label: 'Resumen' },
-            { id: 'status', icon: BarChart2, label: 'Estatus servicios' },
+            { id: 'serviciosStatus', icon: BarChart2, label: 'Estatus servicios' },
             { id: 'analysis2026', icon: PieChartIcon, label: 'Servicios 2026' },
             { id: 'contracts', icon: FileText, label: 'Gestión Contratos' },
             { id: 'history', icon: History, label: 'Historial' }
@@ -4853,7 +4791,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                 <div>
                   <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-[#0F4C3A]" />
+                    <CalendarIcon className="h-4 w-4 text-[#0F4C3A]" />
                     Contratos por vencer
                   </h4>
                   {contractTimelineInsights.upcoming.length ? (
@@ -4925,220 +4863,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             </>
           )}
 
-          {activeTab === 'status' && (
-            <div className="space-y-6">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-                <div>
-                  <h1 className="text-2xl font-bold text-slate-900">Estatus de servicios</h1>
-                  <p className="text-slate-500 text-sm mt-1">
-                    Seguimiento resumido de todas las partidas del análisis 2026 con barras lineales fáciles de comparar.
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full lg:w-auto">
-                  {statusSummaryCards.map((card) => {
-                    const isFilterable = Boolean(card.filterKey);
-                    const isActive = Boolean(card.filterKey && statusCardFilter === card.filterKey);
-                    const baseClasses = `relative overflow-hidden rounded-2xl p-5 text-white shadow-lg shadow-black/10 bg-gradient-to-br ${card.gradient} ${card.glow} ${isFilterable ? 'transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-white/60 cursor-pointer' : ''} ${isActive ? 'ring-2 ring-white/70' : ''}`;
-                    const content = (
-                      <>
-                        <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
-                        <div className="flex items-center justify-between">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-white/80">{card.label}</p>
-                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/20">
-                            <card.icon className="h-4 w-4" />
-                          </span>
-                        </div>
-                        <p className="text-3xl font-bold mt-3">
-                          {card.value.toLocaleString('es-MX')}
-                        </p>
-                        <p className="text-xs mt-2 text-white/80 font-medium">
-                          {card.helper}
-                        </p>
-                        {isFilterable && (
-                          <span className={`mt-4 inline-flex items-center rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${isActive ? 'bg-white/35 text-[#0F4C3A]' : 'bg-white/20 text-white/90'}`}>
-                            {isActive ? 'Mostrando' : 'Ver solo'}
-                          </span>
-                        )}
-                      </>
-                    );
-
-                    if (!isFilterable || !card.filterKey) {
-                      return (
-                        <div key={card.id} className={baseClasses}>
-                          {content}
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <button
-                        key={card.id}
-                        type="button"
-                        onClick={() => handleStatusCardFilterToggle(card.filterKey as StatusCardFilter)}
-                        className={`${baseClasses} text-left focus:outline-none`}
-                        aria-pressed={isActive}
-                      >
-                        {content}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <div className="relative w-full md:max-w-md">
-                    <Search className="table-filter-icon" aria-hidden="true" />
-                    <input
-                      type="text"
-                      value={statusSearch}
-                      onChange={(event) => setStatusSearch(event.target.value)}
-                      placeholder="Buscar servicio, fase o estatus"
-                      className="table-filter-input"
-                    />
-                    {hasStatusSearchFilter && (
-                      <button
-                        type="button"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
-                        onClick={() => setStatusSearch('')}
-                      >
-                        Limpiar
-                      </button>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500 font-semibold flex flex-col items-start md:items-end gap-1">
-                    <span>
-                      {formatResultLabel(filteredStatusEntries.length)}
-                      {statusFilterDescription}
-                    </span>
-                    {hasStatusCardFilter && (
-                      <button
-                        type="button"
-                        onClick={() => handleStatusCardFilterToggle('all')}
-                        className="text-[11px] font-semibold text-[#1f3b64] hover:text-[#0F4C3A]"
-                      >
-                        Quitar filtro de tarjeta
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-6 space-y-4">
-                  {loadingData ? (
-                    <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
-                      Preparando estatus...
-                    </div>
-                  ) : !estatusServiceEntries.length ? (
-                    <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500 bg-slate-50">
-                      Integra registros en la tabla <span className="font-semibold">año_2026</span> para calcular el avance por fase y estatus.
-                    </div>
-                  ) : filteredStatusEntries.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-amber-200 p-4 text-sm text-amber-700 bg-amber-50">
-                      No hay servicios que coincidan con la búsqueda actual.
-                    </div>
-                  ) : (
-                    filteredStatusEntries.map((entry) => {
-                      const safeId = entry.id ?? entry.serviceName;
-                      const phaseProgress = buildProgressInfo(entry.phaseIndex, phaseSteps);
-                      const statusProgress = buildProgressInfo(entry.statusIndex, statusSteps);
-                      const phasePercent = Math.max(0, Math.min(100, Math.round(phaseProgress.percent || 0)));
-                      const statusPercent = Math.max(0, Math.min(100, Math.round(statusProgress.percent || 0)));
-                      const isExpanded = expandedStatusId === safeId;
-                      const monetaryValues = Array.isArray(entry.monetary) ? entry.monetary : [];
-                      return (
-                        <div
-                          key={safeId}
-                          className="rounded-2xl border border-slate-100 bg-gradient-to-br from-white via-[#fbfbfb] to-[#eef2f7] p-5 shadow-md shadow-slate-200/50 hover:border-[#0F4C3A]/30 transition-colors"
-                        >
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                              <p className="text-base font-semibold text-slate-900">{entry.serviceName || 'Servicio sin nombre'}</p>
-                              <p className="text-xs text-slate-500 mt-1">
-                                Referencia directa del anteproyecto anual.
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#0F4C3A]/90 via-[#1d6c52]/90 to-[#2fa57a]/85 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-black/20">
-                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20">
-                                  <Layers className="h-3 w-3 text-white" />
-                                </span>
-                                {entry.faseLabel || 'Sin fase'}
-                              </span>
-                              <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#1f3b64]/90 via-[#2d4f88]/90 to-[#4a6eb1]/85 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-black/20">
-                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20">
-                                  <Target className="h-3 w-3 text-white" />
-                                </span>
-                                {entry.estatusLabel || 'Sin estatus'}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="mt-4 grid gap-4 md:grid-cols-2">
-                            <StageProgressCard
-                              variant="phase"
-                              progress={phaseProgress}
-                              percent={phasePercent}
-                              totalSteps={phaseSteps.length}
-                            />
-                            <StageProgressCard
-                              variant="status"
-                              progress={statusProgress}
-                              percent={statusPercent}
-                              totalSteps={statusSteps.length}
-                            />
-                          </div>
-                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                            <span className="inline-flex items-center gap-2 rounded-full border border-[#b38e5d]/30 bg-gradient-to-r from-[#f9f4ec] via-[#f2e8d5] to-[#e9dbbe] px-3 py-1 text-[11px] font-semibold text-[#7a5b2e] shadow-inner shadow-[#b38e5d]/10">
-                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#b38e5d]/20">
-                                <CreditCard className="h-3 w-3 text-[#b38e5d]" />
-                              </span>
-                              {monetaryValues.length ? `${monetaryValues.length} campo${monetaryValues.length === 1 ? '' : 's'} con monto` : 'Sin columnas monetarias'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setExpandedStatusId((prev) => (prev === safeId ? null : safeId))}
-                              className="inline-flex items-center gap-2 text-xs font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
-                            >
-                              {isExpanded ? 'Ocultar montos' : 'Ver montos'}
-                              <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                            </button>
-                          </div>
-                          {isExpanded && (
-                            <div className="mt-4 border-t border-slate-100 pt-4">
-                              {monetaryValues.length ? (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                  {monetaryValues.map((item, index) => (
-                                    <div key={`${safeId}-${index}`} className="rounded-lg bg-slate-50 p-3">
-                                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
-                                      <p className="text-sm font-bold text-slate-900 mt-1">{formatCurrency(item.value)}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-slate-500">No se detectaron columnas de monto para este servicio.</p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           {activeTab === 'analysis2026' && (
             <div className="space-y-8">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h1 className="text-2xl font-bold text-slate-900">Servicios 2026</h1>
                   <p className="text-slate-500 text-sm mt-1">
-                    Lectura tabular directa de la tabla <code className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 text-xs">servicios_2026</code> con búsqueda, filtros y acciones rápidas.
+                    Lectura tabular directa de la tabla <code className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 text-xs">estatus_servicios_2026</code> con búsqueda, filtros y acciones rápidas.
                   </p>
                 </div>
                 {canManageRecords && (
                   <button
-                    onClick={() => openRecordEditor('servicios_2026', 'Servicio 2026', serviciosTableColumns, null, null, 'Respeta la nomenclatura vigente para gerencias, claves y montos capturados.')}
+                    onClick={() => openRecordEditor('estatus_servicios_2026', 'Servicio 2026', serviciosTableColumns, null, null, 'Respeta la nomenclatura vigente para gerencias, claves y montos capturados.')}
                     className="inline-flex items-center gap-2 self-start rounded-lg bg-[#B38E5D] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#9c7a4d] transition-colors"
                   >
                     <Plus className="h-4 w-4" />
@@ -5150,7 +4886,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
                   <div className="absolute right-0 top-0 p-4 opacity-10">
-                    <Calendar className="h-16 w-16 text-slate-400" />
+                    <CalendarIcon className="h-16 w-16 text-slate-400" />
                   </div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Registros sincronizados</p>
                   <h3 className="text-3xl font-bold text-slate-900 mt-2">{loadingData ? '...' : servicios2026Data.length}</h3>
@@ -5193,102 +4929,106 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </div>
               </div>
 
+              <p className="text-xs text-slate-500">
+                Filtra la tabla para exportar o editar registros específicos del anteproyecto. Consulta el panel “Estatus de servicios” para el seguimiento visual.
+              </p>
+
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-800">Distribución rápida por agrupador</h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {serviciosDominantCategory
-                        ? `Categoría dominante: ${serviciosDominantCategory.name} (${serviciosPrimaryMetric ? 'por monto acumulado' : 'por número de registros'}).`
-                        : 'Cuando exista una columna de gerencia o estatus podrás identificar concentraciones.'}
-                    </p>
-                  </div>
-                  {serviciosCategoryField && (
-                    <span className="text-[11px] font-semibold text-[#0F4C3A] bg-[#0F4C3A]/10 px-3 py-1 rounded-full uppercase tracking-wider">
-                      Campo base: {humanizeKey(serviciosCategoryField)}
-                    </span>
-                  )}
-                </div>
-                {serviciosCategoryBreakdown.length ? (
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {serviciosCategoryBreakdown.map((item) => (
-                      <div key={item.name} className="border border-slate-100 rounded-lg p-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">{item.name}</p>
-                          <p className="text-xs text-slate-500 mt-1">{serviciosPrimaryMetric ? 'Monto agregado' : 'Registros'}</p>
-                        </div>
-                        <p className="text-sm font-bold text-slate-900">
-                          {serviciosPrimaryMetric ? formatMetricValue(serviciosPrimaryMetric.key, item.value) : item.value.toLocaleString('es-MX')}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800">Distribución rápida por agrupador</h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {serviciosDominantCategory
+                            ? `Categoría dominante: ${serviciosDominantCategory.name} (${serviciosPrimaryMetric ? 'por monto acumulado' : 'por número de registros'}).`
+                            : 'Cuando exista una columna de gerencia o estatus podrás identificar concentraciones.'}
                         </p>
                       </div>
-                    ))}
+                      {serviciosCategoryField && (
+                        <span className="text-[11px] font-semibold text-[#0F4C3A] bg-[#0F4C3A]/10 px-3 py-1 rounded-full uppercase tracking-wider">
+                          Campo base: {humanizeKey(serviciosCategoryField)}
+                        </span>
+                      )}
+                    </div>
+                    {serviciosCategoryBreakdown.length ? (
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {serviciosCategoryBreakdown.map((item) => (
+                          <div key={item.name} className="border border-slate-100 rounded-lg p-4 flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800">{item.name}</p>
+                              <p className="text-xs text-slate-500 mt-1">{serviciosPrimaryMetric ? 'Monto agregado' : 'Registros'}</p>
+                            </div>
+                            <p className="text-sm font-bold text-slate-900">
+                              {serviciosPrimaryMetric ? formatMetricValue(serviciosPrimaryMetric.key, item.value) : item.value.toLocaleString('es-MX')}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 text-center">
+                        No se detectó un campo categórico. Captura gerencia, subdirección o estatus para habilitar este resumen.
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="mt-4 rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 text-center">
-                    No se detectó un campo categórico. Captura gerencia, subdirección o estatus para habilitar este resumen.
-                  </div>
-                )}
-              </div>
 
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-800">Servicios 2026 · vista tabular</h3>
-                    <p className="text-xs text-slate-500 mt-1">Explora, filtra y edita los registros del anteproyecto 2026.</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                    <span>Columnas detectadas: {serviciosTableColumns.length}</span>
-                    {canManageRecords && (
-                      <button
-                        onClick={() => openRecordEditor('servicios_2026', 'Servicio 2026', serviciosTableColumns, null, null, 'Incluye montos y estatus con la misma redacción indicada por Supabase.')}
-                        className="inline-flex items-center gap-2 rounded-lg bg-[#0F4C3A] px-3 py-2 font-semibold text-white shadow hover:bg-[#0d3f31] transition-colors"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Nuevo registro
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100">
-                  <div className="relative w-full sm:w-80">
-                    <Search className="table-filter-icon" aria-hidden="true" />
-                    <input
-                      type="text"
-                      value={tableFilters.servicios2026}
-                      onChange={(event) => updateTableFilter('servicios2026', event.target.value)}
-                      placeholder="Filtra por servicio, clave o monto"
-                      className="table-filter-input"
-                    />
-                    {tableFilters.servicios2026 && (
-                      <button
-                        type="button"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
-                        onClick={() => updateTableFilter('servicios2026', '')}
-                      >
-                        Limpiar
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-semibold">
-                    {serviciosColumnFiltersCount > 0 && (
-                      <button
-                        type="button"
-                        className="text-[#0F4C3A] hover:text-[#0c3b2d] underline-offset-2 hover:underline"
-                        onClick={() => clearColumnFilters('servicios2026')}
-                      >
-                        Limpiar filtros por columna
-                      </button>
-                    )}
-                    <span className="text-slate-500">
-                      {formatResultLabel(filteredServicios2026Data.length)}
-                      {tableFilters.servicios2026.trim() ? ' · filtro general' : ''}
-                      {serviciosColumnFiltersCount ? ` · ${formatColumnFilterLabel(serviciosColumnFiltersCount)}` : ''}
-                    </span>
-                  </div>
-                  {renderActiveColumnFilterBadges('servicios2026')}
-                </div>
-                <div className="overflow-auto h-[68vh] relative">
-                  <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800">Servicios 2026 · vista tabular</h3>
+                        <p className="text-xs text-slate-500 mt-1">Explora, filtra y edita los registros del anteproyecto 2026.</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <span>Columnas detectadas: {serviciosTableColumns.length}</span>
+                        {canManageRecords && (
+                          <button
+                            onClick={() => openRecordEditor('estatus_servicios_2026', 'Servicio 2026', serviciosTableColumns, null, null, 'Incluye montos y estatus con la misma redacción indicada por Supabase.')}
+                            className="inline-flex items-center gap-2 rounded-lg bg-[#0F4C3A] px-3 py-2 font-semibold text-white shadow hover:bg-[#0d3f31] transition-colors"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Nuevo registro
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100">
+                      <div className="relative w-full sm:w-80">
+                        <Search className="table-filter-icon" aria-hidden="true" />
+                        <input
+                          type="text"
+                          value={tableFilters.servicios2026}
+                          onChange={(event) => updateTableFilter('servicios2026', event.target.value)}
+                          placeholder="Filtra por servicio, clave o monto"
+                          className="table-filter-input"
+                        />
+                        {tableFilters.servicios2026 && (
+                          <button
+                            type="button"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
+                            onClick={() => updateTableFilter('servicios2026', '')}
+                          >
+                            Limpiar
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-semibold">
+                        {serviciosColumnFiltersCount > 0 && (
+                          <button
+                            type="button"
+                            className="text-[#0F4C3A] hover:text-[#0c3b2d] underline-offset-2 hover:underline"
+                            onClick={() => clearColumnFilters('servicios2026')}
+                          >
+                            Limpiar filtros por columna
+                          </button>
+                        )}
+                        <span className="text-slate-500">
+                          {formatResultLabel(filteredServicios2026Data.length)}
+                          {tableFilters.servicios2026.trim() ? ' · filtro general' : ''}
+                          {serviciosColumnFiltersCount ? ` · ${formatColumnFilterLabel(serviciosColumnFiltersCount)}` : ''}
+                        </span>
+                      </div>
+                      {renderActiveColumnFilterBadges('servicios2026')}
+                    </div>
+                    <div className="overflow-auto h-[68vh] relative">
+                      <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
                     <thead className="uppercase tracking-wider text-white">
                       <tr className="h-14">
                         {(serviciosColumnsToRender.length ? serviciosColumnsToRender : serviciosTableColumns.length ? serviciosTableColumns : ['sin_datos']).map((column) => {
@@ -5364,7 +5104,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       ) : servicios2026Data.length === 0 ? (
                         <tr>
                           <td colSpan={serviciosColumnCount} className="text-center py-10 text-slate-500">
-                            Registra filas en la tabla <code className="bg-slate-100 px-1 py-0.5 rounded">servicios_2026</code> para mostrarlas aquí.
+                            Registra filas en la tabla <code className="bg-slate-100 px-1 py-0.5 rounded">estatus_servicios_2026</code> para mostrarlas aquí.
                           </td>
                         </tr>
                       ) : !filteredServicios2026Data.length ? (
@@ -5397,14 +5137,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       {canManageRecords ? (
                                         <div className="flex justify-center gap-2">
                                           <button
-                                            onClick={() => openRecordEditor('servicios_2026', 'Servicio 2026', serviciosTableColumns, row as Record<string, any>)}
+                                            onClick={() => openRecordEditor('estatus_servicios_2026', 'Servicio 2026', serviciosTableColumns, row as Record<string, any>)}
                                             className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
                                             title="Editar"
                                           >
                                             <Pencil className="h-4 w-4" />
                                           </button>
                                           <button
-                                            onClick={() => handleDeleteGenericRecord('servicios_2026', row as Record<string, any>, 'Servicio 2026')}
+                                            onClick={() => handleDeleteGenericRecord('estatus_servicios_2026', row as Record<string, any>, 'Servicio 2026')}
                                             className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                                             title="Eliminar"
                                           >
@@ -5464,6 +5204,232 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   Desplázate horizontalmente o usa la búsqueda del navegador (Ctrl/Cmd + F) para localizar un servicio específico.
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'serviciosStatus' && (
+            <div className="space-y-8">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">Estatus de servicios</h1>
+                  <p className="text-slate-500 text-sm mt-1">
+                    Seguimiento visual del avance por estatus y los montos declarados en cada registro de <code className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 text-xs">estatus_servicios_2026</code>.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex bg-slate-100 p-1 rounded-lg">
+                    <button
+                      onClick={() => setStatusTab('dashboard')}
+                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                        statusTab === 'dashboard'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Tablero
+                    </button>
+                    <button
+                      onClick={() => setStatusTab('calendar')}
+                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                        statusTab === 'calendar'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Seguimiento
+                    </button>
+                  </div>
+                  <span className="inline-flex items-center justify-center rounded-full bg-[#0F4C3A]/10 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-[#0F4C3A]">
+                    {formatResultLabel(serviciosStatusEntries.length)}
+                  </span>
+                </div>
+              </div>
+
+              {statusTab === 'dashboard' ? (
+                <>
+                  {!serviciosStatusField && (
+                    <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                      No se detectó una columna con la palabra “estatus” en la tabla. Añádela en Supabase para activar el tablero y reflejar el flujo oficial.
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                <div className="xl:col-span-2 relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#0F4C3A] via-emerald-500 to-teal-400 p-6 text-white shadow-2xl shadow-emerald-600/20">
+                  <div className="absolute inset-y-0 right-0 w-48 opacity-30 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.65),transparent)]" aria-hidden="true" />
+                  <div className="relative flex items-start justify-between gap-6">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-white/70 font-semibold">Promedio de avance</p>
+                      <p className="text-5xl font-black mt-2 drop-shadow-lg">{serviciosStatusSummary.avgPercent}%</p>
+                      <p className="text-white/90 text-sm mt-2">
+                        {serviciosStatusSummary.total ? 'Cálculo dinámico a partir del último estatus capturado.' : 'Carga registros con estatus para comenzar el seguimiento.'}
+                      </p>
+                    </div>
+                    <Sparkles className="h-10 w-10 text-white/80" />
+                  </div>
+                  <div className="relative mt-6">
+                    <div className="flex items-center justify-between text-xs font-semibold text-white/80">
+                      <span>Estatus cubiertos</span>
+                      <span>{SERVICIOS_STATUS_STEPS.length} hitos</span>
+                    </div>
+                    <div className="mt-3 h-3 rounded-full bg-white/25 shadow-inner">
+                      <div
+                        className="h-full rounded-full bg-white"
+                        style={{ width: `${serviciosStatusSummary.avgPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-4">
+                  <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-lg shadow-emerald-100/70">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Servicios completados</p>
+                    <p className="text-4xl font-black text-slate-900 mt-2">{serviciosStatusSummary.completed}</p>
+                    <p className="text-sm text-slate-500 mt-1">{serviciosStatusSummary.completedPct}% del universo monitoreado.</p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-lg shadow-amber-100/70">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pendientes por cerrar</p>
+                    <p className="text-4xl font-black text-slate-900 mt-2">{Math.max(serviciosStatusSummary.total - serviciosStatusSummary.completed, 0)}</p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {serviciosStatusSummary.total ? 'Enfoca esfuerzos en estos servicios para acelerar el flujo.' : 'Aún no hay registros listos para seguimiento.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-3xl border border-slate-100 shadow-2xl shadow-slate-200/70 p-6">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Detalle por servicio</h3>
+                    <p className="text-xs text-slate-500 mt-1">Expande cualquier tarjeta para revisar los montos detectados en el registro.</p>
+                  </div>
+                  <div className="text-[11px] font-semibold text-slate-500">
+                    {formatResultLabel(serviciosStatusEntries.length)} · {SERVICIOS_STATUS_STEPS.length} hitos monitoreados
+                  </div>
+                </div>
+                <div className="mt-6 space-y-5">
+                  {loadingData ? (
+                    <div className="flex items-center justify-center py-16 text-slate-400 text-sm">Cargando estatus…</div>
+                  ) : !serviciosStatusEntriesOrdered.length ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+                      {serviciosStatusField
+                        ? 'No hay coincidencias con los filtros aplicados en Servicios 2026.'
+                        : 'Agrega una columna de estatus en Supabase para habilitar este tablero.'}
+                    </div>
+                  ) : (
+                    serviciosStatusEntriesOrdered.map((entry) => {
+                      const percent = entry.stageIndex >= 0
+                        ? Math.round(((entry.stageIndex + 1) / serviciosStatusStepCount) * 100)
+                        : 0;
+                      const accent = getServicioStatusAccent(entry.stageIndex);
+                      const isExpanded = expandedServicioStatusId === entry.id;
+                      return (
+                        <div
+                          key={entry.id ?? entry.serviceName}
+                          className={`relative rounded-3xl border border-white/70 bg-gradient-to-br ${accent.surface} p-6 shadow-xl ${accent.glow}`}
+                        >
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <p className="text-base font-semibold text-slate-900">{entry.serviceName}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+                                {entry.clave && (
+                                  <span className="inline-flex items-center rounded-full border border-white/70 bg-white/80 px-2 py-0.5 text-slate-700">
+                                    Clave {entry.clave}
+                                  </span>
+                                )}
+                                <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold ${accent.badge}`}>
+                                  {entry.stageLabel ?? 'Sin estatus detectado'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-600 mt-1">{entry.statusLabel}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">Avance de estatus</p>
+                              <p className="text-3xl font-black text-slate-900">{percent}%</p>
+                            </div>
+                          </div>
+                          <div className="mt-4 relative">
+                            <div className="h-3 rounded-full bg-white/60 overflow-hidden">
+                              <div className={`h-full rounded-full bg-gradient-to-r ${accent.progress}`} style={{ width: `${percent}%` }} />
+                            </div>
+                            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent)]" />
+                          </div>
+                          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-slate-600">
+                            <span>{entry.stageIndex >= 0 ? 'Avance de estatus detectado' : 'Sin estatus detectado'}</span>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedServicioStatusId((prev) => (prev === entry.id ? null : entry.id))}
+                              className="inline-flex items-center gap-1 text-[#0F4C3A] font-semibold hover:text-[#0c3b2d]"
+                            >
+                              {isExpanded ? 'Ocultar montos' : 'Ver montos' }
+                            </button>
+                          </div>
+                          {isExpanded && (
+                            <div className="mt-4 rounded-2xl border border-white/60 bg-white/80 p-4">
+                              {entry.monetary.length ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  {entry.monetary.map((item, idx) => (
+                                    <div key={`${entry.id}-monto-${idx}`} className="rounded-2xl border border-slate-100 bg-white p-4">
+                                      <p className="text-[11px] uppercase tracking-wide text-slate-500">{item.label}</p>
+                                      <p className="text-base font-semibold text-slate-900 mt-1">{formatCurrency(item.value)}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-500">No se detectaron campos monetarios en este registro.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+                </>
+              ) : (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 h-[800px]">
+                   <BigCalendar
+                      localizer={localizer}
+                      events={calendarEvents}
+                      startAccessor="start"
+                      endAccessor="end"
+                      culture="es"
+                      style={{ height: '100%' }}
+                      view={calendarView}
+                      onView={(view) => setCalendarView(view)}
+                      date={calendarDate}
+                      onNavigate={(date) => setCalendarDate(date)}
+                      messages={{
+                        next: "Siguiente",
+                        previous: "Anterior",
+                        today: "Hoy",
+                        month: "Mes",
+                        week: "Semana",
+                        day: "Día",
+                        agenda: "Agenda",
+                        date: "Fecha",
+                        time: "Hora",
+                        event: "Evento",
+                        noEventsInRange: "No hay eventos en este rango",
+                      }}
+                      eventPropGetter={(event) => ({
+                        style: {
+                          backgroundColor: event.resource?.color || '#3B82F6',
+                          fontSize: '0.85rem',
+                          borderRadius: '4px',
+                          border: 'none',
+                        }
+                      })}
+                      components={{
+                        event: ({ event }) => (
+                          <div title={event.title} className="flex flex-col">
+                            <span className="font-semibold text-[10px] leading-tight">{event.resource?.type}</span>
+                            <span className="text-[10px] truncate opacity-90">{event.resource?.serviceName}</span>
+                          </div>
+                        )
+                      }}
+                   />
+                </div>
+              )}
             </div>
           )}
 
@@ -5661,7 +5627,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'annual2026' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                 >
                   <div className="flex items-center gap-2">
-                   <Calendar className="h-4 w-4" />
+                   <CalendarIcon className="h-4 w-4" />
                    Análisis Año 2026
                   </div>
                 </button>
@@ -5727,7 +5693,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                         <div className="absolute right-0 top-0 p-4 opacity-10">
-                          <Calendar className="h-16 w-16 text-slate-400" />
+                          <CalendarIcon className="h-16 w-16 text-slate-400" />
                         </div>
                         <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Registros Totales</p>
                         <h3 className="text-3xl font-bold text-slate-900 mt-1">{loadingData ? '...' : annual2026Data.length}</h3>
@@ -7636,7 +7602,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 nameKey="name"
                                 innerRadius={55}
                                 outerRadius={90}
-                                padAngle={3}
+                                paddingAngle={3}
                               >
                                 {procedureByCategory.map((entry, index) => (
                                   <Cell key={`proc-cat-${entry.name}`} fill={procedureCategoryColors[index % procedureCategoryColors.length]} />

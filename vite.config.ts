@@ -11,15 +11,10 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
-    strictPort: true,
+    strictPort: false,
     hmr: disableHmr
       ? false
-      : {
-          protocol: useSecureHmr ? 'wss' : 'ws',
-          host: hmrHost,
-          clientPort: hmrPort,
-          port: hmrPort,
-        },
+      : undefined,
   },
   plugins: [react()],
   resolve: {
