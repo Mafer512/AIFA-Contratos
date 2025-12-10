@@ -3839,6 +3839,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     falloField
   ]);
 
+  const nextEvent = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    
+    const upcoming = calendarEvents
+      .filter(e => e.start >= now)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+      
+    return upcoming[0] ?? null;
+  }, [calendarEvents]);
+
   const sortedProceduresData = useMemo(() => {
     if (!filteredProceduresData.length) return [] as ProcedureRecord[];
 
@@ -4735,6 +4746,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               <span className="font-bold text-slate-800">AIFA CONTRATOS</span>
             </div>
           </div>
+
+          {nextEvent && (
+            <div 
+              className="hidden lg:flex items-center bg-amber-50 text-amber-800 px-4 py-1.5 rounded-full border border-amber-200 text-xs font-medium shadow-sm cursor-pointer hover:bg-amber-100 transition-colors"
+              onClick={() => {
+                setActiveTab('serviciosStatus');
+                setStatusTab('calendar');
+                setCalendarDate(nextEvent.start);
+              }}
+              title="Ver en calendario"
+            >
+              <span className="relative flex h-2 w-2 mr-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+              <span className="mr-1 font-bold">Próximo evento:</span>
+              <span className="capitalize">{format(nextEvent.start, "EEEE d 'de' MMMM", { locale: es })}</span>
+              <span className="mx-1">-</span>
+              <span className="truncate max-w-[250px]">{nextEvent.title}</span>
+            </div>
+          )}
 
           <div className="flex items-center gap-3">
             <div className="sm:hidden">
