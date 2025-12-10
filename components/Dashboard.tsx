@@ -3628,7 +3628,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const resolveServicioStatusIndex = useCallback((rawValue: any) => {
     const normalized = normalizeValueToken(rawValue);
     if (!normalized) return -1;
-    for (let index = serviciosStatusSteps.length - 1; index >= 0; index -= 1) {
+    // Iterate forwards to ensure specific matches (like DN3) are checked before generic ones (like Revisión Defensa)
+    for (let index = 0; index < serviciosStatusSteps.length; index += 1) {
       if (normalized.includes(serviciosStatusSteps[index].token)) {
         return index;
       }
@@ -3640,7 +3641,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (!servicios2026Data.length) return [];
 
     const counts = new Array(SERVICIOS_STATUS_STEPS.length).fill(0);
-    let unknownCount = 0;
+    const otherStatuses: Record<string, number> = {};
 
     servicios2026Data.forEach(row => {
         const statusValue = serviciosStatusField ? row[serviciosStatusField] : null;
@@ -3648,7 +3649,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         if (index >= 0) {
             counts[index]++;
         } else {
-            if (statusValue) unknownCount++;
+            if (statusValue) {
+                const cleanStatus = String(statusValue).trim();
+                // Capitalize first letter for consistency
+                const formattedStatus = cleanStatus.charAt(0).toUpperCase() + cleanStatus.slice(1).toLowerCase();
+                otherStatuses[formattedStatus] = (otherStatuses[formattedStatus] || 0) + 1;
+            }
         }
     });
 
@@ -3657,9 +3663,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         value: counts[index]
     })).filter(item => item.value > 0);
 
-    if (unknownCount > 0) {
-        data.push({ name: 'Otros', value: unknownCount });
-    }
+    // Add unmatched statuses individually instead of grouping into "Otros"
+    Object.entries(otherStatuses).forEach(([name, value]) => {
+        data.push({ name, value });
+    });
     
     return data;
   }, [servicios2026Data, serviciosStatusField, resolveServicioStatusIndex]);
