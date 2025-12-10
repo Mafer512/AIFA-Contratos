@@ -509,7 +509,7 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [activeContractSubTab, setActiveContractSubTab] = useState<'annual2026' | 'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('annual2026'); 
-  const [statusTab, setStatusTab] = useState<'dashboard' | 'calendar'>('dashboard');
+  const [statusTab, setStatusTab] = useState<'dashboard' | 'calendar' | 'table'>('dashboard');
   const [calendarView, setCalendarView] = useState<View>('month');
   const [calendarDate, setCalendarDate] = useState(new Date());
   
@@ -610,6 +610,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [selectedResponsibleName, setSelectedResponsibleName] = useState<string | null>(null);
   const [isProceduresEditing, setIsProceduresEditing] = useState(false);
   const [isProceduresCompact, setIsProceduresCompact] = useState(false);
+  const [isServiciosEditing, setIsServiciosEditing] = useState(false);
+  const [isServiciosCompact, setIsServiciosCompact] = useState(false);
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [tableFilters, setTableFilters] = useState<TableFilterMap>({
     annual2026: '',
@@ -800,6 +802,39 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       editorMinHeightClass: 'min-h-[22px]',
     } as const;
   }, [isProceduresCompact]);
+
+  const serviciosSizing = useMemo(() => {
+    if (isServiciosCompact) {
+      return {
+        containerHeightClass: 'max-h-[85vh]',
+        tableTextClass: 'text-[10px]',
+        tableMinWidthClass: 'lg:min-w-[900px]',
+        headerTextClass: 'text-[9px]',
+        headerRowClass: 'h-10',
+        headerCellPadding: 'px-2 py-1.5',
+        actionsCellPadding: 'px-2 py-1.5',
+        actionsMinWidth: 120,
+        stickyFallbackWidth: 130,
+        numericCellClass: 'px-2 py-1.5 text-center font-mono text-slate-600 align-middle',
+        textCellClass: 'px-2 py-1.5 text-center text-slate-700 align-middle whitespace-pre-wrap break-words',
+        editorMinHeightClass: 'min-h-[18px]',
+      } as const;
+    }
+    return {
+      containerHeightClass: 'max-h-[80vh]',
+      tableTextClass: 'text-[11px]',
+      tableMinWidthClass: 'lg:min-w-[1100px]',
+      headerTextClass: 'text-[10px]',
+      headerRowClass: 'h-11',
+      headerCellPadding: 'px-3 py-2',
+      actionsCellPadding: 'px-3 py-2',
+      actionsMinWidth: 140,
+      stickyFallbackWidth: 150,
+      numericCellClass: 'px-3 py-2 text-center font-mono text-slate-600 align-middle',
+      textCellClass: 'px-3 py-2 text-center text-slate-700 align-middle whitespace-pre-wrap break-words',
+      editorMinHeightClass: 'min-h-[22px]',
+    } as const;
+  }, [isServiciosCompact]);
 
   const PRIMARY_KEY_HINTS: Record<string, string> = {
     'año_2026': 'id',
@@ -3601,6 +3636,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return -1;
   }, [serviciosStatusSteps]);
 
+  const serviciosStatusDistribution = useMemo(() => {
+    if (!servicios2026Data.length) return [];
+
+    const counts = new Array(SERVICIOS_STATUS_STEPS.length).fill(0);
+    let unknownCount = 0;
+
+    servicios2026Data.forEach(row => {
+        const statusValue = serviciosStatusField ? row[serviciosStatusField] : null;
+        const index = resolveServicioStatusIndex(statusValue);
+        if (index >= 0) {
+            counts[index]++;
+        } else {
+            if (statusValue) unknownCount++;
+        }
+    });
+
+    const data = SERVICIOS_STATUS_STEPS.map((step, index) => ({
+        name: step,
+        value: counts[index]
+    })).filter(item => item.value > 0);
+
+    if (unknownCount > 0) {
+        data.push({ name: 'Otros', value: unknownCount });
+    }
+    
+    return data;
+  }, [servicios2026Data, serviciosStatusField, resolveServicioStatusIndex]);
+
   const buildServicioMonetarySnapshot = useCallback((row: Record<string, any>) => {
     if (!serviciosMonetaryColumns.length) return [] as Array<{ label: string; value: number }>;
     const snapshot: Array<{ label: string; value: number }> = [];
@@ -4056,11 +4119,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     const parseNumericLike = (value: string) => {
       let sanitized = value.replace(/\s+/g, '').replace(/\$/g, '');
-      if (sanitized.includes(',') && !sanitized.includes('.')) {
-        sanitized = sanitized.replace(/,/g, '.');
-      } else {
-        sanitized = sanitized.replace(/,/g, '');
-      }
+      // Remove commas (thousands separators)
+      sanitized = sanitized.replace(/,/g, '');
       const parsed = Number(sanitized);
       return Number.isNaN(parsed) ? null : parsed;
     };
@@ -4155,6 +4215,111 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setProceduresData((prev) => prev.map((entry) => (matchesTarget(entry) ? { ...entry, ...beforeRecord } : entry)));
     }
   };
+
+  const handleServicioCellEdit = async (rowRef: Record<string, any>, column: string, rawInput: string) => {
+    if (!requireManagePermission()) return;
+    const normalizedInput = rawInput.replace(/\u00A0/g, ' ').trim();
+    const currentValue = rowRef[column];
+    const lowerColumn = column.toLowerCase();
+    const columnSuggestsDate = ['fecha', 'vigencia', 'fallo', 'apertura', 'publicacion', 'término', 'termino', 'inicio', 'visita', 'revision', 'revisión', 'diferimiento']
+      .some((fragment) => lowerColumn.includes(fragment));
+    const inputSuggestsDate = /[-\/]/.test(normalizedInput) || /\d{1,2}\s+de\s+\w+/i.test(normalizedInput) || /\d{1,2}:\d{2}/.test(normalizedInput) || /t\d{2}:/i.test(normalizedInput);
+
+    const looksNumeric = (value: string) => {
+      const normalized = value.replace(/\s+/g, '');
+      return /^[-+]?\d+(?:[.,]\d+)?$/.test(normalized.replace(/,/g, '.'));
+    };
+
+    const parseNumericLike = (value: string) => {
+      let sanitized = value.replace(/\s+/g, '').replace(/\$/g, '');
+      // Remove commas (thousands separators)
+      sanitized = sanitized.replace(/,/g, '');
+      const parsed = Number(sanitized);
+      return Number.isNaN(parsed) ? null : parsed;
+    };
+
+    let nextValue: any;
+    if (!normalizedInput.length) {
+      nextValue = null;
+    } else {
+      let parsedDateInput: Date | null = null;
+      if (columnSuggestsDate || inputSuggestsDate) {
+        parsedDateInput = parsePotentialDate(normalizedInput);
+      }
+
+      if (parsedDateInput) {
+        const isoDate = `${parsedDateInput.getFullYear()}-${String(parsedDateInput.getMonth() + 1).padStart(2, '0')}-${String(parsedDateInput.getDate()).padStart(2, '0')}`;
+        const hasTime = /\d{1,2}:\d{2}/.test(normalizedInput) || /t\d{2}:/i.test(normalizedInput);
+        if (hasTime) {
+          const hours = String(parsedDateInput.getHours()).padStart(2, '0');
+          const minutes = String(parsedDateInput.getMinutes()).padStart(2, '0');
+          const seconds = String(parsedDateInput.getSeconds()).padStart(2, '0');
+          nextValue = `${isoDate}T${hours}:${minutes}:${seconds}`;
+        } else {
+          nextValue = isoDate;
+        }
+      } else if (typeof currentValue === 'number' || shouldFormatAsCurrency(column)) {
+        const numericCandidate = parseNumericLike(normalizedInput);
+        nextValue = numericCandidate !== null ? numericCandidate : normalizedInput;
+      } else if (looksNumeric(normalizedInput)) {
+        const numericCandidate = parseNumericLike(normalizedInput);
+        nextValue = numericCandidate !== null ? numericCandidate : normalizedInput;
+      } else {
+        nextValue = normalizedInput;
+      }
+    }
+
+    const normalizedCurrent = currentValue === undefined ? null : currentValue;
+    const normalizedNext = nextValue === undefined ? null : nextValue;
+
+    if (normalizedCurrent === normalizedNext) return;
+
+    const optimisticSnapshot = [...servicios2026Data];
+    const updatedRecord = { ...rowRef, [column]: nextValue };
+
+    // Helper to match the record
+    const matchesTarget = (entry: Record<string, any>) => {
+        const pk = resolvePrimaryKey(rowRef, 'estatus_servicios_2026');
+        if (!pk) return false;
+        return entry[pk] === rowRef[pk];
+    };
+
+    setServicios2026Data((prev) => prev.map((entry) => (matchesTarget(entry) ? updatedRecord : entry)));
+
+    try {
+      const primaryKey = resolvePrimaryKey(rowRef, 'estatus_servicios_2026');
+      if (!primaryKey) throw new Error('No se pudo determinar la clave primaria.');
+
+      const { error } = await supabase
+        .from('estatus_servicios_2026')
+        .update({ [column]: nextValue })
+        .eq(primaryKey, rowRef[primaryKey]);
+
+      if (error) throw error;
+
+      await logChange({
+        table: 'estatus_servicios_2026',
+        action: 'UPDATE',
+        recordId: rowRef[primaryKey],
+        before: { [column]: currentValue },
+        after: { [column]: nextValue },
+      });
+    } catch (error) {
+      console.error('Error guardando cambio en estatus_servicios_2026:', error);
+      alert('No se pudo guardar el cambio en Supabase. Se restauró el valor anterior.');
+      setServicios2026Data(optimisticSnapshot);
+    }
+  };
+
+  const handleAddServicioRow = useCallback(() => {
+    if (!serviciosTableColumns.length) return;
+
+    const template = generateTemplateFromColumns(serviciosTableColumns);
+    const newRow: Record<string, any> = { ...template, id: null };
+
+    setServicios2026Data((prev) => [...prev, newRow]);
+    setIsServiciosEditing(true);
+  }, [serviciosTableColumns]);
 
   const handleAddProcedureRow = useCallback(() => {
     if (!proceduresTableColumns.length) return;
@@ -4493,7 +4658,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           {[ 
             { id: 'overview', icon: LayoutDashboard, label: 'Resumen' },
             { id: 'serviciosStatus', icon: BarChart2, label: 'Estatus servicios' },
-            { id: 'analysis2026', icon: PieChartIcon, label: 'Servicios 2026' },
             { id: 'contracts', icon: FileText, label: 'Gestión Contratos' },
             { id: 'history', icon: History, label: 'Historial' }
           ].map((item) => (
@@ -4632,6 +4796,72 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Fase</h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                            Visualización de la carga de trabajo según la etapa del proceso.
+                        </p>
+                    </div>
+                    <span className="text-xs text-slate-400">{servicios2026Data.length} servicios</span>
+                  </div>
+                  <div className="h-[450px] w-full">
+                      {loadingData ? (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                      ) : serviciosStatusDistribution.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart margin={{ top: 40, bottom: 40, left: 40, right: 40 }}>
+                            <Pie 
+                                data={serviciosStatusDistribution} 
+                                dataKey="value" 
+                                nameKey="name" 
+                                cx="50%" 
+                                cy="50%" 
+                                outerRadius={100} 
+                                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, name }) => {
+                                    const RADIAN = Math.PI / 180;
+                                    let radius = outerRadius + 50;
+
+                                    // Ajuste específico para evitar superposición
+                                    if (name.includes('Procedimiento de Contratación')) {
+                                        radius += 25;
+                                    }
+
+                                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                                    
+                                    return (
+                                      <text 
+                                        x={x} 
+                                        y={y} 
+                                        fill={chartPalette[index % chartPalette.length]} 
+                                        textAnchor={x > cx ? 'start' : 'end'} 
+                                        dominantBaseline="central" 
+                                        className="text-[11px] font-bold"
+                                      >
+                                        {`${name} (${(percent * 100).toFixed(0)}%)`}
+                                      </text>
+                                    );
+                                }}
+                                labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
+                            >
+                              {serviciosStatusDistribution.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => `${value} servicio${value === 1 ? '' : 's'}`} />
+                            <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                          No hay datos suficientes para generar la gráfica.
+                        </div>
+                      )}
+                  </div>
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -4863,349 +5093,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             </>
           )}
 
-          {activeTab === 'analysis2026' && (
-            <div className="space-y-8">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold text-slate-900">Servicios 2026</h1>
-                  <p className="text-slate-500 text-sm mt-1">
-                    Lectura tabular directa de la tabla <code className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 text-xs">estatus_servicios_2026</code> con búsqueda, filtros y acciones rápidas.
-                  </p>
-                </div>
-                {canManageRecords && (
-                  <button
-                    onClick={() => openRecordEditor('estatus_servicios_2026', 'Servicio 2026', serviciosTableColumns, null, null, 'Respeta la nomenclatura vigente para gerencias, claves y montos capturados.')}
-                    className="inline-flex items-center gap-2 self-start rounded-lg bg-[#B38E5D] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#9c7a4d] transition-colors"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Nuevo registro
-                  </button>
-                )}
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
-                  <div className="absolute right-0 top-0 p-4 opacity-10">
-                    <CalendarIcon className="h-16 w-16 text-slate-400" />
-                  </div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Registros sincronizados</p>
-                  <h3 className="text-3xl font-bold text-slate-900 mt-2">{loadingData ? '...' : servicios2026Data.length}</h3>
-                  <p className="text-xs text-slate-500 mt-2">
-                    {serviciosLastUpdatedLabel
-                      ? `Última actualización detectada: ${serviciosLastUpdatedLabel}`
-                      : 'Carga o edita registros para detectar una fecha de actualización.'}
-                  </p>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
-                  <div className="absolute right-0 top-0 p-4 opacity-10">
-                    <Layers className="h-16 w-16 text-[#0F4C3A]" />
-                  </div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Columnas activas</p>
-                  <h3 className="text-3xl font-bold text-slate-900 mt-2">{serviciosTableColumns.length}</h3>
-                  <p className="text-xs text-slate-500 mt-2">
-                    {serviciosCategoryField
-                      ? `Agrupa por ${humanizeKey(serviciosCategoryField)} para detectar concentraciones.`
-                      : 'Añade columnas de gerencia, área o estatus para segmentar la vista.'}
-                  </p>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 relative overflow-hidden">
-                  <div className="absolute right-0 top-0 p-4 opacity-10">
-                    <TrendingUp className="h-16 w-16 text-[#B38E5D]" />
-                  </div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Métrica principal</p>
-                  <h3 className="text-2xl font-bold text-slate-900 mt-2">
-                    {serviciosPrimaryMetric ? formatMetricValue(serviciosPrimaryMetric.key, serviciosPrimaryMetric.value) : '--'}
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-2">
-                    {serviciosPrimaryMetric
-                      ? humanizeKey(serviciosPrimaryMetric.key)
-                      : 'Detecta montos o importes para mostrar tendencias monetarias.'}
-                  </p>
-                  {serviciosSecondaryMetric && (
-                    <p className="text-[11px] text-slate-400 mt-3">
-                      Segundo indicador: {humanizeKey(serviciosSecondaryMetric.key)} · {formatMetricValue(serviciosSecondaryMetric.key, serviciosSecondaryMetric.value)}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <p className="text-xs text-slate-500">
-                Filtra la tabla para exportar o editar registros específicos del anteproyecto. Consulta el panel “Estatus de servicios” para el seguimiento visual.
-              </p>
-
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h3 className="text-lg font-bold text-slate-800">Distribución rápida por agrupador</h3>
-                        <p className="text-xs text-slate-500 mt-1">
-                          {serviciosDominantCategory
-                            ? `Categoría dominante: ${serviciosDominantCategory.name} (${serviciosPrimaryMetric ? 'por monto acumulado' : 'por número de registros'}).`
-                            : 'Cuando exista una columna de gerencia o estatus podrás identificar concentraciones.'}
-                        </p>
-                      </div>
-                      {serviciosCategoryField && (
-                        <span className="text-[11px] font-semibold text-[#0F4C3A] bg-[#0F4C3A]/10 px-3 py-1 rounded-full uppercase tracking-wider">
-                          Campo base: {humanizeKey(serviciosCategoryField)}
-                        </span>
-                      )}
-                    </div>
-                    {serviciosCategoryBreakdown.length ? (
-                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                        {serviciosCategoryBreakdown.map((item) => (
-                          <div key={item.name} className="border border-slate-100 rounded-lg p-4 flex items-center justify-between">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-800">{item.name}</p>
-                              <p className="text-xs text-slate-500 mt-1">{serviciosPrimaryMetric ? 'Monto agregado' : 'Registros'}</p>
-                            </div>
-                            <p className="text-sm font-bold text-slate-900">
-                              {serviciosPrimaryMetric ? formatMetricValue(serviciosPrimaryMetric.key, item.value) : item.value.toLocaleString('es-MX')}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-4 rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 text-center">
-                        No se detectó un campo categórico. Captura gerencia, subdirección o estatus para habilitar este resumen.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div>
-                        <h3 className="text-lg font-bold text-slate-800">Servicios 2026 · vista tabular</h3>
-                        <p className="text-xs text-slate-500 mt-1">Explora, filtra y edita los registros del anteproyecto 2026.</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                        <span>Columnas detectadas: {serviciosTableColumns.length}</span>
-                        {canManageRecords && (
-                          <button
-                            onClick={() => openRecordEditor('estatus_servicios_2026', 'Servicio 2026', serviciosTableColumns, null, null, 'Incluye montos y estatus con la misma redacción indicada por Supabase.')}
-                            className="inline-flex items-center gap-2 rounded-lg bg-[#0F4C3A] px-3 py-2 font-semibold text-white shadow hover:bg-[#0d3f31] transition-colors"
-                          >
-                            <Plus className="h-4 w-4" />
-                            Nuevo registro
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100">
-                      <div className="relative w-full sm:w-80">
-                        <Search className="table-filter-icon" aria-hidden="true" />
-                        <input
-                          type="text"
-                          value={tableFilters.servicios2026}
-                          onChange={(event) => updateTableFilter('servicios2026', event.target.value)}
-                          placeholder="Filtra por servicio, clave o monto"
-                          className="table-filter-input"
-                        />
-                        {tableFilters.servicios2026 && (
-                          <button
-                            type="button"
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
-                            onClick={() => updateTableFilter('servicios2026', '')}
-                          >
-                            Limpiar
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-semibold">
-                        {serviciosColumnFiltersCount > 0 && (
-                          <button
-                            type="button"
-                            className="text-[#0F4C3A] hover:text-[#0c3b2d] underline-offset-2 hover:underline"
-                            onClick={() => clearColumnFilters('servicios2026')}
-                          >
-                            Limpiar filtros por columna
-                          </button>
-                        )}
-                        <span className="text-slate-500">
-                          {formatResultLabel(filteredServicios2026Data.length)}
-                          {tableFilters.servicios2026.trim() ? ' · filtro general' : ''}
-                          {serviciosColumnFiltersCount ? ` · ${formatColumnFilterLabel(serviciosColumnFiltersCount)}` : ''}
-                        </span>
-                      </div>
-                      {renderActiveColumnFilterBadges('servicios2026')}
-                    </div>
-                    <div className="overflow-auto h-[68vh] relative">
-                      <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
-                    <thead className="uppercase tracking-wider text-white">
-                      <tr className="h-14">
-                        {(serviciosColumnsToRender.length ? serviciosColumnsToRender : serviciosTableColumns.length ? serviciosTableColumns : ['sin_datos']).map((column) => {
-                          if (column === '__actions') {
-                            return (
-                              <th
-                                key="servicios-actions"
-                                className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
-                                style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#0F4C3A', color: '#fff', minWidth: '160px' }}
-                              >
-                                Acciones
-                              </th>
-                            );
-                          }
-
-                          if (!serviciosTableColumns.length && column === 'sin_datos') {
-                            return (
-                              <th
-                                key="servicios-empty"
-                                className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
-                                style={{ position: 'sticky', top: 0, backgroundColor: '#0F4C3A', color: '#fff' }}
-                              >
-                                Sin datos
-                              </th>
-                            );
-                          }
-
-                          const stickyMeta = serviciosStickyInfo.meta.get(column);
-                          const isSticky = Boolean(stickyMeta);
-                          const isLastSticky = isSticky && serviciosLastStickyKey === column;
-                          const baseColor = '#0F4C3A';
-                          const stickyColor = '#0a3324';
-                          const headerStyle: React.CSSProperties = {
-                            position: 'sticky',
-                            top: 0,
-                            zIndex: isSticky ? 60 : 50,
-                            backgroundColor: isSticky ? stickyColor : baseColor,
-                            color: '#fff',
-                            minWidth: stickyMeta ? `${stickyMeta.width}px` : '220px',
-                          };
-
-                          if (stickyMeta) {
-                            headerStyle.left = stickyMeta.left;
-                            headerStyle.width = `${stickyMeta.width}px`;
-                          }
-
-                          if (isLastSticky) {
-                            headerStyle.boxShadow = '6px 0 10px -4px rgba(15,64,42,0.35)';
-                          }
-
-                          return (
-                            <th
-                              key={column}
-                              className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
-                              style={headerStyle}
-                            >
-                              <div className="flex items-center justify-center gap-1 text-white">
-                                <span className="truncate">{humanizeKey(column)}</span>
-                                {renderColumnFilterControl('servicios2026', column, humanizeKey(column), servicios2026Data)}
-                              </div>
-                            </th>
-                          );
-                        })}
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white">
-                      {loadingData ? (
-                        <tr>
-                          <td colSpan={serviciosColumnCount} className="text-center py-10 text-slate-500">
-                            Cargando registros...
-                          </td>
-                        </tr>
-                      ) : servicios2026Data.length === 0 ? (
-                        <tr>
-                          <td colSpan={serviciosColumnCount} className="text-center py-10 text-slate-500">
-                            Registra filas en la tabla <code className="bg-slate-100 px-1 py-0.5 rounded">estatus_servicios_2026</code> para mostrarlas aquí.
-                          </td>
-                        </tr>
-                      ) : !filteredServicios2026Data.length ? (
-                        <tr>
-                          <td colSpan={serviciosColumnCount} className="text-center py-10 text-slate-500">
-                            Sin coincidencias para el filtro aplicado.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredServicios2026Data.map((row, rowIndex) => {
-                          const baseKey = row.id ?? row.ID ?? row.Id ?? row['No.'] ?? row['clave'] ?? `servicio-row-${rowIndex}`;
-                          const rowKey = `${baseKey}-${rowIndex}`;
-                          const zebraBackground = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
-                          const rowStyle = buildRowStyle(zebraBackground);
-                          const columns = serviciosColumnsToRender.length ? serviciosColumnsToRender : serviciosTableColumns;
-                          return (
-                            <tr
-                              key={rowKey}
-                              className="group table-row transition-colors"
-                              style={rowStyle}
-                            >
-                              {columns.map((column) => {
-                                if (column === '__actions') {
-                                  return (
-                                    <td
-                                      key={`servicios-actions-${rowKey}`}
-                                      className="px-4 py-3 text-center"
-                                      style={{ minWidth: '160px' }}
-                                    >
-                                      {canManageRecords ? (
-                                        <div className="flex justify-center gap-2">
-                                          <button
-                                            onClick={() => openRecordEditor('estatus_servicios_2026', 'Servicio 2026', serviciosTableColumns, row as Record<string, any>)}
-                                            className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
-                                            title="Editar"
-                                          >
-                                            <Pencil className="h-4 w-4" />
-                                          </button>
-                                          <button
-                                            onClick={() => handleDeleteGenericRecord('estatus_servicios_2026', row as Record<string, any>, 'Servicio 2026')}
-                                            className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                            title="Eliminar"
-                                          >
-                                            <Trash2 className="h-4 w-4" />
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
-                                      )}
-                                    </td>
-                                  );
-                                }
-
-                                const stickyMeta = serviciosStickyInfo.meta.get(column);
-                                const isSticky = Boolean(stickyMeta);
-                                const isLastSticky = isSticky && serviciosLastStickyKey === column;
-                                const cellStyle: React.CSSProperties = {
-                                  minWidth: stickyMeta ? `${stickyMeta.width}px` : '220px',
-                                };
-
-                                if (stickyMeta) {
-                                  cellStyle.position = 'sticky';
-                                  cellStyle.left = stickyMeta.left;
-                                  cellStyle.width = `${stickyMeta.width}px`;
-                                  cellStyle.zIndex = 40;
-                                  cellStyle.backgroundColor = 'var(--row-bg, #ffffff)';
-                                }
-
-                                if (isLastSticky) {
-                                  cellStyle.boxShadow = '6px 0 8px -4px rgba(15,60,40,0.25)';
-                                }
-
-                                const normalizedColumn = normalizeAnnualKey(column);
-                                const rawValue = row[column];
-                                const isNumericCell = typeof rawValue === 'number';
-                                const isCurrencyColumn = normalizedColumn.includes('monto') || normalizedColumn.includes('importe') || normalizedColumn.includes('total');
-                                const alignmentClass = isNumericCell || isCurrencyColumn ? 'text-center font-mono' : '';
-
-                                return (
-                                  <td
-                                    key={column}
-                                    className={`px-5 py-4 text-slate-600 align-top whitespace-pre-wrap break-words ${alignmentClass} ${isSticky ? 'sticky-cell' : ''}`.trim()}
-                                    style={cellStyle}
-                                  >
-                                    {formatTableValue(column, rawValue)}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="p-3 bg-slate-50 text-[11px] text-slate-400 border-t border-slate-100 text-center">
-                  Desplázate horizontalmente o usa la búsqueda del navegador (Ctrl/Cmd + F) para localizar un servicio específico.
-                </div>
-              </div>
-            </div>
-          )}
 
           {activeTab === 'serviciosStatus' && (
             <div className="space-y-8">
@@ -5238,6 +5126,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     >
                       Seguimiento
                     </button>
+                    <button
+                      onClick={() => setStatusTab('table')}
+                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                        statusTab === 'table'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Tabla
+                    </button>
                   </div>
                   <span className="inline-flex items-center justify-center rounded-full bg-[#0F4C3A]/10 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-[#0F4C3A]">
                     {formatResultLabel(serviciosStatusEntries.length)}
@@ -5245,7 +5143,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </div>
               </div>
 
-              {statusTab === 'dashboard' ? (
+              {statusTab === 'dashboard' && (
                 <>
                   {!serviciosStatusField && (
                     <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
@@ -5385,7 +5283,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </div>
               </div>
                 </>
-              ) : (
+              )}
+
+              {statusTab === 'calendar' && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 h-[800px]">
                    <BigCalendar
                       localizer={localizer}
@@ -5428,6 +5328,264 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         )
                       }}
                    />
+                </div>
+              )}
+
+              {statusTab === 'table' && (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900">Tabla de Estatus de Servicios</h3>
+                        <p className="text-xs text-slate-500 mt-1">Consulta y edita los registros de estatus.</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <button
+                          type="button"
+                          onClick={() => setIsServiciosCompact((prev) => !prev)}
+                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isServiciosCompact ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                        >
+                          {isServiciosCompact ? (
+                            <>
+                              <Minimize2 className="h-4 w-4" />
+                              Vista estándar
+                            </>
+                          ) : (
+                            <>
+                              <Maximize2 className="h-4 w-4" />
+                              Vista compacta
+                            </>
+                          )}
+                        </button>
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={() => setIsServiciosEditing((prev) => !prev)}
+                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isServiciosEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                          >
+                            {isServiciosEditing ? (
+                              <>
+                                <Save className="h-4 w-4" />
+                                Salir de edición
+                              </>
+                            ) : (
+                              <>
+                                <Pencil className="h-4 w-4" />
+                                Editar
+                              </>
+                            )}
+                          </button>
+                        )}
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={handleAddServicioRow}
+                            disabled={!serviciosTableColumns.length}
+                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${serviciosTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Agregar fila
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {isServiciosEditing && (
+                      <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100">
+                      <div className="relative w-full sm:w-80">
+                        <Search className="table-filter-icon" aria-hidden="true" />
+                        <input
+                          type="text"
+                          value={tableFilters.servicios2026}
+                          onChange={(event) => updateTableFilter('servicios2026', event.target.value)}
+                          placeholder="Filtra por servicio, clave o monto"
+                          className="table-filter-input"
+                        />
+                        {tableFilters.servicios2026 && (
+                          <button
+                            type="button"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
+                            onClick={() => updateTableFilter('servicios2026', '')}
+                          >
+                            Limpiar
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-semibold">
+                        {serviciosColumnFiltersCount > 0 && (
+                          <button
+                            type="button"
+                            className="text-[#0F4C3A] hover:text-[#0c3b2d] underline-offset-2 hover:underline"
+                            onClick={() => clearColumnFilters('servicios2026')}
+                          >
+                            Limpiar filtros por columna
+                          </button>
+                        )}
+                        <span className="text-slate-500">
+                          {formatResultLabel(filteredServicios2026Data.length)}
+                          {tableFilters.servicios2026.trim() ? ' · filtro general' : ''}
+                          {serviciosColumnFiltersCount ? ` · ${formatColumnFilterLabel(serviciosColumnFiltersCount)}` : ''}
+                        </span>
+                      </div>
+                      {renderActiveColumnFilterBadges('servicios2026')}
+                    </div>
+
+                    <div className={`relative ${serviciosSizing.containerHeightClass} overflow-auto`}>
+                      <table className={`min-w-full ${serviciosSizing.tableMinWidthClass} ${serviciosSizing.tableTextClass} text-center border-collapse`}>
+                        <thead className={`uppercase tracking-wide text-white ${serviciosSizing.headerTextClass}`}>
+                          <tr className={serviciosSizing.headerRowClass}>
+                            {(serviciosColumnsToRender.length ? serviciosColumnsToRender : serviciosTableColumns).map((column) => (
+                                <th
+                                  key={column}
+                                  className={`${serviciosSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center`}
+                                  style={{ backgroundColor: '#0F4C3A', color: '#fff' }}
+                                >
+                                  <div className="flex items-center justify-center gap-1 text-white">
+                                    <span className="truncate">{humanizeKey(column)}</span>
+                                    {renderColumnFilterControl('servicios2026', column, humanizeKey(column), servicios2026Data)}
+                                  </div>
+                                </th>
+                            ))}
+                            {canManageRecords && (
+                                <th className={`${serviciosSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center`} style={{ backgroundColor: '#0F4C3A', color: '#fff' }}>
+                                    Acciones
+                                </th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {loadingData ? (
+                            <tr><td colSpan={serviciosTableColumns.length + 1} className="text-center py-10 text-slate-500">Cargando...</td></tr>
+                          ) : !filteredServicios2026Data.length ? (
+                            <tr><td colSpan={serviciosTableColumns.length + 1} className="text-center py-10 text-slate-500">No hay datos.</td></tr>
+                          ) : (
+                            filteredServicios2026Data.map((row, rowIndex) => {
+                              const rowKey = row.id ?? `servicio-row-${rowIndex}`;
+                              const isStriped = rowIndex % 2 === 0;
+                              const zebraBackground = isStriped ? '#ffffff' : '#f8fafc';
+                              const rowStyle = buildRowStyle(zebraBackground);
+                              const columns = serviciosColumnsToRender.length ? serviciosColumnsToRender : serviciosTableColumns;
+
+                              return (
+                                <tr key={rowKey} className="transition-colors table-row" style={rowStyle}>
+                                  {columns.map((column) => {
+                                    const rawValue = row[column];
+                                    const numeric = typeof rawValue === 'number' || shouldFormatAsCurrency(column);
+                                    const baseClasses = numeric ? serviciosSizing.numericCellClass : serviciosSizing.textCellClass;
+                                    const isCellEditable = isServiciosEditing;
+                                    const cellClasses = isCellEditable ? `${baseClasses} cursor-text` : baseClasses;
+
+                                    let editingValue = '';
+                                    if (rawValue !== null && rawValue !== undefined) {
+                                        if (typeof rawValue === 'number') {
+                                            if (shouldFormatAsCurrency(column)) {
+                                                editingValue = rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            } else {
+                                                editingValue = String(rawValue);
+                                            }
+                                        } else if (rawValue instanceof Date) {
+                                            editingValue = formatDateToDDMMYYYY(rawValue);
+                                        } else if (typeof rawValue === 'string') {
+                                            const parsedForEdit = parsePotentialDate(rawValue);
+                                            if (parsedForEdit) {
+                                                editingValue = formatDateToDDMMYYYY(parsedForEdit);
+                                            } else {
+                                                if (shouldFormatAsCurrency(column)) {
+                                                    const sanitized = rawValue.replace(/,/g, '');
+                                                    const num = parseFloat(sanitized);
+                                                    if (!isNaN(num)) {
+                                                        editingValue = num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                    } else {
+                                                        editingValue = rawValue;
+                                                    }
+                                                } else {
+                                                    editingValue = rawValue;
+                                                }
+                                            }
+                                        } else {
+                                            editingValue = String(rawValue);
+                                        }
+                                    }
+
+                                    const isBooleanCol = (() => {
+                                        const norm = normalizeAnnualKey(column);
+                                        if (norm.includes('fecha')) return false;
+                                        if (['procedimiento de contratacion', 'plurianual', 'anticipo', 'convenio', 'suficiencia', 'investigacion', 'validado'].some(k => norm.includes(k))) return true;
+                                        if (typeof rawValue === 'string') {
+                                            const v = rawValue.trim().toUpperCase();
+                                            return v === 'SI' || v === 'NO';
+                                        }
+                                        return false;
+                                    })();
+
+                                    return (
+                                      <td key={column} className={cellClasses}>
+                                        {isCellEditable ? (
+                                          isBooleanCol ? (
+                                            <select
+                                                className="w-full bg-transparent text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm py-0.5 cursor-pointer"
+                                                value={['SI', 'NO'].includes(editingValue.toUpperCase()) ? editingValue.toUpperCase() : ''}
+                                                onChange={(e) => handleServicioCellEdit(row, column, e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <option value="">-</option>
+                                                <option value="SI">SI</option>
+                                                <option value="NO">NO</option>
+                                            </select>
+                                          ) : (
+                                          <div
+                                            contentEditable
+                                            suppressContentEditableWarning
+                                            className={`inline-block w-full ${serviciosSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                            onBlur={(event) => handleServicioCellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                            onKeyDown={(event) => {
+                                              if (event.key === 'Enter') {
+                                                event.preventDefault();
+                                                (event.currentTarget as HTMLDivElement).blur();
+                                              }
+                                            }}
+                                          >
+                                            {editingValue}
+                                          </div>
+                                          )
+                                        ) : (
+                                          formatTableValue(column, rawValue)
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                  {canManageRecords && (
+                                      <td className={`${serviciosSizing.actionsCellPadding} text-center`}>
+                                          <div className="flex justify-center gap-2">
+                                              <button
+                                                onClick={() => openRecordEditor('estatus_servicios_2026', 'Servicio', serviciosTableColumns, row as Record<string, any>)}
+                                                className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
+                                                title="Editar"
+                                              >
+                                                <Pencil className="h-4 w-4" />
+                                              </button>
+                                              <button
+                                                onClick={() => handleDeleteGenericRecord('estatus_servicios_2026', row as Record<string, any>, 'Servicio')}
+                                                className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                title="Eliminar"
+                                              >
+                                                <Trash2 className="h-4 w-4" />
+                                              </button>
+                                          </div>
+                                      </td>
+                                  )}
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                 </div>
               )}
             </div>
@@ -8268,21 +8426,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                                     let editingValue = '';
                                     if (rawValue !== null && rawValue !== undefined) {
-                                      if (rawValue instanceof Date) {
-                                        editingValue = formatDateToDDMMYYYY(rawValue);
-                                      } else if (typeof rawValue === 'string') {
-                                        const parsedForEdit = parsePotentialDate(rawValue);
-                                        editingValue = parsedForEdit ? formatDateToDDMMYYYY(parsedForEdit) : rawValue;
-                                      } else if (typeof rawValue === 'object') {
-                                        try {
-                                          editingValue = JSON.stringify(rawValue);
-                                        } catch (err) {
-                                          console.error('Error serializing value for inline edit:', err);
-                                          editingValue = String(rawValue);
+                                        if (typeof rawValue === 'number') {
+                                            if (shouldFormatAsCurrency(column)) {
+                                                editingValue = rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            } else {
+                                                editingValue = String(rawValue);
+                                            }
+                                        } else if (rawValue instanceof Date) {
+                                            editingValue = formatDateToDDMMYYYY(rawValue);
+                                        } else if (typeof rawValue === 'string') {
+                                            const parsedForEdit = parsePotentialDate(rawValue);
+                                            if (parsedForEdit) {
+                                                editingValue = formatDateToDDMMYYYY(parsedForEdit);
+                                            } else {
+                                                if (shouldFormatAsCurrency(column)) {
+                                                    const sanitized = rawValue.replace(/,/g, '');
+                                                    const num = parseFloat(sanitized);
+                                                    if (!isNaN(num)) {
+                                                        editingValue = num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                    } else {
+                                                        editingValue = rawValue;
+                                                    }
+                                                } else {
+                                                    editingValue = rawValue;
+                                                }
+                                            }
+                                        } else if (typeof rawValue === 'object') {
+                                            try {
+                                                editingValue = JSON.stringify(rawValue);
+                                            } catch (err) {
+                                                console.error('Error serializing value for inline edit:', err);
+                                                editingValue = String(rawValue);
+                                            }
+                                        } else {
+                                            editingValue = String(rawValue);
                                         }
-                                      } else {
-                                        editingValue = String(rawValue);
-                                      }
                                     }
 
                                     return (
