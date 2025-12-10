@@ -615,6 +615,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [isProceduresCompact, setIsProceduresCompact] = useState(false);
   const [isServiciosEditing, setIsServiciosEditing] = useState(false);
   const [isServiciosCompact, setIsServiciosCompact] = useState(false);
+  const [isAnnualEditing, setIsAnnualEditing] = useState(false);
+  const [isAnnualCompact, setIsAnnualCompact] = useState(false);
+  const [isPaasEditing, setIsPaasEditing] = useState(false);
+  const [isPaasCompact, setIsPaasCompact] = useState(false);
+  const [isPaymentsEditing, setIsPaymentsEditing] = useState(false);
+  const [isPaymentsCompact, setIsPaymentsCompact] = useState(false);
+  const [isInvoicesEditing, setIsInvoicesEditing] = useState(false);
+  const [isInvoicesCompact, setIsInvoicesCompact] = useState(false);
+  const [isCompranetEditing, setIsCompranetEditing] = useState(false);
+  const [isCompranetCompact, setIsCompranetCompact] = useState(false);
+  const [isPendingOctEditing, setIsPendingOctEditing] = useState(false);
+  const [isPendingOctCompact, setIsPendingOctCompact] = useState(false);
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [tableFilters, setTableFilters] = useState<TableFilterMap>({
     annual2026: '',
@@ -773,8 +785,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   }, [proceduresData.length, isProceduresEditing]);
 
-  const proceduresSizing = useMemo(() => {
-    if (isProceduresCompact) {
+  const createTableSizing = (isCompact: boolean) => {
+    if (isCompact) {
       return {
         containerHeightClass: 'max-h-[85vh]',
         tableTextClass: 'text-[10px]',
@@ -804,40 +816,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       textCellClass: 'px-3 py-2 text-center text-slate-700 align-middle whitespace-pre-wrap break-words',
       editorMinHeightClass: 'min-h-[22px]',
     } as const;
-  }, [isProceduresCompact]);
+  };
 
-  const serviciosSizing = useMemo(() => {
-    if (isServiciosCompact) {
-      return {
-        containerHeightClass: 'max-h-[85vh]',
-        tableTextClass: 'text-[10px]',
-        tableMinWidthClass: 'lg:min-w-[900px]',
-        headerTextClass: 'text-[9px]',
-        headerRowClass: 'h-10',
-        headerCellPadding: 'px-2 py-1.5',
-        actionsCellPadding: 'px-2 py-1.5',
-        actionsMinWidth: 120,
-        stickyFallbackWidth: 130,
-        numericCellClass: 'px-2 py-1.5 text-center font-mono text-slate-600 align-middle',
-        textCellClass: 'px-2 py-1.5 text-center text-slate-700 align-middle whitespace-pre-wrap break-words',
-        editorMinHeightClass: 'min-h-[18px]',
-      } as const;
-    }
-    return {
-      containerHeightClass: 'max-h-[80vh]',
-      tableTextClass: 'text-[11px]',
-      tableMinWidthClass: 'lg:min-w-[1100px]',
-      headerTextClass: 'text-[10px]',
-      headerRowClass: 'h-11',
-      headerCellPadding: 'px-3 py-2',
-      actionsCellPadding: 'px-3 py-2',
-      actionsMinWidth: 140,
-      stickyFallbackWidth: 150,
-      numericCellClass: 'px-3 py-2 text-center font-mono text-slate-600 align-middle',
-      textCellClass: 'px-3 py-2 text-center text-slate-700 align-middle whitespace-pre-wrap break-words',
-      editorMinHeightClass: 'min-h-[22px]',
-    } as const;
-  }, [isServiciosCompact]);
+  const proceduresSizing = useMemo(() => createTableSizing(isProceduresCompact), [isProceduresCompact]);
+  const serviciosSizing = useMemo(() => createTableSizing(isServiciosCompact), [isServiciosCompact]);
+  const annualTableSizing = useMemo(() => createTableSizing(isAnnualCompact), [isAnnualCompact]);
+  const paasTableSizing = useMemo(() => createTableSizing(isPaasCompact), [isPaasCompact]);
+  const paymentsTableSizing = useMemo(() => createTableSizing(isPaymentsCompact), [isPaymentsCompact]);
+  const invoicesTableSizing = useMemo(() => createTableSizing(isInvoicesCompact), [isInvoicesCompact]);
+  const compranetTableSizing = useMemo(() => createTableSizing(isCompranetCompact), [isCompranetCompact]);
+  const pendingOctTableSizing = useMemo(() => createTableSizing(isPendingOctCompact), [isPendingOctCompact]);
 
   const PRIMARY_KEY_HINTS: Record<string, string> = {
     'año_2026': 'id',
@@ -4245,7 +4233,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   };
 
-  const handleServicioCellEdit = async (rowRef: Record<string, any>, column: string, rawInput: string) => {
+
+
+  const handleGenericCellEdit = async (
+    tableName: string,
+    rowRef: Record<string, any>,
+    column: string,
+    rawInput: string,
+    setData: React.Dispatch<React.SetStateAction<any[]>>,
+    data: any[]
+  ) => {
     if (!requireManagePermission()) return;
     const normalizedInput = rawInput.replace(/\u00A0/g, ' ').trim();
     const currentValue = rowRef[column];
@@ -4261,7 +4258,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     const parseNumericLike = (value: string) => {
       let sanitized = value.replace(/\s+/g, '').replace(/\$/g, '');
-      // Remove commas (thousands separators)
       sanitized = sanitized.replace(/,/g, '');
       const parsed = Number(sanitized);
       return Number.isNaN(parsed) ? null : parsed;
@@ -4301,44 +4297,49 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const normalizedCurrent = currentValue === undefined ? null : currentValue;
     const normalizedNext = nextValue === undefined ? null : nextValue;
 
-    if (normalizedCurrent === normalizedNext) return;
+    if (deepEqual(normalizedCurrent, normalizedNext)) return;
 
-    const optimisticSnapshot = [...servicios2026Data];
+    const optimisticSnapshot = [...data];
     const updatedRecord = { ...rowRef, [column]: nextValue };
 
-    // Helper to match the record
-    const matchesTarget = (entry: Record<string, any>) => {
-        const pk = resolvePrimaryKey(rowRef, 'estatus_servicios_2026');
-        if (!pk) return false;
-        return entry[pk] === rowRef[pk];
-    };
+    const pk = resolvePrimaryKey(rowRef, tableName);
+    if (!pk) {
+        alert('No se identificó una clave primaria para este registro.');
+        return;
+    }
 
-    setServicios2026Data((prev) => prev.map((entry) => (matchesTarget(entry) ? updatedRecord : entry)));
+    const matchesTarget = (entry: Record<string, any>) => entry[pk] === rowRef[pk];
+
+    setData((prev) => prev.map((entry) => (matchesTarget(entry) ? updatedRecord : entry)));
 
     try {
-      const primaryKey = resolvePrimaryKey(rowRef, 'estatus_servicios_2026');
-      if (!primaryKey) throw new Error('No se pudo determinar la clave primaria.');
-
       const { error } = await supabase
-        .from('estatus_servicios_2026')
+        .from(tableName)
         .update({ [column]: nextValue })
-        .eq(primaryKey, rowRef[primaryKey]);
+        .eq(pk, rowRef[pk]);
 
       if (error) throw error;
 
       await logChange({
-        table: 'estatus_servicios_2026',
+        table: tableName,
         action: 'UPDATE',
-        recordId: rowRef[primaryKey],
+        recordId: rowRef[pk],
         before: { [column]: currentValue },
         after: { [column]: nextValue },
       });
     } catch (error) {
-      console.error('Error guardando cambio en estatus_servicios_2026:', error);
+      console.error(`Error guardando cambio en ${tableName}:`, error);
       alert('No se pudo guardar el cambio en Supabase. Se restauró el valor anterior.');
-      setServicios2026Data(optimisticSnapshot);
+      setData(optimisticSnapshot);
     }
   };
+
+  const handleAnnualCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('año_2026', row, col, val, setAnnual2026Data, annual2026Data);
+  const handleServiciosCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('estatus_servicios_2026', row, col, val, setServicios2026Data, servicios2026Data);
+  const handlePaasCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('paas', row, col, val, setPaasData, paasData);
+  const handleInvoicesCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('estatus_facturas', row, col, val, setInvoicesData, invoicesData);
+  const handleCompranetCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('procedimientos_compranet', row, col, val, setCompranetData, compranetData);
+  const handlePendingOctCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('estatus_procedimiento', row, col, val, setProcedureStatuses, procedureStatuses);
 
   const handleAddServicioRow = useCallback(() => {
     if (!serviciosTableColumns.length) return;
@@ -5461,21 +5462,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                         <button
-                          type="button"
-                          onClick={() => setIsServiciosCompact((prev) => !prev)}
-                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isServiciosCompact ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                          onClick={() => setIsServiciosCompact(!isServiciosCompact)}
+                          className={`p-2 rounded-md transition-colors ${isServiciosCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                          title={isServiciosCompact ? "Vista normal" : "Vista compacta"}
                         >
-                          {isServiciosCompact ? (
-                            <>
-                              <Minimize2 className="h-4 w-4" />
-                              Vista estándar
-                            </>
-                          ) : (
-                            <>
-                              <Maximize2 className="h-4 w-4" />
-                              Vista compacta
-                            </>
-                          )}
+                          {isServiciosCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
                         </button>
                         {canManageRecords && (
                           <button
@@ -5651,7 +5642,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             <select
                                                 className="w-full bg-transparent text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm py-0.5 cursor-pointer"
                                                 value={['SI', 'NO'].includes(editingValue.toUpperCase()) ? editingValue.toUpperCase() : ''}
-                                                onChange={(e) => handleServicioCellEdit(row, column, e.target.value)}
+                                                onChange={(e) => handleServiciosCellEdit(row, column, e.target.value)}
                                                 onClick={(e) => e.stopPropagation()}
                                             >
                                                 <option value="">-</option>
@@ -5663,7 +5654,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             contentEditable
                                             suppressContentEditableWarning
                                             className={`inline-block w-full ${serviciosSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
-                                            onBlur={(event) => handleServicioCellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                            onBlur={(event) => handleServiciosCellEdit(row, column, event.currentTarget.textContent ?? '')}
                                             onKeyDown={(event) => {
                                               if (event.key === 'Enter') {
                                                 event.preventDefault();
@@ -6100,6 +6091,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           {annual2026Data.length > 0 && (
                             <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {annualTableColumns.length}</span>
                           )}
+                          <button
+                            onClick={() => setIsAnnualCompact(!isAnnualCompact)}
+                            className={`p-2 rounded-md transition-colors ${isAnnualCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                            title={isAnnualCompact ? 'Vista normal' : 'Vista compacta'}
+                          >
+                            {isAnnualCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
+                          </button>
+                          {canManageRecords && (
+                            <button
+                              type="button"
+                              onClick={() => setIsAnnualEditing((prev) => !prev)}
+                              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isAnnualEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                            >
+                              {isAnnualEditing ? (
+                                <>
+                                  <Save className="h-4 w-4" />
+                                  Salir de edición
+                                </>
+                              ) : (
+                                <>
+                                  <Pencil className="h-4 w-4" />
+                                  Editar
+                                </>
+                              )}
+                            </button>
+                          )}
                           {canManageRecords && (
                             <button
                               onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, null, null, 'Revisa los campos clave y evita duplicar identificadores.')}
@@ -6149,23 +6166,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
                         {renderActiveColumnFilterBadges('annual2026')}
                       </div>
-                      <div className="overflow-auto h-[68vh] relative">
-                        <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
-                          <thead className="uppercase tracking-wider text-white">
-                            <tr className="h-14">
+                      {isAnnualEditing && (
+                        <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4" />
+                          Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
+                        </div>
+                      )}
+                      <div className={`overflow-auto ${annualTableSizing.containerHeightClass} relative`}>
+                        <table className={`${annualTableSizing.tableTextClass} text-center w-max min-w-full border-collapse`}>
+                          <thead className={`uppercase tracking-wider text-white ${annualTableSizing.headerTextClass}`}>
+                            <tr className={annualTableSizing.headerRowClass}>
                               {(annualColumnsToRender.length ? annualColumnsToRender : annualTableColumns.length ? annualTableColumns : ['sin_datos']).map((column) => {
                                 if (column === '__actions') {
                                   return (
                                     <th
                                       key="__actions"
-                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      className={`${annualTableSizing.actionsCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                       style={{
                                         position: 'sticky',
                                         top: 0,
                                         zIndex: 45,
                                         backgroundColor: '#124836',
                                         color: '#fff',
-                                        minWidth: '160px',
+                                        minWidth: `${annualTableSizing.actionsMinWidth}px`,
                                       }}
                                     >
                                       Acciones
@@ -6177,7 +6200,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   return (
                                     <th
                                       key="sin_datos"
-                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      className={`${annualTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                       style={{ position: 'sticky', top: 0, backgroundColor: '#14532d', color: '#fff' }}
                                     >
                                       Sin datos
@@ -6211,7 +6234,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 return (
                                   <th
                                     key={column}
-                                    className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                    className={`${annualTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
                                     style={headerStyle}
                                   >
                                     <div className="flex items-center justify-center gap-1 text-white">
@@ -6252,8 +6275,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         return (
                                           <td
                                             key={`actions-${rowKey}`}
-                                            className="px-4 py-3 text-center"
-                                            style={{ minWidth: '160px' }}
+                                            className={`${annualTableSizing.actionsCellPadding} text-center`}
+                                            style={{ minWidth: `${annualTableSizing.actionsMinWidth}px` }}
                                           >
                                             {canManageRecords ? (
                                               <div className="flex justify-center gap-2">
@@ -6305,13 +6328,72 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       const alignmentClass = 'text-center';
                                       const fontClass = isNumericCell || isCurrencyColumn ? 'font-mono' : '';
 
+                                      const isCellEditable = isAnnualEditing && column !== '__actions';
+                                      const cellClasses = isCellEditable ? `${isNumericCell ? annualTableSizing.numericCellClass : annualTableSizing.textCellClass} cursor-text` : (isNumericCell ? annualTableSizing.numericCellClass : annualTableSizing.textCellClass);
+
+                                      let editingValue = '';
+                                      if (rawValue !== null && rawValue !== undefined) {
+                                          if (typeof rawValue === 'number') {
+                                              if (isCurrencyColumn) {
+                                                  editingValue = rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                              } else {
+                                                  editingValue = String(rawValue);
+                                              }
+                                          } else if (rawValue instanceof Date) {
+                                              editingValue = formatDateToDDMMYYYY(rawValue);
+                                          } else if (typeof rawValue === 'string') {
+                                              const parsedForEdit = parsePotentialDate(rawValue);
+                                              if (parsedForEdit) {
+                                                  editingValue = formatDateToDDMMYYYY(parsedForEdit);
+                                              } else {
+                                                  if (isCurrencyColumn) {
+                                                      const sanitized = rawValue.replace(/,/g, '');
+                                                      const num = parseFloat(sanitized);
+                                                      if (!isNaN(num)) {
+                                                          editingValue = num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                      } else {
+                                                          editingValue = rawValue;
+                                                      }
+                                                  } else {
+                                                      editingValue = rawValue;
+                                                  }
+                                              }
+                                          } else if (typeof rawValue === 'object') {
+                                              try {
+                                                  editingValue = JSON.stringify(rawValue);
+                                              } catch (err) {
+                                                  console.error('Error serializing value for inline edit:', err);
+                                                  editingValue = String(rawValue);
+                                              }
+                                          } else {
+                                              editingValue = String(rawValue);
+                                          }
+                                      }
+
                                       return (
                                         <td
                                           key={column}
-                                          className={`px-5 py-4 text-slate-600 align-top whitespace-pre-wrap break-words ${alignmentClass} ${fontClass} ${isSticky ? 'sticky-cell' : ''}`}
+                                          className={`${cellClasses} ${isSticky ? 'sticky-cell' : ''}`}
                                           style={cellStyle}
                                         >
-                                          {formatTableValue(column, rawValue)}
+                                          {isCellEditable ? (
+                                            <div
+                                              contentEditable
+                                              suppressContentEditableWarning
+                                              className={`inline-block w-full ${annualTableSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                              onBlur={(event) => handleAnnualCellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                              onKeyDown={(event) => {
+                                                if (event.key === 'Enter') {
+                                                  event.preventDefault();
+                                                  (event.currentTarget as HTMLDivElement).blur();
+                                                }
+                                              }}
+                                            >
+                                              {editingValue}
+                                            </div>
+                                          ) : (
+                                            formatTableValue(column, rawValue)
+                                          )}
                                         </td>
                                       );
                                     })}
@@ -6532,11 +6614,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </span>
                           </div>
                           {renderActiveColumnFilterBadges('paas')}
+                          <button
+                            onClick={() => setIsPaasCompact(!isPaasCompact)}
+                            className={`ml-auto p-2 rounded-md transition-colors ${isPaasCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                            title={isPaasCompact ? 'Vista normal' : 'Vista compacta'}
+                          >
+                            {isPaasCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
+                          </button>
+                          {canManageRecords && (
+                            <button
+                              type="button"
+                              onClick={() => setIsPaasEditing((prev) => !prev)}
+                              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isPaasEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                            >
+                              {isPaasEditing ? (
+                                <>
+                                  <Save className="h-4 w-4" />
+                                  Salir de edición
+                                </>
+                              ) : (
+                                <>
+                                  <Pencil className="h-4 w-4" />
+                                  Editar
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
-                        <div className="overflow-auto max-h-[70vh] relative">
-                          <table className="min-w-full text-sm text-center border-collapse">
-                            <thead>
-                              <tr className="uppercase tracking-wider text-white">
+                        {isPaasEditing && (
+                          <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4" />
+                            Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
+                          </div>
+                        )}
+                        <div className={`overflow-auto ${paasTableSizing.containerHeightClass} relative`}>
+                          <table className={`${paasTableSizing.tableTextClass} text-center w-max min-w-full border-collapse`}>
+                            <thead className={`uppercase tracking-wider text-white ${paasTableSizing.headerTextClass}`}>
+                              <tr className={paasTableSizing.headerRowClass}>
                                 {paasTableConfig.columns.map((column) => {
                                   const stickyInfo = paasTableConfig.stickyMeta.get(column.key);
                                   const minWidth = column.width ?? 200;
@@ -6565,7 +6679,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     return (
                                       <th
                                         key={column.key}
-                                        className="px-5 py-4 text-xs font-semibold border-b border-white/10 text-center"
+                                        className={`${paasTableSizing.actionsCellPadding} font-semibold border-b border-white/10 text-center`}
                                         style={headerStyle}
                                       >
                                         {column.label}
@@ -6576,7 +6690,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   return (
                                     <th
                                       key={column.key}
-                                      className="px-5 py-4 text-xs font-semibold border-b border-white/10 text-center"
+                                      className={`${paasTableSizing.headerCellPadding} font-semibold border-b border-white/10 text-center`}
                                       style={headerStyle}
                                     >
                                       <div className="flex items-center justify-center gap-1">
@@ -6621,7 +6735,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           : column.align === 'left'
                                             ? 'text-left'
                                             : 'text-center';
-                                        const cellClasses = ['px-4', 'py-3', 'text-sm', 'align-top', alignClass, 'transition-colors'];
+                                        const cellClasses = [
+                                            isPaasCompact ? 'px-2 py-1.5' : 'px-4 py-3',
+                                            'align-top', 
+                                            alignClass, 
+                                            'transition-colors'
+                                        ];
                                         if (column.mono || column.isCurrency) cellClasses.push('font-mono');
                                         if (column.className) cellClasses.push(column.className);
 
@@ -6681,13 +6800,74 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           displayValue = normalizeWhitespace(typeof rawValue === 'string' ? rawValue : rawValue ? String(rawValue) : '-');
                                         }
 
+                                        const isCellEditable = isPaasEditing && column.key !== '__actions';
+                                        if (isCellEditable) {
+                                          cellClasses.push('cursor-text');
+                                        }
+
+                                        let editingValue = '';
+                                        if (rawValue !== null && rawValue !== undefined) {
+                                            if (typeof rawValue === 'number') {
+                                                if (column.isCurrency) {
+                                                    editingValue = rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                } else {
+                                                    editingValue = String(rawValue);
+                                                }
+                                            } else if (rawValue instanceof Date) {
+                                                editingValue = formatDateToDDMMYYYY(rawValue);
+                                            } else if (typeof rawValue === 'string') {
+                                                const parsedForEdit = parsePotentialDate(rawValue);
+                                                if (parsedForEdit) {
+                                                    editingValue = formatDateToDDMMYYYY(parsedForEdit);
+                                                } else {
+                                                    if (column.isCurrency) {
+                                                        const sanitized = rawValue.replace(/,/g, '');
+                                                        const num = parseFloat(sanitized);
+                                                        if (!isNaN(num)) {
+                                                            editingValue = num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                        } else {
+                                                            editingValue = rawValue;
+                                                        }
+                                                    } else {
+                                                        editingValue = rawValue;
+                                                    }
+                                                }
+                                            } else if (typeof rawValue === 'object') {
+                                                try {
+                                                    editingValue = JSON.stringify(rawValue);
+                                                } catch (err) {
+                                                    console.error('Error serializing value for inline edit:', err);
+                                                    editingValue = String(rawValue);
+                                                }
+                                            } else {
+                                                editingValue = String(rawValue);
+                                            }
+                                        }
+
                                         return (
                                           <td
                                             key={column.key}
                                             className={cellClasses.join(' ')}
                                             style={cellStyle}
                                           >
-                                            {displayValue}
+                                            {isCellEditable ? (
+                                              <div
+                                                contentEditable
+                                                suppressContentEditableWarning
+                                                className={`inline-block w-full ${paasTableSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                                onBlur={(event) => handlePaasCellEdit(item, column.key, event.currentTarget.textContent ?? '')}
+                                                onKeyDown={(event) => {
+                                                  if (event.key === 'Enter') {
+                                                    event.preventDefault();
+                                                    (event.currentTarget as HTMLDivElement).blur();
+                                                  }
+                                                }}
+                                              >
+                                                {editingValue}
+                                              </div>
+                                            ) : (
+                                              displayValue
+                                            )}
                                           </td>
                                         );
                                       })}
@@ -6848,26 +7028,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                          </span>
                        </div>
                         {renderActiveColumnFilterBadges('controlPagos')}
+                        <button
+                            onClick={() => setIsPaymentsCompact(!isPaymentsCompact)}
+                            className={`ml-auto p-2 rounded-md transition-colors ${isPaymentsCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                            title={isPaymentsCompact ? 'Vista normal' : 'Vista compacta'}
+                          >
+                            {isPaymentsCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
+                          </button>
                      </div>
                      {/* Contenedor con Scroll Horizontal y Altura Fija */}
-                     <div className="overflow-auto h-[70vh] relative">
-                       <table className="text-sm text-center w-max min-w-full border-collapse">
-                         <thead className="text-white uppercase tracking-wider">
-                           <tr className="h-14">
+                     <div className={`overflow-auto ${paymentsTableSizing.containerHeightClass} relative`}>
+                       <table className={`${paymentsTableSizing.tableTextClass} text-center w-max min-w-full border-collapse`}>
+                         <thead className={`text-white uppercase tracking-wider ${paymentsTableSizing.headerTextClass}`}>
+                           <tr className={paymentsTableSizing.headerRowClass}>
                              {/* COLUMNAS FIJAS - CORNER LOCKING (TOP & LEFT) */}
-                             <th className="px-6 py-4 font-bold border-b border-white/20 text-center" style={{ position: 'sticky', left: 0, top: 0, width: '150px', minWidth: '150px', zIndex: 60, backgroundColor: '#1B4D3E' }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold border-b border-white/20 text-center`} style={{ position: 'sticky', left: 0, top: 0, width: '150px', minWidth: '150px', zIndex: 60, backgroundColor: '#1B4D3E' }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>No. Contrato</span>
                                  {renderColumnFilterControl('controlPagos', 'no_contrato', 'No. Contrato', paymentsData)}
                                </div>
                              </th>
-                             <th className="px-6 py-4 font-bold border-b border-white/20 text-center" style={{ position: 'sticky', left: '150px', top: 0, width: '350px', minWidth: '350px', zIndex: 60, backgroundColor: '#1B4D3E' }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold border-b border-white/20 text-center`} style={{ position: 'sticky', left: '150px', top: 0, width: '350px', minWidth: '350px', zIndex: 60, backgroundColor: '#1B4D3E' }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Objeto del Contrato</span>
                                  {renderColumnFilterControl('controlPagos', 'objeto_del_contrato', 'Objeto del Contrato', paymentsData)}
                                </div>
                              </th>
-                             <th className="px-6 py-4 font-bold border-b border-white/20 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.3)] text-center" style={{ position: 'sticky', left: '500px', top: 0, width: '250px', minWidth: '250px', zIndex: 60, backgroundColor: '#1B4D3E' }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold border-b border-white/20 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.3)] text-center`} style={{ position: 'sticky', left: '500px', top: 0, width: '250px', minWidth: '250px', zIndex: 60, backgroundColor: '#1B4D3E' }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Proveedor</span>
                                  {renderColumnFilterControl('controlPagos', 'proveedor', 'Proveedor', paymentsData)}
@@ -6875,25 +7062,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                              </th>
                              
                              {/* COLUMNAS EN ORDEN DE BASE DE DATOS - STICKY TOP ONLY */}
-                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50, backgroundColor: '#1B4D3E' }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`} style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50, backgroundColor: '#1B4D3E' }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Tipo de Contrato</span>
                                  {renderColumnFilterControl('controlPagos', 'tipo_de_contrato', 'Tipo de Contrato', paymentsData)}
                                </div>
                              </th>
-                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#1B4D3E' }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`} style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#1B4D3E' }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Fecha Inicio</span>
                                  {renderColumnFilterControl('controlPagos', 'fecha_de_inicio', 'Fecha Inicio', paymentsData)}
                                </div>
                              </th>
-                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#1B4D3E' }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`} style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#1B4D3E' }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Fecha Término</span>
                                  {renderColumnFilterControl('controlPagos', 'fecha_de_termino', 'Fecha Término', paymentsData)}
                                </div>
                              </th>
-                             <th className="px-6 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '150px', zIndex: 50, backgroundColor: '#1B4D3E' }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`} style={{ position: 'sticky', top: 0, minWidth: '150px', zIndex: 50, backgroundColor: '#1B4D3E' }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Monto Máx.</span>
                                  {renderColumnFilterControl('controlPagos', 'mont_max', 'Monto Máximo', paymentsData)}
@@ -6906,25 +7093,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                const baseKey = m.key === 'sep' ? 'sept' : m.key;
                                return (
                                  <React.Fragment key={m.key}>
-                                   <th className="px-4 py-4 font-bold text-white border-l border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#2D6A4F' }}>
+                                   <th className={`${paymentsTableSizing.headerCellPadding} font-bold text-white border-l border-white/20 text-center`} style={{ position: 'sticky', top: 0, minWidth: '120px', zIndex: 50, backgroundColor: '#2D6A4F' }}>
                                      <div className="flex items-center justify-center gap-1">
                                        <span>{m.label}</span>
                                        {renderColumnFilterControl('controlPagos', baseKey, `Monto ${m.label}`, paymentsData)}
                                      </div>
                                    </th>
-                                   <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>
+                                   <th className={`${paymentsTableSizing.headerCellPadding} font-medium text-xs text-emerald-100 border-b border-white/20 text-center`} style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>
                                      <div className="flex items-center justify-center gap-1">
                                        <span>Preventivos</span>
                                        {renderColumnFilterControl('controlPagos', `${prefix}_preventivos`, `${m.label} · Preventivos`, paymentsData)}
                                      </div>
                                    </th>
-                                   <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>
+                                   <th className={`${paymentsTableSizing.headerCellPadding} font-medium text-xs text-emerald-100 border-b border-white/20 text-center`} style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>
                                      <div className="flex items-center justify-center gap-1">
                                        <span>Correctivos</span>
                                        {renderColumnFilterControl('controlPagos', `${prefix}_correctivos`, `${m.label} · Correctivos`, paymentsData)}
                                      </div>
                                    </th>
-                                   <th className="px-4 py-4 font-medium text-xs text-emerald-100 border-b border-white/20 text-center" style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>
+                                   <th className={`${paymentsTableSizing.headerCellPadding} font-medium text-xs text-emerald-100 border-b border-white/20 text-center`} style={{ position: 'sticky', top: 0, minWidth: '100px', zIndex: 50, backgroundColor: '#2D6A4F' }}>
                                      <div className="flex items-center justify-center gap-1">
                                        <span>Nota C.</span>
                                        {renderColumnFilterControl('controlPagos', `${prefix}_nota_de_credito`, `${m.label} · Nota de Crédito`, paymentsData)}
@@ -6935,32 +7122,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                              })}
 
                              {/* TOTALES FINALES - STICKY TOP ONLY */}
-                             <th className="px-6 py-4 font-bold border-l border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold border-l border-white/20 bg-[#1B4D3E] text-center`} style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Monto Máximo Contrato</span>
                                  {renderColumnFilterControl('controlPagos', 'monto_maximo_contrato', 'Monto Máximo Contrato', paymentsData)}
                                </div>
                              </th>
-                             <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold border-b border-white/20 bg-[#1B4D3E] text-center`} style={{ position: 'sticky', top: 0, minWidth: '180px', zIndex: 50 }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Monto Ejercido</span>
                                  {renderColumnFilterControl('controlPagos', 'monto_ejercido', 'Monto Ejercido', paymentsData)}
                                </div>
                              </th>
-                             <th className="px-6 py-4 font-bold text-center border-b border-white/20 bg-[#1B4D3E]" style={{ position: 'sticky', top: 0, minWidth: '200px', zIndex: 50 }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold text-center border-b border-white/20 bg-[#1B4D3E]`} style={{ position: 'sticky', top: 0, minWidth: '200px', zIndex: 50 }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Facturas Devengadas (%)</span>
                                  {renderColumnFilterControl('controlPagos', 'facturas_devengadas', 'Facturas Devengadas', paymentsData)}
                                </div>
                              </th>
-                             <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '300px', zIndex: 50 }}>
+                             <th className={`${paymentsTableSizing.headerCellPadding} font-bold border-b border-white/20 bg-[#1B4D3E] text-center`} style={{ position: 'sticky', top: 0, minWidth: '300px', zIndex: 50 }}>
                                <div className="flex items-center justify-center gap-1">
                                  <span>Observaciones</span>
                                  {renderColumnFilterControl('controlPagos', 'observaciones', 'Observaciones', paymentsData)}
                                </div>
                              </th>
                              {canManageRecords && (
-                               <th className="px-6 py-4 font-bold border-b border-white/20 bg-[#1B4D3E] text-center" style={{ position: 'sticky', top: 0, minWidth: '160px', zIndex: 50 }}>Acciones</th>
+                               <th className={`${paymentsTableSizing.actionsCellPadding} font-bold border-b border-white/20 bg-[#1B4D3E] text-center`} style={{ position: 'sticky', top: 0, minWidth: `${paymentsTableSizing.actionsMinWidth}px`, zIndex: 50 }}>Acciones</th>
                              )}
                            </tr>
                          </thead>
@@ -6982,21 +7169,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                >
                                
                                {/* CELDAS FIJAS - 3 PRIMERAS COLUMNAS */}
-                               <td className="px-6 py-4 font-bold text-slate-800 border-b border-slate-200 text-center sticky-cell" style={{ position: 'sticky', left: 0, width: '150px', minWidth: '150px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-bold text-slate-800 border-b border-slate-200 text-center sticky-cell`} style={{ position: 'sticky', left: 0, width: '150px', minWidth: '150px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
                                   {item.no_contrato || '-'}
                                </td>
-                               <td className="px-6 py-4 text-slate-600 border-b border-slate-200 whitespace-pre-wrap break-words text-center sticky-cell" style={{ position: 'sticky', left: '150px', width: '350px', minWidth: '350px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-slate-600 border-b border-slate-200 whitespace-pre-wrap break-words text-center sticky-cell`} style={{ position: 'sticky', left: '150px', width: '350px', minWidth: '350px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
                                   {item.objeto_del_contrato || '-'}
                                </td>
-                               <td className="px-6 py-4 text-slate-600 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.1)] border-b border-slate-200 whitespace-pre-wrap break-words border-r border-slate-300 text-center sticky-cell" style={{ position: 'sticky', left: '500px', width: '250px', minWidth: '250px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-slate-600 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.1)] border-b border-slate-200 whitespace-pre-wrap break-words border-r border-slate-300 text-center sticky-cell`} style={{ position: 'sticky', left: '500px', width: '250px', minWidth: '250px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
                                   {item.proveedor || '-'}
                                </td>
 
                                {/* CELDAS GENERALES */}
-                               <td className="px-6 py-4 text-slate-600 border-b border-slate-200 text-center">{item.tipo_de_contrato || '-'}</td>
-                               <td className="px-6 py-4 font-mono text-xs border-b border-slate-200 text-center">{item.fecha_de_inicio || '-'}</td>
-                               <td className="px-6 py-4 font-mono text-xs border-b border-slate-200 text-center">{item.fecha_de_termino || '-'}</td>
-                               <td className="px-6 py-4 font-mono border-b border-slate-200 text-center">{formatCurrency(item.mont_max)}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-slate-600 border-b border-slate-200 text-center`}>{item.tipo_de_contrato || '-'}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-xs border-b border-slate-200 text-center`}>{item.fecha_de_inicio || '-'}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-xs border-b border-slate-200 text-center`}>{item.fecha_de_termino || '-'}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono border-b border-slate-200 text-center`}>{formatCurrency(item.mont_max)}</td>
 
                                {/* CELDAS MENSUALES */}
                                {monthsConfig.map((m) => {
@@ -7006,18 +7193,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                  
                                  return (
                                   <React.Fragment key={m.key}>
-                                    <td className="px-4 py-4 font-mono font-bold text-slate-700 border-l border-slate-200 bg-emerald-50/30 text-center">{formatCurrency(baseVal)}</td>
-                                    <td className="px-4 py-4 font-mono text-xs text-slate-500 bg-emerald-50/30 text-center">{formatCurrency(row[`${prefix}_preventivos`])}</td>
-                                    <td className="px-4 py-4 font-mono text-xs text-slate-500 bg-emerald-50/30 text-center">{formatCurrency(row[`${prefix}_correctivos`])}</td>
-                                    <td className="px-4 py-4 font-mono text-xs text-red-400 bg-emerald-50/30 text-center">{formatCurrency(row[`${prefix}_nota_de_credito`])}</td>
+                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono font-bold text-slate-700 border-l border-slate-200 bg-emerald-50/30 text-center`}>{formatCurrency(baseVal)}</td>
+                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-slate-500 bg-emerald-50/30 text-center`}>{formatCurrency(row[`${prefix}_preventivos`])}</td>
+                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-slate-500 bg-emerald-50/30 text-center`}>{formatCurrency(row[`${prefix}_correctivos`])}</td>
+                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-red-400 bg-emerald-50/30 text-center`}>{formatCurrency(row[`${prefix}_nota_de_credito`])}</td>
                                   </React.Fragment>
                                  );
                                })}
 
                                {/* TOTALES */}
-                               <td className="px-6 py-4 font-mono text-slate-500 border-l border-slate-300 bg-slate-100 text-center">{formatCurrency(item.monto_maximo_contrato)}</td>
-                               <td className="px-6 py-4 font-mono font-bold text-slate-800 bg-slate-100 text-center">{formatCurrency(item.monto_ejercido)}</td>
-                               <td className="px-6 py-4 bg-slate-100 text-center">
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-slate-500 border-l border-slate-300 bg-slate-100 text-center`}>{formatCurrency(item.monto_maximo_contrato)}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono font-bold text-slate-800 bg-slate-100 text-center`}>{formatCurrency(item.monto_ejercido)}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} bg-slate-100 text-center`}>
                                   <div className="flex items-center gap-2 justify-center">
                                     <div className="w-24 h-2 bg-slate-200 rounded-full overflow-hidden">
                                       <div 
@@ -7030,9 +7217,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     </span>
                                   </div>
                                </td>
-                               <td className="px-6 py-4 text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center">{item.observaciones || '-'}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center`}>{item.observaciones || '-'}</td>
                                {canManageRecords && (
-                                 <td className="px-6 py-4 text-center" style={{ minWidth: '160px' }}>
+                                 <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-center`} style={{ minWidth: '160px' }}>
                                    <div className="flex justify-center gap-2">
                                      <button
                                        onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, item)}
@@ -7170,6 +7357,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           {invoicesData.length > 0 && (
                             <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {invoicesTableColumns.length}</span>
                           )}
+                          <button
+                            onClick={() => setIsInvoicesCompact(!isInvoicesCompact)}
+                            className={`p-2 rounded-md transition-colors ${isInvoicesCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                            title={isInvoicesCompact ? "Vista normal" : "Vista compacta"}
+                          >
+                            {isInvoicesCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
+                          </button>
+                          {canManageRecords && (
+                            <button
+                              type="button"
+                              onClick={() => setIsInvoicesEditing((prev) => !prev)}
+                              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isInvoicesEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                            >
+                              {isInvoicesEditing ? (
+                                <>
+                                  <Save className="h-4 w-4" />
+                                  Salir de edición
+                                </>
+                              ) : (
+                                <>
+                                  <Pencil className="h-4 w-4" />
+                                  Editar
+                                </>
+                              )}
+                            </button>
+                          )}
                           {canManageRecords && (
                             <button
                               onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, null, null, 'Registra folios, montos y estatus tal como aparecen en los registros existentes.')}
@@ -7219,17 +7432,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
                         {renderActiveColumnFilterBadges('invoices')}
                       </div>
-                      <div className="overflow-auto h-[68vh] relative">
-                        <table className="text-xs sm:text-sm text-center w-max min-w-full border-collapse">
+                      {isInvoicesEditing && (
+                        <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4" />
+                          Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
+                        </div>
+                      )}
+                      <div className={`overflow-auto relative ${invoicesTableSizing.containerHeightClass}`}>
+                        <table className={`${invoicesTableSizing.tableTextClass} text-center w-max min-w-full border-collapse`}>
                           <thead className="uppercase tracking-wider text-white">
-                            <tr className="h-14">
+                            <tr className={invoicesTableSizing.headerRowClass}>
                               {(invoicesColumnsToRender.length ? invoicesColumnsToRender : invoicesTableColumns.length ? invoicesTableColumns : ['sin_datos']).map((column) => {
                                 if (column === '__actions') {
                                   return (
                                     <th
                                       key="invoice-actions"
-                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
-                                      style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#14532d', color: '#fff', minWidth: '160px' }}
+                                      className={`${invoicesTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center ${invoicesTableSizing.headerTextClass}`}
+                                      style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#14532d', color: '#fff', minWidth: invoicesTableSizing.actionsMinWidth }}
                                     >
                                       Acciones
                                     </th>
@@ -7240,7 +7459,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   return (
                                     <th
                                       key="invoice-empty"
-                                      className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                      className={`${invoicesTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center ${invoicesTableSizing.headerTextClass}`}
                                       style={{ position: 'sticky', top: 0, backgroundColor: '#14532d', color: '#fff' }}
                                     >
                                       Sin datos
@@ -7274,7 +7493,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 return (
                                   <th
                                     key={column}
-                                    className="px-5 py-4 font-bold whitespace-nowrap border-b border-white/20 text-center"
+                                    className={`${invoicesTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center ${invoicesTableSizing.headerTextClass}`}
                                     style={headerStyle}
                                   >
                                     <div className="flex items-center justify-center gap-1">
@@ -7315,8 +7534,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         return (
                                           <td
                                             key={`invoice-actions-${rowKey}`}
-                                            className="px-5 py-4 text-center"
-                                            style={{ minWidth: '160px' }}
+                                            className={`${invoicesTableSizing.actionsCellPadding} text-center`}
+                                            style={{ minWidth: invoicesTableSizing.actionsMinWidth }}
                                           >
                                             {canManageRecords ? (
                                               <div className="flex justify-center gap-2">
@@ -7367,13 +7586,72 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         cellStyle.boxShadow = '6px 0 8px -4px rgba(15,60,40,0.25)';
                                       }
 
+                                      const isCellEditable = isInvoicesEditing && column !== '__actions';
+                                      const cellClasses = isCellEditable ? `${invoicesTableSizing.textCellClass} border-b border-slate-100 ${alignmentClass} ${fontClass} cursor-text` : `${invoicesTableSizing.textCellClass} border-b border-slate-100 ${alignmentClass} ${fontClass}`;
+
+                                      let editingValue = '';
+                                      if (rawValue !== null && rawValue !== undefined) {
+                                          if (typeof rawValue === 'number') {
+                                              if (isCurrencyColumn) {
+                                                  editingValue = rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                              } else {
+                                                  editingValue = String(rawValue);
+                                              }
+                                          } else if (rawValue instanceof Date) {
+                                              editingValue = formatDateToDDMMYYYY(rawValue);
+                                          } else if (typeof rawValue === 'string') {
+                                              const parsedForEdit = parsePotentialDate(rawValue);
+                                              if (parsedForEdit) {
+                                                  editingValue = formatDateToDDMMYYYY(parsedForEdit);
+                                              } else {
+                                                  if (isCurrencyColumn) {
+                                                      const sanitized = rawValue.replace(/,/g, '');
+                                                      const num = parseFloat(sanitized);
+                                                      if (!isNaN(num)) {
+                                                          editingValue = num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                      } else {
+                                                          editingValue = rawValue;
+                                                      }
+                                                  } else {
+                                                      editingValue = rawValue;
+                                                  }
+                                              }
+                                          } else if (typeof rawValue === 'object') {
+                                              try {
+                                                  editingValue = JSON.stringify(rawValue);
+                                              } catch (err) {
+                                                  console.error('Error serializing value for inline edit:', err);
+                                                  editingValue = String(rawValue);
+                                              }
+                                          } else {
+                                              editingValue = String(rawValue);
+                                          }
+                                      }
+
                                       return (
                                         <td
                                           key={column}
-                                          className={`px-5 py-4 text-slate-600 align-top whitespace-pre-wrap break-words border-b border-slate-100 ${alignmentClass} ${fontClass} ${isSticky ? 'sticky-cell' : ''}`}
+                                          className={`${cellClasses} ${isSticky ? 'sticky-cell' : ''}`}
                                           style={cellStyle}
                                         >
-                                          {formatTableValue(column, rawValue)}
+                                          {isCellEditable ? (
+                                            <div
+                                              contentEditable
+                                              suppressContentEditableWarning
+                                              className={`inline-block w-full ${invoicesTableSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                              onBlur={(event) => handleInvoicesCellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                              onKeyDown={(event) => {
+                                                if (event.key === 'Enter') {
+                                                  event.preventDefault();
+                                                  (event.currentTarget as HTMLDivElement).blur();
+                                                }
+                                              }}
+                                            >
+                                              {editingValue}
+                                            </div>
+                                          ) : (
+                                            formatTableValue(column, rawValue)
+                                          )}
                                         </td>
                                       );
                                     })}
@@ -7572,15 +7850,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <h3 className="text-lg font-bold text-slate-800">Procedimientos Compranet</h3>
                             <p className="text-xs text-slate-500">Consulta y actualiza la tabla `procedimientos_compranet` sin salir del panel.</p>
                           </div>
-                          {canManageRecords && (
+                          <div className="flex items-center gap-3">
                             <button
-                              onClick={() => openRecordEditor('procedimientos_compranet', 'Procedimiento Compranet', compranetTableColumns, null, null, 'Revisa las claves y conserva el identificador único cuando aplique.')}
-                              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                              onClick={() => setIsCompranetCompact(!isCompranetCompact)}
+                              className={`p-2 rounded-md transition-colors ${isCompranetCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                              title={isCompranetCompact ? "Vista normal" : "Vista compacta"}
                             >
-                              <Plus className="h-4 w-4" />
-                              Nuevo registro
+                              {isCompranetCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
                             </button>
-                          )}
+                            {canManageRecords && (
+                              <button
+                                type="button"
+                                onClick={() => setIsCompranetEditing((prev) => !prev)}
+                                className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isCompranetEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                              >
+                                {isCompranetEditing ? (
+                                  <>
+                                    <Save className="h-4 w-4" />
+                                    Salir de edición
+                                  </>
+                                ) : (
+                                  <>
+                                    <Pencil className="h-4 w-4" />
+                                    Editar
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            {canManageRecords && (
+                              <button
+                                onClick={() => openRecordEditor('procedimientos_compranet', 'Procedimiento Compranet', compranetTableColumns, null, null, 'Revisa las claves y conserva el identificador único cuando aplique.')}
+                                className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                              >
+                                <Plus className="h-4 w-4" />
+                                Nuevo registro
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="px-6 py-3 flex flex-wrap items-center justify-between gap-3 bg-slate-50 border-b border-slate-100">
                           <div className="relative w-full md:w-96">
@@ -7620,17 +7926,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </div>
                           {renderActiveColumnFilterBadges('compranet')}
                         </div>
-                        <div className="overflow-auto max-h-[70vh] relative">
-                          <table className="min-w-full text-sm text-center border-collapse">
+                        {isCompranetEditing && (
+                          <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4" />
+                            Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
+                          </div>
+                        )}
+                        <div className={`overflow-auto relative ${compranetTableSizing.containerHeightClass}`}>
+                          <table className={`min-w-full ${compranetTableSizing.tableTextClass} text-center border-collapse`}>
                             <thead className="uppercase tracking-wider text-white">
-                              <tr className="h-14">
+                              <tr className={compranetTableSizing.headerRowClass}>
                                 {(compranetColumnsToRender.length ? compranetColumnsToRender : compranetTableColumns.length ? compranetTableColumns : ['sin_datos']).map((column, index) => {
                                   if (column === '__actions') {
                                     return (
                                       <th
                                         key="compranet-actions"
-                                        className="px-5 py-4 font-semibold whitespace-nowrap border-b border-white/20 text-center"
-                                        style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#0F4C3A', color: '#fff', minWidth: '160px' }}
+                                        className={`${compranetTableSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center ${compranetTableSizing.headerTextClass}`}
+                                        style={{ position: 'sticky', top: 0, zIndex: 45, backgroundColor: '#0F4C3A', color: '#fff', minWidth: compranetTableSizing.actionsMinWidth }}
                                       >
                                         Acciones
                                       </th>
@@ -7641,7 +7953,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     return (
                                       <th
                                         key="compranet-empty"
-                                        className="px-5 py-4 font-semibold whitespace-nowrap border-b border-white/20 text-center"
+                                        className={`${compranetTableSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center ${compranetTableSizing.headerTextClass}`}
                                         style={{ position: 'sticky', top: 0, backgroundColor: '#0F4C3A', color: '#fff' }}
                                       >
                                         Sin datos
@@ -7675,7 +7987,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   return (
                                     <th
                                       key={column}
-                                      className="px-5 py-4 font-semibold whitespace-nowrap border-b border-white/20 text-center"
+                                      className={`${compranetTableSizing.headerCellPadding} font-semibold whitespace-nowrap border-b border-white/20 text-center ${compranetTableSizing.headerTextClass}`}
                                       style={headerStyle}
                                     >
                                       <div className="flex items-center justify-center gap-1">
@@ -7723,8 +8035,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           return (
                                             <td
                                               key={`compranet-actions-${rowKey}`}
-                                              className="px-5 py-3 text-center"
-                                              style={{ minWidth: '160px' }}
+                                              className={`${compranetTableSizing.actionsCellPadding} text-center`}
+                                              style={{ minWidth: compranetTableSizing.actionsMinWidth }}
                                             >
                                               {canManageRecords ? (
                                                 <div className="flex justify-center gap-2">
@@ -7757,9 +8069,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           : 0;
                                         const minWidth = isSticky ? compranetStickyWidths[colIndex] : 180;
                                         const numeric = typeof value === 'number' || shouldFormatAsCurrency(column);
-                                        const cellClasses = numeric
-                                          ? 'px-5 py-3 text-center font-mono text-slate-600 align-top'
-                                          : 'px-5 py-3 text-center text-slate-700 align-top whitespace-pre-wrap break-words';
+                                        const baseClasses = numeric
+                                          ? compranetTableSizing.numericCellClass
+                                          : compranetTableSizing.textCellClass;
+                                        
+                                        const isCellEditable = isCompranetEditing && column !== '__actions';
+                                        const cellClasses = isCellEditable ? `${baseClasses} cursor-text` : baseClasses;
+
                                         const stickyStyle: React.CSSProperties = {
                                           minWidth: `${minWidth}px`,
                                         };
@@ -7774,9 +8090,65 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           }
                                         }
 
+                                        let editingValue = '';
+                                        if (value !== null && value !== undefined) {
+                                            if (typeof value === 'number') {
+                                                if (shouldFormatAsCurrency(column)) {
+                                                    editingValue = value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                } else {
+                                                    editingValue = String(value);
+                                                }
+                                            } else if (value instanceof Date) {
+                                                editingValue = formatDateToDDMMYYYY(value);
+                                            } else if (typeof value === 'string') {
+                                                const parsedForEdit = parsePotentialDate(value);
+                                                if (parsedForEdit) {
+                                                    editingValue = formatDateToDDMMYYYY(parsedForEdit);
+                                                } else {
+                                                    if (shouldFormatAsCurrency(column)) {
+                                                        const sanitized = value.replace(/,/g, '');
+                                                        const num = parseFloat(sanitized);
+                                                        if (!isNaN(num)) {
+                                                            editingValue = num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                        } else {
+                                                            editingValue = value;
+                                                        }
+                                                    } else {
+                                                        editingValue = value;
+                                                    }
+                                                }
+                                            } else if (typeof value === 'object') {
+                                                try {
+                                                    editingValue = JSON.stringify(value);
+                                                } catch (err) {
+                                                    console.error('Error serializing value for inline edit:', err);
+                                                    editingValue = String(value);
+                                                }
+                                            } else {
+                                                editingValue = String(value);
+                                            }
+                                        }
+
                                         return (
                                           <td key={column} className={`${cellClasses} ${isSticky ? 'sticky-cell' : ''}`.trim()} style={stickyStyle}>
-                                            {formatTableValue(column, value)}
+                                            {isCellEditable ? (
+                                              <div
+                                                contentEditable
+                                                suppressContentEditableWarning
+                                                className={`inline-block w-full ${compranetTableSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                                onBlur={(event) => handleCompranetCellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                                onKeyDown={(event) => {
+                                                  if (event.key === 'Enter') {
+                                                    event.preventDefault();
+                                                    (event.currentTarget as HTMLDivElement).blur();
+                                                  }
+                                                }}
+                                              >
+                                                {editingValue}
+                                              </div>
+                                            ) : (
+                                              formatTableValue(column, value)
+                                            )}
                                           </td>
                                         );
                                       })}
@@ -7915,6 +8287,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <span>
                           Total registros: <span className="font-semibold text-slate-700">{procedureStatuses.length}</span>
                         </span>
+                        <button
+                          onClick={() => setIsPendingOctCompact(!isPendingOctCompact)}
+                          className={`p-2 rounded-md transition-colors ${isPendingOctCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                          title={isPendingOctCompact ? "Vista normal" : "Vista compacta"}
+                        >
+                          {isPendingOctCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
+                        </button>
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={() => setIsPendingOctEditing((prev) => !prev)}
+                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isPendingOctEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                          >
+                            {isPendingOctEditing ? (
+                              <>
+                                <Save className="h-4 w-4" />
+                                Salir de edición
+                              </>
+                            ) : (
+                              <>
+                                <Pencil className="h-4 w-4" />
+                                Editar
+                              </>
+                            )}
+                          </button>
+                        )}
                         {canManageRecords && (
                           <button
                             onClick={() => openRecordEditor('estatus_procedimiento', 'Observación de Pago', procedureFieldList, null, null, 'Detalla contrato, empresa y observación con redacción clara y fechas completas.')}
@@ -7964,48 +8362,54 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
                       {renderActiveColumnFilterBadges('pendingOct', resolvePendingOctColumnLabel)}
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-center">
+                    {isPendingOctEditing && (
+                      <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
+                      </div>
+                    )}
+                    <div className={`overflow-x-auto ${pendingOctTableSizing.containerHeightClass}`}>
+                      <table className={`w-full ${pendingOctTableSizing.tableTextClass} text-center`}>
                         <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
-                          <tr>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">
+                          <tr className={pendingOctTableSizing.headerRowClass}>
+                            <th className={`${pendingOctTableSizing.headerCellPadding} font-semibold whitespace-nowrap text-center ${pendingOctTableSizing.headerTextClass}`}>
                               <div className="flex items-center justify-center gap-1">
                                 <span>Registro</span>
                                 {renderColumnFilterControl('pendingOct', 'created_at', 'Registro', procedureStatuses)}
                               </div>
                             </th>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">
+                            <th className={`${pendingOctTableSizing.headerCellPadding} font-semibold whitespace-nowrap text-center ${pendingOctTableSizing.headerTextClass}`}>
                               <div className="flex items-center justify-center gap-1">
                                 <span>Contrato</span>
                                 {renderColumnFilterControl('pendingOct', 'contrato', 'Contrato', procedureStatuses)}
                               </div>
                             </th>
-                            <th className="px-6 py-3 font-semibold text-center">
+                            <th className={`${pendingOctTableSizing.headerCellPadding} font-semibold text-center ${pendingOctTableSizing.headerTextClass}`}>
                               <div className="flex items-center justify-center gap-1">
                                 <span>Descripción del Servicio</span>
                                 {renderColumnFilterControl('pendingOct', 'descripcion', 'Descripción del Servicio', procedureStatuses)}
                               </div>
                             </th>
-                            <th className="px-6 py-3 font-semibold text-center">
+                            <th className={`${pendingOctTableSizing.headerCellPadding} font-semibold text-center ${pendingOctTableSizing.headerTextClass}`}>
                               <div className="flex items-center justify-center gap-1">
                                 <span>Empresa</span>
                                 {renderColumnFilterControl('pendingOct', 'empresa', 'Empresa', procedureStatuses)}
                               </div>
                             </th>
-                            <th className="px-6 py-3 font-semibold whitespace-nowrap text-center">
+                            <th className={`${pendingOctTableSizing.headerCellPadding} font-semibold whitespace-nowrap text-center ${pendingOctTableSizing.headerTextClass}`}>
                               <div className="flex items-center justify-center gap-1">
                                 <span>Mes factura / nota</span>
                                 {renderColumnFilterControl('pendingOct', 'mes_factura_nota', 'Mes factura / nota', procedureStatuses)}
                               </div>
                             </th>
-                            <th className="px-6 py-3 font-semibold text-center">
+                            <th className={`${pendingOctTableSizing.headerCellPadding} font-semibold text-center ${pendingOctTableSizing.headerTextClass}`}>
                               <div className="flex items-center justify-center gap-1">
                                 <span>Observación de Pago</span>
                                 {renderColumnFilterControl('pendingOct', 'observacion_pago', 'Observación de Pago', procedureStatuses)}
                               </div>
                             </th>
                             {canManageRecords && (
-                              <th className="px-6 py-3 font-semibold text-center">Acciones</th>
+                              <th className={`${pendingOctTableSizing.headerCellPadding} font-semibold text-center ${pendingOctTableSizing.headerTextClass}`}>Acciones</th>
                             )}
                           </tr>
                         </thead>
@@ -8026,14 +8430,59 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 className="transition-colors table-row"
                                 style={rowStyle}
                               >
-                              <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap text-center">{formatDateTime(item.created_at)}</td>
-                              <td className="px-6 py-4 text-slate-700 font-semibold text-center">{item.contrato || '-'}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.descripcion || '-'}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{item.empresa || '-'}</td>
-                              <td className="px-6 py-4 text-slate-500 text-xs whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.mes_factura_nota)}</td>
-                              <td className="px-6 py-4 text-slate-600 text-sm whitespace-pre-wrap break-words text-center">{normalizeWhitespace(item.observacion_pago)}</td>
+                                {[
+                                  { key: 'created_at', value: formatDateTime(item.created_at), className: `${pendingOctTableSizing.textCellClass} font-mono text-slate-400 whitespace-nowrap` },
+                                  { key: 'contrato', value: item.contrato || '-', className: `${pendingOctTableSizing.textCellClass} font-semibold` },
+                                  { key: 'descripcion', value: item.descripcion || '-', className: `${pendingOctTableSizing.textCellClass}` },
+                                  { key: 'empresa', value: item.empresa || '-', className: `${pendingOctTableSizing.textCellClass}` },
+                                  { key: 'mes_factura_nota', value: normalizeWhitespace(item.mes_factura_nota), className: `${pendingOctTableSizing.textCellClass} text-slate-500` },
+                                  { key: 'observacion_pago', value: normalizeWhitespace(item.observacion_pago), className: `${pendingOctTableSizing.textCellClass}` }
+                                ].map((cell) => {
+                                  const isCellEditable = isPendingOctEditing;
+                                  const cellClasses = isCellEditable ? `${cell.className} cursor-text` : cell.className;
+                                  
+                                  let editingValue = '';
+                                  const rawValue = (item as any)[cell.key];
+                                  if (rawValue !== null && rawValue !== undefined) {
+                                      if (cell.key === 'created_at') {
+                                          if (rawValue instanceof Date) {
+                                              editingValue = formatDateToDDMMYYYY(rawValue);
+                                          } else if (typeof rawValue === 'string') {
+                                              const parsed = parsePotentialDate(rawValue);
+                                              editingValue = parsed ? formatDateToDDMMYYYY(parsed) : rawValue;
+                                          } else {
+                                              editingValue = String(rawValue);
+                                          }
+                                      } else {
+                                          editingValue = String(rawValue);
+                                      }
+                                  }
+
+                                  return (
+                                    <td key={cell.key} className={cellClasses}>
+                                      {isCellEditable ? (
+                                        <div
+                                          contentEditable
+                                          suppressContentEditableWarning
+                                          className={`inline-block w-full ${pendingOctTableSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                          onBlur={(event) => handlePendingOctCellEdit(item as any, cell.key, event.currentTarget.textContent ?? '')}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter') {
+                                              event.preventDefault();
+                                              (event.currentTarget as HTMLDivElement).blur();
+                                            }
+                                          }}
+                                        >
+                                          {editingValue}
+                                        </div>
+                                      ) : (
+                                        cell.value
+                                      )}
+                                    </td>
+                                  );
+                                })}
                               {canManageRecords && (
-                                <td className="px-6 py-4 text-center">
+                                <td className={`${pendingOctTableSizing.actionsCellPadding} text-center`}>
                                   <div className="flex justify-center gap-2">
                                     <button
                                       onClick={() => openRecordEditor('estatus_procedimiento', 'Observación de Pago', procedureFieldList, item as unknown as Record<string, any>)}
@@ -8288,21 +8737,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                         <button
-                          type="button"
-                          onClick={() => setIsProceduresCompact((prev) => !prev)}
-                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isProceduresCompact ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
+                          onClick={() => setIsProceduresCompact(!isProceduresCompact)}
+                          className={`p-2 rounded-md transition-colors ${isProceduresCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                          title={isProceduresCompact ? "Vista normal" : "Vista compacta"}
                         >
-                          {isProceduresCompact ? (
-                            <>
-                              <Minimize2 className="h-4 w-4" />
-                              Vista estándar
-                            </>
-                          ) : (
-                            <>
-                              <Maximize2 className="h-4 w-4" />
-                              Vista compacta
-                            </>
-                          )}
+                          {isProceduresCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
                         </button>
                         {canManageRecords && (
                           <button
