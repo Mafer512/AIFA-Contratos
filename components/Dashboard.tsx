@@ -532,6 +532,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyTableFilter, setHistoryTableFilter] = useState<string>('all');
   const historyAvailableRef = useRef(true);
+  
+  // Executive Summary Interactive State
+  const [selectedServicePhase, setSelectedServicePhase] = useState<string | null>(null);
 
   // === STATES FOR PAAS RECORD MODAL ===
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -3615,6 +3618,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     findColumnByFragments(serviciosTableColumns, ['clave cucop', 'clave servicio', 'clave'])
   ), [serviciosTableColumns]);
 
+  const serviciosSubdireccionField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['subdireccion', 'subdirección'])
+  ), [serviciosTableColumns]);
+
+  const serviciosGerenciaField = useMemo(() => (
+    findColumnByFragments(serviciosTableColumns, ['gerencia'])
+  ), [serviciosTableColumns]);
+
   const serviciosStatusSteps = useMemo(() => (
     SERVICIOS_STATUS_STEPS.map((label) => ({
       label,
@@ -4752,8 +4763,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           
           {activeTab === 'overview' && (
             <>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900">Resumen ejecutivo</h1>
+              {!selectedServicePhase ? (
+                <>
+                  <div>
+                    <h1 className="text-2xl font-bold text-slate-900">Resumen ejecutivo</h1>
                 <p className="text-slate-500 mt-1">
                   Datos consolidados de contratos, presupuestos PAAS, control de pagos, facturas y observaciones recientes.
                 </p>
@@ -4828,6 +4841,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 cx="50%" 
                                 cy="50%" 
                                 outerRadius={100} 
+                                onClick={(data) => setSelectedServicePhase(data.name)}
+                                className="cursor-pointer"
                                 label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, name }) => {
                                     const RADIAN = Math.PI / 180;
                                     let radius = outerRadius + 50;
@@ -4860,7 +4875,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               ))}
                             </Pie>
                             <Tooltip formatter={(value: number) => `${value} servicio${value === 1 ? '' : 's'}`} />
-                            <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
+                            <Legend 
+                                verticalAlign="bottom" 
+                                height={36} 
+                                iconType="circle" 
+                                wrapperStyle={{ fontSize: '12px', paddingTop: '20px', cursor: 'pointer' }} 
+                                onClick={(data) => setSelectedServicePhase(data.value)}
+                            />
                           </PieChart>
                         </ResponsiveContainer>
                       ) : (
@@ -5096,7 +5117,68 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </div>
                 </div>
               </div>
+                </>
+              ) : (
+                <div className="space-y-6">
+                  <button 
+                    onClick={() => setSelectedServicePhase(null)}
+                    className="flex items-center text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-1" />
+                    Volver al resumen
+                  </button>
 
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-900">Servicios en fase: <span className="text-[#B38E5D]">{selectedServicePhase}</span></h2>
+                    <p className="text-slate-500 mt-1">Listado detallado de servicios en esta etapa.</p>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-200">
+                        <thead className="bg-slate-800 text-white">
+                          <tr>
+                            <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
+                            <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
+                            <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-slate-200">
+                          {servicios2026Data
+                            .filter(row => {
+                                const statusValue = serviciosStatusField ? row[serviciosStatusField] : null;
+                                const index = resolveServicioStatusIndex(statusValue);
+                                if (index >= 0) {
+                                    return SERVICIOS_STATUS_STEPS[index] === selectedServicePhase;
+                                } else {
+                                    const cleanStatus = String(statusValue || '').trim();
+                                    const formattedStatus = cleanStatus.charAt(0).toUpperCase() + cleanStatus.slice(1).toLowerCase();
+                                    return formattedStatus === selectedServicePhase;
+                                }
+                            })
+                            .map((row, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50 transition-colors duration-150">
+                                <td className="px-6 py-4 text-sm font-semibold text-slate-800">
+                                  {serviciosServiceNameField ? row[serviciosServiceNameField] : 'Sin descripción'}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                    {serviciosSubdireccionField ? row[serviciosSubdireccionField] : 'N/A'}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">
+                                    {serviciosGerenciaField ? row[serviciosGerenciaField] : 'N/A'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
