@@ -508,7 +508,7 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview');
-  const [activeContractSubTab, setActiveContractSubTab] = useState<'annual2026' | 'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('annual2026'); 
+  const [activeContractSubTab, setActiveContractSubTab] = useState<'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('paas'); 
   const [statusTab, setStatusTab] = useState<'dashboard' | 'calendar' | 'table'>('dashboard');
   const [calendarView, setCalendarView] = useState<View>('month');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -831,6 +831,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     'año_2026': 'id',
     'estatus_servicios_2026': 'id',
     'balance_paas_2026': 'id',
+    'paas': 'id',
     'control_pagos': 'id',
     'estatus_facturas': 'id',
     'procedimientos_compranet': 'id',
@@ -850,6 +851,45 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         template[column] = '';
       });
     return template;
+  };
+
+  const createSafeInitialRecord = (columns: string[]) => {
+    const record: Record<string, any> = {};
+    console.log('Generating safe record for columns:', columns);
+    
+    columns.forEach((col) => {
+      if (!col || col === '__actions') return;
+      const lower = col.toLowerCase().trim().replace(/['"]/g, ''); // Remove quotes just in case
+      if (['id', 'created_at', 'updated_at', 'inserted_at'].includes(lower)) return;
+
+      // Special case for "No" / "No." columns (often text or numeric but required)
+      // Regex to match "no", "no.", "num", "numero", "#" exactly or with simple variations
+      if (/^(no\.?|num(ero|er|ber)?|#|consecutivo|orden)$/.test(lower)) {
+        record[col] = 0;
+      }
+      // Numeric
+      else if (['monto', 'importe', 'total', 'presupuesto', 'costo', 'ejercido', 'modificado', 'pagado', 'cantidad', 'precio', 'iva', 'subtotal', 'percent', 'porcentaje', 'estimado', 'adjudicado', 'suficiencia', 'año', 'year', 'mes', 'month', 'dia', 'day', 'trimestre', 'semestre', 'prioridad', 'orden', 'consecutivo', 'num'].some(t => lower.includes(t))) {
+        record[col] = 0;
+      } 
+      // Date
+      else if (['fecha', 'date', 'inicio', 'fin', 'termino', 'vigencia', 'firma', 'apertura', 'fallo', 'publicacion', 'visita', 'junta', 'revision'].some(t => lower.includes(t))) {
+        record[col] = null; 
+      } 
+      // Boolean
+      else if (['activo', 'active', 'enabled', 'visible', 'check', 'valid', 'is_', 'has_', 'es_', 'tiene_', 'requiere', 'aplica', 'cumple', 'entregado', 'autorizado', 'cerrado', 'finalizado'].some(t => lower.includes(t))) {
+        record[col] = false;
+      }
+      // Text (Explicit)
+      else if (['nombre', 'descripcion', 'concepto', 'proveedor', 'observaciones', 'comentarios', 'nota', 'justificacion', 'area', 'gerencia', 'subdireccion', 'fase', 'tipo', 'modalidad', 'categoria', 'clave', 'contrato', 'oficio', 'contacto', 'responsable', 'empresa', 'dependencia', 'unidad', 'titulo'].some(t => lower.includes(t))) {
+        record[col] = '';
+      }
+      // Fallback - use null instead of '' to avoid syntax errors on non-text types
+      else {
+        record[col] = null; 
+      }
+    });
+    console.log('Safe record generated:', record);
+    return record;
   };
 
   const resolvePrimaryKey = (row: Record<string, any> | null | undefined, table: string, explicit?: string | null) => {
@@ -1519,7 +1559,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const fetchAnnual2026Data = async () => {
     const { data: annualData, error } = await supabase
       .from('año_2026')
-      .select('*');
+      .select('*')
+      .order('id', { ascending: true });
 
     if (error) console.error('Error fetching año_2026:', error.message);
 
@@ -1531,7 +1572,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const fetchServicios2026Data = async () => {
     const { data, error } = await supabase
       .from('estatus_servicios_2026')
-      .select('*');
+      .select('*')
+      .order('id', { ascending: true });
 
     if (error) console.error('Error fetching estatus_servicios_2026:', error.message);
 
@@ -1543,7 +1585,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const fetchInvoicesData = async () => {
     const { data: invoices, error } = await supabase
       .from('estatus_facturas')
-      .select('*');
+      .select('*')
+      .order('id', { ascending: true });
 
     if (error) console.error('Error fetching estatus_facturas:', error.message);
 
@@ -1556,7 +1599,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const { data: paasResults, error: paasError } = await supabase
       .from('balance_paas_2026')
       .select('*')
-      .order('id', { ascending: false }); // Show newest first
+      .order('id', { ascending: true });
     
     if (paasResults) setPaasData(paasResults);
     if (paasError) console.error("Error fetching PAAS:", paasError.message);
@@ -1585,7 +1628,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const fetchCompranetData = async () => {
     const { data: compranetResults, error: compranetError } = await supabase
       .from('procedimientos_compranet')
-      .select('*');
+      .select('*')
+      .order('id', { ascending: true });
 
     if (compranetResults) setCompranetData(compranetResults);
     if (compranetError) console.error('Error fetching procedimientos_compranet:', compranetError.message);
@@ -1594,7 +1638,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const fetchProceduresData = async () => {
     const { data: proceduresResults, error: proceduresError } = await supabase
       .from('procedimientos')
-      .select('*');
+      .select('*')
+      .order('id', { ascending: true });
 
     if (proceduresResults) setProceduresData(proceduresResults as ProcedureRecord[]);
     if (proceduresError) console.error('Error fetching procedimientos:', proceduresError.message);
@@ -3524,6 +3569,40 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const proceduresColumnCount = Math.max(proceduresColumnsToRender.length || proceduresTableColumns.length || 1, 1);
 
+  const paasTableColumns = useMemo(() => {
+    return paasTableConfig.columns.map((c) => c.key);
+  }, [paasTableConfig]);
+
+  const paymentsTableColumns = useMemo(() => {
+    if (!paymentsData.length) return [] as string[];
+    const seen = new Set<string>();
+    const allColumns: string[] = [];
+    paymentsData.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        if (!seen.has(key)) {
+          seen.add(key);
+          allColumns.push(key);
+        }
+      });
+    });
+    return allColumns.sort();
+  }, [paymentsData]);
+
+  const pendingOctTableColumns = useMemo(() => {
+    if (!procedureStatuses.length) return [] as string[];
+    const seen = new Set<string>();
+    const allColumns: string[] = [];
+    procedureStatuses.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        if (!seen.has(key)) {
+          seen.add(key);
+          allColumns.push(key);
+        }
+      });
+    });
+    return allColumns.sort();
+  }, [procedureStatuses]);
+
   const serviciosMonetaryColumns = useMemo(() => {
     if (!serviciosTableColumns.length) return [] as string[];
     const tokens = ['monto', 'importe', 'total', 'presupuesto', 'costo', 'pago', 'modificado'];
@@ -4304,7 +4383,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     const pk = resolvePrimaryKey(rowRef, tableName);
     if (!pk) {
-        alert('No se identificó una clave primaria para este registro.');
+        console.error(`No primary key found for table ${tableName}. Row keys:`, Object.keys(rowRef));
+        alert('No se identificó una clave primaria para este registro. Intenta recargar la página para actualizar los datos.');
         return;
     }
 
@@ -4336,30 +4416,244 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const handleAnnualCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('año_2026', row, col, val, setAnnual2026Data, annual2026Data);
   const handleServiciosCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('estatus_servicios_2026', row, col, val, setServicios2026Data, servicios2026Data);
-  const handlePaasCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('paas', row, col, val, setPaasData, paasData);
+  const handlePaasCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('balance_paas_2026', row, col, val, setPaasData, paasData);
+  const handlePaymentsCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('control_pagos', row, col, val, setPaymentsData, paymentsData);
   const handleInvoicesCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('estatus_facturas', row, col, val, setInvoicesData, invoicesData);
   const handleCompranetCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('procedimientos_compranet', row, col, val, setCompranetData, compranetData);
   const handlePendingOctCellEdit = (row: Record<string, any>, col: string, val: string) => handleGenericCellEdit('estatus_procedimiento', row, col, val, setProcedureStatuses, procedureStatuses);
 
-  const handleAddServicioRow = useCallback(() => {
+  const handleAddServicioRow = useCallback(async () => {
     if (!serviciosTableColumns.length) return;
 
     const template = generateTemplateFromColumns(serviciosTableColumns);
-    const newRow: Record<string, any> = { ...template, id: null };
+    
+    try {
+      // First try with empty object to use DB defaults
+      let { data, error } = await supabase.from('estatus_servicios_2026').insert({}).select().single();
+      
+      if (error) {
+        console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
+        // Fallback: try with safe initial values for required columns
+        const safeRecord = createSafeInitialRecord(serviciosTableColumns);
+        
+        // Force ID generation if missing (fixes "null value in column id" error)
+        if (!safeRecord['id']) {
+          safeRecord['id'] = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000);
+        }
 
-    setServicios2026Data((prev) => [...prev, newRow]);
-    setIsServiciosEditing(true);
+        const retry = await supabase.from('estatus_servicios_2026').insert(safeRecord).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) throw error;
+      if (data) {
+        const newRow = { ...template, ...data };
+        setServicios2026Data((prev) => [...prev, newRow]);
+        setIsServiciosEditing(true);
+      }
+    } catch (error: any) {
+      console.error('Error creating row in estatus_servicios_2026:', error);
+      alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
+    }
   }, [serviciosTableColumns]);
 
-  const handleAddProcedureRow = useCallback(() => {
+  const handleAddProcedureRow = useCallback(async () => {
     if (!proceduresTableColumns.length) return;
 
     const template = generateTemplateFromColumns(proceduresTableColumns);
-    const newRow: ProcedureRecord = { ...template, id: null };
+    
+    try {
+      let { data, error } = await supabase.from('procedimientos').insert({}).select().single();
+      
+      if (error) {
+        console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
+        const safeRecord = createSafeInitialRecord(proceduresTableColumns);
+        const retry = await supabase.from('procedimientos').insert(safeRecord).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
 
-    setProceduresData((prev) => [...prev, newRow]);
-    setIsProceduresEditing(true);
+      if (error) throw error;
+      if (data) {
+        const newRow = { ...template, ...data };
+        setProceduresData((prev) => [...prev, newRow]);
+        setIsProceduresEditing(true);
+      }
+    } catch (error: any) {
+      console.error('Error creating row in procedimientos:', error);
+      alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
+    }
   }, [proceduresTableColumns]);
+
+  const handleAddAnnualRow = useCallback(async () => {
+    if (!annualTableColumns.length) return;
+    const template = generateTemplateFromColumns(annualTableColumns);
+    
+    try {
+      let { data, error } = await supabase.from('año_2026').insert({}).select().single();
+      
+      if (error) {
+        console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
+        const safeRecord = createSafeInitialRecord(annualTableColumns);
+        
+        // Force "no" column to be present and 0.
+        // The error "null value in column 'no'" indicates the DB expects this specific lowercase column.
+        // We set it regardless of whether "No" or "NO" exists to ensure the DB constraint is met.
+        safeRecord['no'] = 0;
+
+        console.log('Retrying insert with safe record:', safeRecord);
+        const retry = await supabase.from('año_2026').insert(safeRecord).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) throw error;
+      if (data) {
+        const newRow = { ...template, ...data };
+        setAnnual2026Data((prev) => [...prev, newRow]);
+        setIsAnnualEditing(true);
+      }
+    } catch (error: any) {
+      console.error('Error creating row in año_2026:', error);
+      alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
+    }
+  }, [annualTableColumns]);
+
+  const handleAddPaasRow = useCallback(async () => {
+    if (!paasTableColumns.length) return;
+    const template = generateTemplateFromColumns(paasTableColumns);
+    
+    try {
+      let { data, error } = await supabase.from('balance_paas_2026').insert({}).select().single();
+      
+      if (error) {
+        console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
+        const safeRecord = createSafeInitialRecord(paasTableColumns);
+        const retry = await supabase.from('balance_paas_2026').insert(safeRecord).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) throw error;
+      if (data) {
+        const newRow = { ...template, ...data };
+        setPaasData((prev) => [...prev, newRow as any]);
+        setIsPaasEditing(true);
+      }
+    } catch (error: any) {
+      console.error('Error creating row in paas:', error);
+      alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
+    }
+  }, [paasTableColumns]);
+
+  const handleAddPaymentsRow = useCallback(async () => {
+    if (!paymentsTableColumns.length) return;
+    const template = generateTemplateFromColumns(paymentsTableColumns);
+    
+    try {
+      let { data, error } = await supabase.from('control_pagos').insert({}).select().single();
+      
+      if (error) {
+        console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
+        const safeRecord = createSafeInitialRecord(paymentsTableColumns);
+        const retry = await supabase.from('control_pagos').insert(safeRecord).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) throw error;
+      if (data) {
+        const newRow = { ...template, ...data };
+        setPaymentsData((prev) => [...prev, newRow as any]);
+        setIsPaymentsEditing(true);
+      }
+    } catch (error: any) {
+      console.error('Error creating row in control_pagos:', error);
+      alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
+    }
+  }, [paymentsTableColumns]);
+
+  const handleAddInvoicesRow = useCallback(async () => {
+    if (!invoicesTableColumns.length) return;
+    const template = generateTemplateFromColumns(invoicesTableColumns);
+    
+    try {
+      let { data, error } = await supabase.from('estatus_facturas').insert({}).select().single();
+      
+      if (error) {
+        console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
+        const safeRecord = createSafeInitialRecord(invoicesTableColumns);
+        const retry = await supabase.from('estatus_facturas').insert(safeRecord).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) throw error;
+      if (data) {
+        const newRow = { ...template, ...data };
+        setInvoicesData((prev) => [...prev, newRow]);
+        setIsInvoicesEditing(true);
+      }
+    } catch (error: any) {
+      console.error('Error creating row in estatus_facturas:', error);
+      alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
+    }
+  }, [invoicesTableColumns]);
+
+  const handleAddCompranetRow = useCallback(async () => {
+    if (!compranetTableColumns.length) return;
+    const template = generateTemplateFromColumns(compranetTableColumns);
+    
+    try {
+      let { data, error } = await supabase.from('procedimientos_compranet').insert({}).select().single();
+      
+      if (error) {
+        console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
+        const safeRecord = createSafeInitialRecord(compranetTableColumns);
+        const retry = await supabase.from('procedimientos_compranet').insert(safeRecord).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) throw error;
+      if (data) {
+        const newRow = { ...template, ...data };
+        setCompranetData((prev) => [...prev, newRow]);
+        setIsCompranetEditing(true);
+      }
+    } catch (error: any) {
+      console.error('Error creating row in procedimientos_compranet:', error);
+      alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
+    }
+  }, [compranetTableColumns]);
+
+  const handleAddPendingOctRow = useCallback(async () => {
+    if (!pendingOctTableColumns.length) return;
+    const template = generateTemplateFromColumns(pendingOctTableColumns);
+    
+    try {
+      let { data, error } = await supabase.from('estatus_procedimiento').insert({}).select().single();
+      
+      if (error) {
+        console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
+        const safeRecord = createSafeInitialRecord(pendingOctTableColumns);
+        const retry = await supabase.from('estatus_procedimiento').insert(safeRecord).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) throw error;
+      if (data) {
+        const newRow = { ...template, ...data };
+        setProcedureStatuses((prev) => [...prev, newRow as any]);
+        setIsPendingOctEditing(true);
+      }
+    } catch (error: any) {
+      console.error('Error creating row in estatus_procedimiento:', error);
+      alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
+    }
+  }, [pendingOctTableColumns]);
 
   const executiveInsights = useMemo<ExecutiveInsight[]>(() => {
     const insights: ExecutiveInsight[] = [];
@@ -5892,15 +6186,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                {/* Sub-Tabs Navigation */}
               <div className="flex border-b border-slate-200 mb-6 overflow-x-auto">
-                <button 
-                  onClick={() => setActiveContractSubTab('annual2026')}
-                  className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'annual2026' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                >
-                  <div className="flex items-center gap-2">
-                   <CalendarIcon className="h-4 w-4" />
-                   Análisis Año 2026
-                  </div>
-                </button>
                   <button 
                      onClick={() => setActiveContractSubTab('paas')}
                      className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'paas' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
@@ -5956,460 +6241,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
                   </button>
                </div>
-
-               {/* === CONTRACTS: ANÁLISIS AÑO 2026 === */}
-               {activeContractSubTab === 'annual2026' && (
-                 <div className="animate-fade-in space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                        <div className="absolute right-0 top-0 p-4 opacity-10">
-                          <CalendarIcon className="h-16 w-16 text-slate-400" />
-                        </div>
-                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Registros Totales</p>
-                        <h3 className="text-3xl font-bold text-slate-900 mt-1">{loadingData ? '...' : annual2026Data.length}</h3>
-                        <p className="text-xs text-slate-400 mt-2">Fuente: tabla `año_2026`.</p>
-                      </div>
-                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                        <div className="absolute right-0 top-0 p-4 opacity-10">
-                          <PieChartIcon className="h-16 w-16 text-[#B38E5D]" />
-                        </div>
-                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Campo Dominante</p>
-                        <h3 className="text-2xl font-bold text-slate-900 mt-1">
-                          {annualPrimaryMetric ? formatMetricValue(annualPrimaryMetric.key, annualPrimaryMetric.value) : '--'}
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-2">
-                          {annualPrimaryMetric ? humanizeKey(annualPrimaryMetric.key) : 'Agrega valores numéricos para analizarlos.'}
-                        </p>
-                      </div>
-                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                        <div className="absolute right-0 top-0 p-4 opacity-10">
-                          <BarChart2 className="h-16 w-16 text-blue-400" />
-                        </div>
-                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Columnas Numéricas</p>
-                        <h3 className="text-2xl font-bold text-slate-900 mt-1">{annualNumericTotals.length}</h3>
-                        <p className="text-xs text-slate-400 mt-2">
-                          {annualCategoryMetadata ? `Agrupación sugerida: ${humanizeKey(annualCategoryMetadata.key)} (${annualCategoryMetadata.uniqueCount} grupos)` : 'Añade un campo categórico para segmentar visualizaciones.'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[22rem]">
-                        <div className="flex items-start justify-between mb-4">
-                          <div>
-                            <h3 className="text-lg font-bold text-slate-800">
-                              Distribución por {annualCategoryMetadata ? humanizeKey(annualCategoryMetadata.key) : 'categoría'}
-                            </h3>
-                            <p className="text-xs text-slate-500 mt-1">
-                              {annualPrimaryMetric ? `Se muestra la suma de ${humanizeKey(annualPrimaryMetric.key)} por segmento.` : 'Conecta un valor numérico para graficar la distribución.'}
-                            </p>
-                          </div>
-                          {annualCategoryMetadata && (
-                            <span className="text-xs font-semibold bg-slate-100 text-slate-600 px-3 py-1 rounded-full">
-                              {annualCategoryMetadata.uniqueCount} categorías
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <div style={{ height: annualSharedChartHeight }}>
-                          {loadingData ? (
-                            <div className="h-full flex items-center justify-center text-slate-400 text-sm">
-                              Cargando información...
-                            </div>
-                          ) : annualCategoryBreakdown.length ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                              <BarChart data={annualCategoryBreakdown} layout="vertical" margin={{ top: 8, right: 24, left: 0, bottom: 8 }} barCategoryGap={18}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                                <XAxis type="number" hide domain={[0, 'dataMax']} allowDecimals={false} />
-                                <YAxis type="category" dataKey="name" width={240} tick={renderCompanyTick} />
-                                <Tooltip formatter={(value: number | string) => {
-                                  const numericValue = typeof value === 'number' ? value : Number(value);
-                                  return annualPrimaryMetric ? formatMetricValue(annualPrimaryMetric.key, numericValue) : formatNumber(numericValue);
-                                }} />
-                                <Bar dataKey="value" fill="#B38E5D" radius={[0, 6, 6, 0]} barSize={26} />
-                              </BarChart>
-                            </ResponsiveContainer>
-                          ) : (
-                            <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-6">
-                              Define un campo categórico (por ejemplo, área, proveedor o gerencia) en la tabla para visualizar su distribución.
-                            </div>
-                          )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[22rem]">
-                        <h3 className="text-lg font-bold text-slate-800 mb-2">Composición de métricas numéricas</h3>
-                        <p className="text-xs text-slate-500 mb-4">Comparativa de los principales campos cuantitativos cargados en Supabase.</p>
-                        <div className="relative flex-1" style={{ minHeight: annualSharedChartHeight }}>
-                          {loadingData ? (
-                            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm">
-                              Preparando gráfico...
-                            </div>
-                          ) : annualPieSlices.length ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart margin={{ top: 8, right: 8, left: 8, bottom: 36 }}>
-                                <Pie data={annualPieSlices} dataKey="value" nameKey="name" innerRadius={58} outerRadius={100} paddingAngle={4}>
-                                  {annualPieSlices.map((entry, index) => (
-                                    <Cell key={entry.key} fill={chartPalette[index % chartPalette.length]} />
-                                  ))}
-                                </Pie>
-                                <Tooltip formatter={(value: number | string, _name: string, payload: any) => {
-                                  const numericValue = typeof value === 'number' ? value : Number(value);
-                                  const key = payload?.payload?.key as string | undefined;
-                                  const label = payload?.payload?.name as string | undefined;
-                                  return [formatMetricValue(key ?? '', numericValue), label ?? ''];
-                                }} />
-                                <Legend
-                                  layout="horizontal"
-                                  verticalAlign="bottom"
-                                  align="center"
-                                  iconType="circle"
-                                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                                />
-                              </PieChart>
-                            </ResponsiveContainer>
-                          ) : (
-                            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm text-center px-6">
-                              Añade columnas numéricas (por ejemplo, montos o porcentajes) para obtener una lectura visual instantánea.
-                            </div>
-                          )}
-                        </div>
-                        <div className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-500">
-                          {annualSecondaryMetric ? `Segundo indicador: ${humanizeKey(annualSecondaryMetric.key)} — ${formatMetricValue(annualSecondaryMetric.key, annualSecondaryMetric.value)}` : 'Registra métricas adicionales para enriquecer este análisis.'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-slate-800">Detalle de Registros</h3>
-                          <p className="text-sm text-slate-500 mt-1">Visualización directa de los campos almacenados en la tabla `año_2026` con navegación horizontal similar al módulo de Pagos.</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {annual2026Data.length > 0 && (
-                            <span className="text-xs uppercase tracking-wider text-slate-400">Columnas detectadas: {annualTableColumns.length}</span>
-                          )}
-                          <button
-                            onClick={() => setIsAnnualCompact(!isAnnualCompact)}
-                            className={`p-2 rounded-md transition-colors ${isAnnualCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
-                            title={isAnnualCompact ? 'Vista normal' : 'Vista compacta'}
-                          >
-                            {isAnnualCompact ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
-                          </button>
-                          {canManageRecords && (
-                            <button
-                              type="button"
-                              onClick={() => setIsAnnualEditing((prev) => !prev)}
-                              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${isAnnualEditing ? 'bg-[#0F4C3A] text-white hover:bg-[#0d3f31]' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'}`}
-                            >
-                              {isAnnualEditing ? (
-                                <>
-                                  <Save className="h-4 w-4" />
-                                  Salir de edición
-                                </>
-                              ) : (
-                                <>
-                                  <Pencil className="h-4 w-4" />
-                                  Editar
-                                </>
-                              )}
-                            </button>
-                          )}
-                          {canManageRecords && (
-                            <button
-                              onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, null, null, 'Revisa los campos clave y evita duplicar identificadores.')}
-                              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
-                            >
-                              <Plus className="h-4 w-4" />
-                              Nuevo registro
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100">
-                        <div className="relative w-full sm:w-80">
-                          <Search className="table-filter-icon" aria-hidden="true" />
-                          <input
-                            type="text"
-                            value={tableFilters.annual2026}
-                            onChange={(event) => updateTableFilter('annual2026', event.target.value)}
-                            placeholder="Filtra por proveedor, contrato o monto"
-                            className="table-filter-input"
-                          />
-                          {tableFilters.annual2026 && (
-                            <button
-                              type="button"
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#0F4C3A] hover:text-[#0c3b2d]"
-                              onClick={() => updateTableFilter('annual2026', '')}
-                            >
-                              Limpiar
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] font-semibold">
-                          {annualColumnFiltersCount > 0 && (
-                            <button
-                              type="button"
-                              className="text-[#0F4C3A] hover:text-[#0c3b2d] underline-offset-2 hover:underline"
-                              onClick={() => clearColumnFilters('annual2026')}
-                            >
-                              Limpiar filtros por columna
-                            </button>
-                          )}
-                          <span className="text-slate-500">
-                            {formatResultLabel(filteredAnnualData.length)}
-                            {tableFilters.annual2026.trim() ? ' · filtro general' : ''}
-                            {annualColumnFiltersCount ? ` · ${formatColumnFilterLabel(annualColumnFiltersCount)}` : ''}
-                          </span>
-                        </div>
-                        {renderActiveColumnFilterBadges('annual2026')}
-                      </div>
-                      {isAnnualEditing && (
-                        <div className="px-6 py-3 border-t border-amber-200 bg-amber-50 text-xs text-amber-800 flex items-center gap-2">
-                          <AlertCircle className="h-4 w-4" />
-                          Modo edición activo: ajusta cualquier celda como en Excel y usa "Salir de edición" para bloquear cambios.
-                        </div>
-                      )}
-                      <div className={`overflow-auto ${annualTableSizing.containerHeightClass} relative`}>
-                        <table className={`${annualTableSizing.tableTextClass} text-center w-max min-w-full border-collapse`}>
-                          <thead className={`uppercase tracking-wider text-white ${annualTableSizing.headerTextClass}`}>
-                            <tr className={annualTableSizing.headerRowClass}>
-                              {(annualColumnsToRender.length ? annualColumnsToRender : annualTableColumns.length ? annualTableColumns : ['sin_datos']).map((column) => {
-                                if (column === '__actions') {
-                                  return (
-                                    <th
-                                      key="__actions"
-                                      className={`${annualTableSizing.actionsCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
-                                      style={{
-                                        position: 'sticky',
-                                        top: 0,
-                                        zIndex: 45,
-                                        backgroundColor: '#124836',
-                                        color: '#fff',
-                                        minWidth: `${annualTableSizing.actionsMinWidth}px`,
-                                      }}
-                                    >
-                                      Acciones
-                                    </th>
-                                  );
-                                }
-
-                                if (!annualTableColumns.length && column === 'sin_datos') {
-                                  return (
-                                    <th
-                                      key="sin_datos"
-                                      className={`${annualTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
-                                      style={{ position: 'sticky', top: 0, backgroundColor: '#14532d', color: '#fff' }}
-                                    >
-                                      Sin datos
-                                    </th>
-                                  );
-                                }
-
-                                const stickyMeta = annualStickyInfo.meta.get(column);
-                                const isSticky = Boolean(stickyMeta);
-                                const isLastSticky = isSticky && annualLastStickyKey === column;
-                                const baseColor = '#14532d';
-                                const stickyColor = '#0F3F2E';
-                                const headerStyle: React.CSSProperties = {
-                                  position: 'sticky',
-                                  top: 0,
-                                  zIndex: isSticky ? 60 : 50,
-                                  backgroundColor: isSticky ? stickyColor : baseColor,
-                                  color: '#fff',
-                                  minWidth: stickyMeta ? `${stickyMeta.width}px` : '200px',
-                                };
-
-                                if (stickyMeta) {
-                                  headerStyle.left = stickyMeta.left;
-                                  headerStyle.width = `${stickyMeta.width}px`;
-                                }
-
-                                if (isLastSticky) {
-                                  headerStyle.boxShadow = '6px 0 10px -4px rgba(0,0,0,0.3)';
-                                }
-
-                                return (
-                                  <th
-                                    key={column}
-                                    className={`${annualTableSizing.headerCellPadding} font-bold whitespace-nowrap border-b border-white/20 text-center`}
-                                    style={headerStyle}
-                                  >
-                                    <div className="flex items-center justify-center gap-1 text-white">
-                                      <span className="truncate">{humanizeKey(column)}</span>
-                                      {renderColumnFilterControl('annual2026', column, humanizeKey(column), annual2026Data)}
-                                    </div>
-                                  </th>
-                                );
-                              })}
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white">
-                            {loadingData ? (
-                              <tr>
-                                <td colSpan={Math.max(annualColumnsToRender.length || annualTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">Cargando registros...</td>
-                              </tr>
-                            ) : annual2026Data.length === 0 ? (
-                              <tr>
-                                <td colSpan={Math.max(annualColumnsToRender.length || annualTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">Conecta registros en la tabla `año_2026` para mostrarlos aquí.</td>
-                              </tr>
-                            ) : !filteredAnnualData.length ? (
-                              <tr>
-                                <td colSpan={Math.max(annualColumnsToRender.length || annualTableColumns.length || 1, 1)} className="text-center py-10 text-slate-500">Sin coincidencias para el filtro aplicado.</td>
-                              </tr>
-                            ) : (
-                              filteredAnnualData.map((row, rowIndex) => {
-                                const rowKey = row.id ?? row.ID ?? row.Id ?? `annual-row-${rowIndex}`;
-                                const zebraBackground = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
-                                const rowStyle = buildRowStyle(zebraBackground);
-                                return (
-                                  <tr
-                                    key={rowKey}
-                                    className="group table-row transition-colors"
-                                    style={rowStyle}
-                                  >
-                                    {(annualColumnsToRender.length ? annualColumnsToRender : annualTableColumns).map((column) => {
-                                      if (column === '__actions') {
-                                        return (
-                                          <td
-                                            key={`actions-${rowKey}`}
-                                            className={`${annualTableSizing.actionsCellPadding} text-center`}
-                                            style={{ minWidth: `${annualTableSizing.actionsMinWidth}px` }}
-                                          >
-                                            {canManageRecords ? (
-                                              <div className="flex justify-center gap-2">
-                                                <button
-                                                  onClick={() => openRecordEditor('año_2026', 'Registro año_2026', annualTableColumns, row)}
-                                                  className="p-1.5 rounded-md text-slate-400 hover:text-[#B38E5D] hover:bg-[#B38E5D]/10 transition-colors"
-                                                  title="Editar"
-                                                >
-                                                  <Pencil className="h-4 w-4" />
-                                                </button>
-                                                <button
-                                                  onClick={() => handleDeleteGenericRecord('año_2026', row, 'Registro año_2026')}
-                                                  className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                                  title="Eliminar"
-                                                >
-                                                  <Trash2 className="h-4 w-4" />
-                                                </button>
-                                              </div>
-                                            ) : (
-                                              <span className="text-xs uppercase text-slate-400 font-semibold tracking-wide">Solo lectura</span>
-                                            )}
-                                          </td>
-                                        );
-                                      }
-
-                                      const stickyMeta = annualStickyInfo.meta.get(column);
-                                      const isSticky = Boolean(stickyMeta);
-                                      const isLastSticky = isSticky && annualLastStickyKey === column;
-                                      const cellStyle: React.CSSProperties = {
-                                        minWidth: stickyMeta ? `${stickyMeta.width}px` : '200px',
-                                      };
-
-                                      if (stickyMeta) {
-                                        cellStyle.position = 'sticky';
-                                        cellStyle.left = stickyMeta.left;
-                                        cellStyle.width = `${stickyMeta.width}px`;
-                                        cellStyle.zIndex = 40;
-                                        cellStyle.backgroundColor = 'var(--row-bg, #ffffff)';
-                                      }
-
-                                      if (isLastSticky) {
-                                        cellStyle.boxShadow = '6px 0 8px -4px rgba(15,60,40,0.25)';
-                                      }
-
-                                      const normalizedColumn = normalizeAnnualKey(column);
-                                      const rawValue = row[column];
-                                      const isNumericCell = typeof rawValue === 'number';
-                                      const isCurrencyColumn = normalizedColumn.includes('monto') || normalizedColumn.includes('importe') || normalizedColumn.includes('total');
-                                      const alignmentClass = 'text-center';
-                                      const fontClass = isNumericCell || isCurrencyColumn ? 'font-mono' : '';
-
-                                      const isCellEditable = isAnnualEditing && column !== '__actions';
-                                      const cellClasses = isCellEditable ? `${isNumericCell ? annualTableSizing.numericCellClass : annualTableSizing.textCellClass} cursor-text` : (isNumericCell ? annualTableSizing.numericCellClass : annualTableSizing.textCellClass);
-
-                                      let editingValue = '';
-                                      if (rawValue !== null && rawValue !== undefined) {
-                                          if (typeof rawValue === 'number') {
-                                              if (isCurrencyColumn) {
-                                                  editingValue = rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                              } else {
-                                                  editingValue = String(rawValue);
-                                              }
-                                          } else if (rawValue instanceof Date) {
-                                              editingValue = formatDateToDDMMYYYY(rawValue);
-                                          } else if (typeof rawValue === 'string') {
-                                              const parsedForEdit = parsePotentialDate(rawValue);
-                                              if (parsedForEdit) {
-                                                  editingValue = formatDateToDDMMYYYY(parsedForEdit);
-                                              } else {
-                                                  if (isCurrencyColumn) {
-                                                      const sanitized = rawValue.replace(/,/g, '');
-                                                      const num = parseFloat(sanitized);
-                                                      if (!isNaN(num)) {
-                                                          editingValue = num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                                      } else {
-                                                          editingValue = rawValue;
-                                                      }
-                                                  } else {
-                                                      editingValue = rawValue;
-                                                  }
-                                              }
-                                          } else if (typeof rawValue === 'object') {
-                                              try {
-                                                  editingValue = JSON.stringify(rawValue);
-                                              } catch (err) {
-                                                  console.error('Error serializing value for inline edit:', err);
-                                                  editingValue = String(rawValue);
-                                              }
-                                          } else {
-                                              editingValue = String(rawValue);
-                                          }
-                                      }
-
-                                      return (
-                                        <td
-                                          key={column}
-                                          className={`${cellClasses} ${isSticky ? 'sticky-cell' : ''}`}
-                                          style={cellStyle}
-                                        >
-                                          {isCellEditable ? (
-                                            <div
-                                              contentEditable
-                                              suppressContentEditableWarning
-                                              className={`inline-block w-full ${annualTableSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
-                                              onBlur={(event) => handleAnnualCellEdit(row, column, event.currentTarget.textContent ?? '')}
-                                              onKeyDown={(event) => {
-                                                if (event.key === 'Enter') {
-                                                  event.preventDefault();
-                                                  (event.currentTarget as HTMLDivElement).blur();
-                                                }
-                                              }}
-                                            >
-                                              {editingValue}
-                                            </div>
-                                          ) : (
-                                            formatTableValue(column, rawValue)
-                                          )}
-                                        </td>
-                                      );
-                                    })}
-                                  </tr>
-                                );
-                              })
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="p-3 bg-slate-50 text-[11px] text-slate-400 border-t border-slate-100 text-center">
-                        Desplázate horizontalmente para revisar todas las columnas del anteproyecto 2026. Las tres primeras permanecen fijas para mantener el contexto.
-                      </div>
-                    </div>
-                 </div>
-               )}
 
                {/* === CONTRACTS: PAAS 2026 === */}
                {activeContractSubTab === 'paas' && (
@@ -6638,6 +6469,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   Editar
                                 </>
                               )}
+                            </button>
+                          )}
+                          {canManageRecords && (
+                            <button
+                              type="button"
+                              onClick={handleAddPaasRow}
+                              disabled={!paasTableColumns.length}
+                              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${paasTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
+                            >
+                              <Plus className="h-4 w-4" />
+                              Agregar fila
                             </button>
                           )}
                         </div>
@@ -6983,11 +6825,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                        </div>
                        {canManageRecords && (
                          <button
-                                       onClick={() => openRecordEditor('control_pagos', 'Control de Pagos', paymentsFieldList, null, null, 'Captura montos con números válidos y respeta el formato de fechas.')}
-                           className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                           type="button"
+                           onClick={handleAddPaymentsRow}
+                           disabled={!paymentsTableColumns.length}
+                           className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${paymentsTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
                          >
                            <Plus className="h-4 w-4" />
-                           Nuevo registro
+                           Agregar fila
                          </button>
                        )}
                      </div>
@@ -7385,11 +7229,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           )}
                           {canManageRecords && (
                             <button
-                              onClick={() => openRecordEditor('estatus_facturas', 'Registro estatus_facturas', invoicesTableColumns, null, null, 'Registra folios, montos y estatus tal como aparecen en los registros existentes.')}
-                              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                              type="button"
+                              onClick={handleAddInvoicesRow}
+                              disabled={!invoicesTableColumns.length}
+                              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${invoicesTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
                             >
                               <Plus className="h-4 w-4" />
-                              Nuevo registro
+                              Agregar fila
                             </button>
                           )}
                         </div>
@@ -7879,11 +7725,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             )}
                             {canManageRecords && (
                               <button
-                                onClick={() => openRecordEditor('procedimientos_compranet', 'Procedimiento Compranet', compranetTableColumns, null, null, 'Revisa las claves y conserva el identificador único cuando aplique.')}
-                                className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#B38E5D] text-white text-xs font-semibold shadow hover:bg-[#9c7a4d] transition-colors"
+                                type="button"
+                                onClick={handleAddCompranetRow}
+                                disabled={!compranetTableColumns.length}
+                                className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${compranetTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
                               >
                                 <Plus className="h-4 w-4" />
-                                Nuevo registro
+                                Agregar fila
                               </button>
                             )}
                           </div>
@@ -8311,6 +8159,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 Editar
                               </>
                             )}
+                          </button>
+                        )}
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={handleAddPendingOctRow}
+                            disabled={!pendingOctTableColumns.length}
+                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-md font-semibold transition-colors ${pendingOctTableColumns.length ? 'bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A]' : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'}`}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Agregar fila
                           </button>
                         )}
                         {canManageRecords && (
