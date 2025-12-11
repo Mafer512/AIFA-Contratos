@@ -699,16 +699,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     columnKey: string,
     label: string,
     rowsSource: unknown[]
-  ) => (
-    <ColumnFilterControl
-      tableKey={tableKey}
-      columnKey={columnKey}
-      label={label}
-      rows={rowsSource}
-      selectedValues={columnFilters[tableKey]?.[columnKey]}
-      onChange={updateColumnFilter}
-    />
-  ), [columnFilters, updateColumnFilter]);
+  ) => {
+    // Calculate available options based on OTHER active filters to ensure precision
+    const query = tableFilters[tableKey]?.trim() ?? '';
+    const currentFilters = columnFilters[tableKey] ?? {};
+    
+    const relevantRows = (rowsSource as any[]).filter((row) => {
+      // 1. Must match global search
+      if (query && !rowMatchesFilter(row, query)) return false;
+
+      // 2. Must match ALL OTHER column filters
+      const otherFilters = Object.entries(currentFilters).filter(([k, v]) => k !== columnKey && Array.isArray(v) && v.length > 0);
+      if (otherFilters.length > 0) {
+        const matchesOthers = otherFilters.every(([k, allowed]) => {
+           const val = normalizeColumnFilterToken(row?.[k]);
+           return allowed!.includes(val);
+        });
+        if (!matchesOthers) return false;
+      }
+      return true;
+    });
+
+    return (
+      <ColumnFilterControl
+        tableKey={tableKey}
+        columnKey={columnKey}
+        label={label}
+        rows={relevantRows}
+        selectedValues={columnFilters[tableKey]?.[columnKey]}
+        onChange={updateColumnFilter}
+      />
+    );
+  }, [columnFilters, tableFilters, updateColumnFilter]);
 
   const renderActiveColumnFilterBadges = useCallback((
     tableKey: TableFilterKey,
