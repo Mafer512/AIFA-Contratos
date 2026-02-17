@@ -10031,12 +10031,11 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                           {proceduresSummaries.map((summary) => {
                             const isActive = selectedResponsibleName === summary.responsible;
-                            const isPressed = isActive ? 'true' : 'false';
                             return (
                               <button
                                 key={summary.responsible}
                                 type="button"
-                                aria-pressed={isPressed}
+                                aria-pressed={isActive}
                                 onClick={() => setSelectedResponsibleName((current) => (current === summary.responsible ? null : summary.responsible))}
                                 className={`text-left rounded-xl border transition-all p-5 bg-white ${isActive ? 'border-[#0F4C3A] shadow-lg ring-1 ring-[#0F4C3A]/20' : 'border-slate-200 hover:border-[#B38E5D] hover:shadow-md'}`}
                               >
