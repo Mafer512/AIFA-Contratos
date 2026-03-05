@@ -8,9 +8,10 @@ import {
   DollarSign, PieChart as PieChartIcon,
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
   CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
-  Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown
+  Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, 
+  Users, Plane, Activity
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -510,6 +511,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [activeContractSubTab, setActiveContractSubTab] = useState<'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('payments'); 
   const [statusTab, setStatusTab] = useState<'dashboard' | 'calendar' | 'table'>('dashboard');
+  const [activeOperationsView, setActiveOperationsView] = useState<'passengers' | 'annual'>('passengers');
   const [calendarView, setCalendarView] = useState<View>('month');
   const [calendarDate, setCalendarDate] = useState(new Date());
   
@@ -635,7 +637,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [isEstatus2026Compact, setIsEstatus2026Compact] = useState(false);
   const [isPagos2026Editing, setIsPagos2026Editing] = useState(false);
   const [isPagos2026Compact, setIsPagos2026Compact] = useState(false);
-  const [active2026View, setActive2026View] = useState<'estatus' | 'pagos'>('estatus');
+  const [active2026View, setActive2026View] = useState<'resumen' | 'estatus' | 'pagos'>('resumen');
+  const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
 
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [tableFilters, setTableFilters] = useState<TableFilterMap>({
@@ -3859,6 +3862,126 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
     return meta;
   }, [estatus2026TableColumns, estatus2026StickyInfo, estatus2026LastStickyKey, estatus2026Data]);
 
+  // ── RESUMEN 2026 ──────────────────────────────────────────────────────────
+
+  const estatus2026StatusFieldSummary = useMemo(() => (
+    findColumnByFragments(estatus2026TableColumns, ['estatus', 'status', 'fase', 'avance'])
+  ), [estatus2026TableColumns]);
+
+  const estatus2026ServiceNameFieldSummary = useMemo(() => (
+    findColumnByFragments(estatus2026TableColumns, ['nombre del servicio', 'nombre_servicio', 'servicio', 'descripcion', 'concepto', 'objeto'])
+  ), [estatus2026TableColumns]);
+
+  const estatus2026SubdirFieldSummary = useMemo(() => (
+    findColumnByFragments(estatus2026TableColumns, ['subdireccion', 'subdirección', 'subdir'])
+  ), [estatus2026TableColumns]);
+
+  const estatus2026GerenciaFieldSummary = useMemo(() => (
+    findColumnByFragments(estatus2026TableColumns, ['gerencia'])
+  ), [estatus2026TableColumns]);
+
+  const estatus2026MontoFieldSummary = useMemo(() => (
+    findColumnByFragments(estatus2026TableColumns, ['monto', 'importe', 'total', 'presupuesto', 'costo', 'adjudicado', 'estimado'])
+  ), [estatus2026TableColumns]);
+
+  const estatus2026PhaseDistribution = useMemo(() => {
+    if (!estatus2026Data.length) return [] as { name: string; value: number }[];
+    const counts: Record<string, number> = {};
+    estatus2026Data.forEach((row) => {
+      const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
+      if (raw === null || raw === undefined || String(raw).trim() === '') {
+        counts['Sin estatus'] = (counts['Sin estatus'] ?? 0) + 1;
+        return;
+      }
+      const label = String(raw).trim();
+      // Inline status resolution to avoid forward reference to resolveServicioStatusIndex
+      const normalized = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+      let idx = -1;
+      for (let i = 0; i < SERVICIOS_STATUS_STEPS.length; i++) {
+        const stepToken = SERVICIOS_STATUS_STEPS[i].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+        if (normalized.includes(stepToken) || stepToken.includes(normalized)) { idx = i; break; }
+      }
+      const canonicalLabel = idx >= 0 ? SERVICIOS_STATUS_STEPS[idx] : label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
+      counts[canonicalLabel] = (counts[canonicalLabel] ?? 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [estatus2026Data, estatus2026StatusFieldSummary]);
+
+  const estatus2026TotalMonto = useMemo(() => {
+    if (!estatus2026Data.length || !estatus2026MontoFieldSummary) return 0;
+    return estatus2026Data.reduce((acc, row) => {
+      const val = parseNumericValue(row[estatus2026MontoFieldSummary!]);
+      return acc + (Number.isFinite(val) ? val : 0);
+    }, 0);
+  }, [estatus2026Data, estatus2026MontoFieldSummary]);
+
+  const estatus2026GerenciaDistribution = useMemo(() => {
+    if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary) return [] as { name: string; value: number }[];
+    const counts: Record<string, number> = {};
+    estatus2026Data.forEach((row) => {
+      const raw = row[estatus2026GerenciaFieldSummary!];
+      if (!raw) return;
+      const label = String(raw).trim();
+      if (!label) return;
+      counts[label] = (counts[label] ?? 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+  }, [estatus2026Data, estatus2026GerenciaFieldSummary]);
+
+  const estatus2026KPIs = useMemo(() => {
+    const total = estatus2026Data.length;
+    const uniqueStatuses = estatus2026PhaseDistribution.length;
+    const adjudicados = estatus2026PhaseDistribution.find(d => 
+      d.name.toLowerCase().includes('adjudicad') || d.name.toLowerCase().includes('contratad')
+    )?.value ?? 0;
+    const procedimiento = estatus2026PhaseDistribution.find(d =>
+      d.name.toLowerCase().includes('procedimiento') || d.name.toLowerCase().includes('contratacion')
+    )?.value ?? 0;
+    return { total, uniqueStatuses, adjudicados, procedimiento };
+  }, [estatus2026Data, estatus2026PhaseDistribution]);
+
+  const pagos2026MonthlyFlow = useMemo(() => {
+    if (!pagos2026Data.length) return [] as { name: string; value: number }[];
+    const monthKeys = [
+      { short: 'Ene.', label: 'Ene' },
+      { short: 'Feb.', label: 'Feb' },
+      { short: 'Mar.', label: 'Mar' },
+      { short: 'Abr.', label: 'Abr' },
+      { short: 'May.', label: 'May' },
+      { short: 'Jun.', label: 'Jun' },
+      { short: 'Jul.', label: 'Jul' },
+      { short: 'Ago.', label: 'Ago' },
+      { short: 'Sept.', label: 'Sep' },
+      { short: 'Oct.', label: 'Oct' },
+      { short: 'Nov.', label: 'Nov' },
+      { short: 'Dic.', label: 'Dic' },
+    ];
+    return monthKeys.map(({ short, label }) => {
+      let total = 0;
+      pagos2026Data.forEach((row) => {
+        Object.entries(row).forEach(([col, val]) => {
+          const normCol = col.toLowerCase();
+          if (normCol.startsWith(short.toLowerCase().replace('.', '')) || normCol.includes(short.toLowerCase())) {
+            const n = parseNumericValue(val);
+            if (Number.isFinite(n)) total += n;
+          }
+        });
+      });
+      return { name: label, value: total };
+    }).filter(m => m.value > 0);
+  }, [pagos2026Data]);
+
+  const pagos2026TotalAmount = useMemo(() => (
+    pagos2026MonthlyFlow.reduce((acc, m) => acc + m.value, 0)
+  ), [pagos2026MonthlyFlow]);
+
+  // ── END RESUMEN 2026 ──────────────────────────────────────────────────────
+
   // PAGOS 2026 TABLE CONFIGURATION
 
   const pagos2026TableColumns = useMemo(() => {
@@ -6949,6 +7072,16 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
             <div className="space-y-6">
                 <div className="flex bg-slate-100 p-1 rounded-lg mb-4 self-start w-fit">
                     <button
+                        onClick={() => { setActive2026View('resumen'); setSelectedEstatus2026Phase(null); }}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                            active2026View === 'resumen'
+                            ? 'bg-white text-[#0F4C3A] shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                    >
+                        Resumen
+                    </button>
+                    <button
                         onClick={() => setActive2026View('estatus')}
                         className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                             active2026View === 'estatus'
@@ -6969,6 +7102,365 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                         Pagos 2026
                     </button>
                 </div>
+              {active2026View === 'resumen' && (
+                <>
+                  {!selectedEstatus2026Phase ? (
+                    <div className="space-y-6">
+                      <div>
+                        <h1 className="text-2xl font-bold text-slate-900">Resumen 2026</h1>
+                        <p className="text-slate-500 mt-1">
+                          Vista consolidada del estatus de servicios y flujo de pagos para el ejercicio 2026.
+                        </p>
+                      </div>
+
+                      {/* KPI Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Servicios</p>
+                              <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.total}</p>
+                              <p className="text-xs text-slate-500 mt-2">Registros en estatus 2026</p>
+                            </div>
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-[#0F4C3A] border border-white/60 shadow-sm">
+                              <Layers className="h-5 w-5" />
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Adjudicados</p>
+                              <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.adjudicados}</p>
+                              <p className="text-xs text-slate-500 mt-2">
+                                {estatus2026KPIs.total > 0
+                                  ? `${Math.round((estatus2026KPIs.adjudicados / estatus2026KPIs.total) * 100)}% del total`
+                                  : 'Sin datos'}
+                              </p>
+                            </div>
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-700 border border-white/60 shadow-sm">
+                              <TrendingUp className="h-5 w-5" />
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">En Procedimiento</p>
+                              <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.procedimiento}</p>
+                              <p className="text-xs text-slate-500 mt-2">
+                                {estatus2026KPIs.total > 0
+                                  ? `${Math.round((estatus2026KPIs.procedimiento / estatus2026KPIs.total) * 100)}% del total`
+                                  : 'Sin datos'}
+                              </p>
+                            </div>
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-700 border border-white/60 shadow-sm">
+                              <Activity className="h-5 w-5" />
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Pagos 2026</p>
+                              <p className="text-2xl font-bold text-slate-900 mt-2">{formatCurrency(pagos2026TotalAmount)}</p>
+                              <p className="text-xs text-slate-500 mt-2">{pagos2026Data.length} registros de pago</p>
+                            </div>
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-violet-50 text-violet-700 border border-white/60 shadow-sm">
+                              <DollarSign className="h-5 w-5" />
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Pie chart: Distribución por Estatus */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Estatus</h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Haz clic en una fase para ver los servicios en esa etapa.
+                            </p>
+                          </div>
+                          <span className="text-xs text-slate-400">{estatus2026Data.length} servicios</span>
+                        </div>
+                        <div className="h-[460px] w-full">
+                          {loadingData ? (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                          ) : estatus2026PhaseDistribution.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart margin={{ top: 40, bottom: 40, left: 40, right: 40 }}>
+                                <Pie
+                                  data={estatus2026PhaseDistribution}
+                                  dataKey="value"
+                                  nameKey="name"
+                                  cx="50%"
+                                  cy="50%"
+                                  outerRadius={100}
+                                  onClick={(data: any) => setSelectedEstatus2026Phase(data.name)}
+                                  className="cursor-pointer"
+                                  label={({ cx, cy, midAngle = 0, outerRadius, percent = 0, index, name = '' }: any) => {
+                                    const RADIAN = Math.PI / 180;
+                                    const radius = outerRadius + 55;
+                                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                                    if ((percent * 100) < 2) return null;
+                                    return (
+                                      <text
+                                        x={x}
+                                        y={y}
+                                        fill={chartPalette[index % chartPalette.length]}
+                                        textAnchor={x > cx ? 'start' : 'end'}
+                                        dominantBaseline="central"
+                                        className="text-[11px] font-bold"
+                                      >
+                                        {`${name} (${(percent * 100).toFixed(0)}%)`}
+                                      </text>
+                                    );
+                                  }}
+                                  labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
+                                >
+                                  {estatus2026PhaseDistribution.map((entry, index) => (
+                                    <Cell key={`cell-estatus-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  formatter={(value: number, name: string, props: any) => {
+                                    const total = estatus2026PhaseDistribution.reduce((a, b) => a + b.value, 0);
+                                    const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+                                    return [`${value} servicio${value === 1 ? '' : 's'} (${pct}%)`, name];
+                                  }}
+                                />
+                                <Legend
+                                  verticalAlign="bottom"
+                                  height={36}
+                                  iconType="circle"
+                                  wrapperStyle={{ fontSize: '12px', paddingTop: '20px', cursor: 'pointer' }}
+                                  onClick={(data: any) => setSelectedEstatus2026Phase(data.value || null)}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                              No hay datos suficientes. Agrega registros en la tabla de Estatus 2026.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        {/* Bar chart: Flujo mensual de pagos 2026 */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-slate-800">Flujo mensual de pagos 2026</h3>
+                            <span className="text-xs text-slate-400">{formatCurrency(pagos2026TotalAmount)} total</span>
+                          </div>
+                          <div className="h-72">
+                            {loadingData ? (
+                              <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+                            ) : pagos2026MonthlyFlow.length > 0 ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={pagos2026MonthlyFlow} margin={{ top: 12, right: 24, left: 8, bottom: 12 }}>
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                                  <YAxis tickFormatter={(v: number) => formatNumber(v)} tick={{ fontSize: 11 }} />
+                                  <Tooltip
+                                    formatter={(value: number) => {
+                                      const pct = pagos2026TotalAmount > 0 ? ` (${((value / pagos2026TotalAmount) * 100).toFixed(1)}%)` : '';
+                                      return [`${formatCurrency(value)}${pct}`, 'Pagos'];
+                                    }}
+                                  />
+                                  <Bar dataKey="value" name="Pagos" fill="#0F4C3A" radius={[4, 4, 0, 0]}>
+                                    {pagos2026MonthlyFlow.map((entry, index) => (
+                                      <Cell key={`pagos-cell-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                                    ))}
+                                  </Bar>
+                                </BarChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                                Sin datos de pagos mensuales registrados.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Bar chart: Servicios por Gerencia */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-slate-800">Servicios por Gerencia</h3>
+                            <span className="text-xs text-slate-400">{estatus2026GerenciaDistribution.length} gerencias</span>
+                          </div>
+                          <div className="h-72">
+                            {loadingData ? (
+                              <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+                            ) : estatus2026GerenciaDistribution.length > 0 ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart
+                                  data={estatus2026GerenciaDistribution}
+                                  layout="vertical"
+                                  margin={{ top: 10, right: 48, left: 0, bottom: 10 }}
+                                  barCategoryGap={18}
+                                >
+                                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                  <XAxis type="number" hide />
+                                  <YAxis
+                                    type="category"
+                                    dataKey="name"
+                                    width={200}
+                                    tick={renderCompanyTick}
+                                    axisLine={false}
+                                    tickLine={false}
+                                  />
+                                  <Tooltip
+                                    formatter={(value: number) => {
+                                      const pct = estatus2026KPIs.total > 0 ? ` (${((value / estatus2026KPIs.total) * 100).toFixed(1)}%)` : '';
+                                      return [`${value} servicio${value === 1 ? '' : 's'}${pct}`, 'Servicios'];
+                                    }}
+                                  />
+                                  <Bar dataKey="value" fill="#B38E5D" radius={[0, 6, 6, 0]}>
+                                    {estatus2026GerenciaDistribution.map((entry, index) => (
+                                      <Cell key={`gerencia-cell-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                                    ))}
+                                  </Bar>
+                                </BarChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                                Sin columna de gerencia detectada o sin datos.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Resumen por estatus (tabla rápida) */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-bold text-slate-800">Desglose por estatus</h3>
+                          <span className="text-xs text-slate-400">Haz clic en una fila para ver servicios</span>
+                        </div>
+                        <div className="space-y-3">
+                          {estatus2026PhaseDistribution.map((phase, index) => {
+                            const pct = estatus2026KPIs.total > 0
+                              ? Math.round((phase.value / estatus2026KPIs.total) * 100)
+                              : 0;
+                            const color = chartPalette[index % chartPalette.length];
+                            return (
+                              <button
+                                key={phase.name}
+                                className="w-full text-left group"
+                                onClick={() => setSelectedEstatus2026Phase(phase.name)}
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors">
+                                    {phase.name}
+                                  </span>
+                                  <span className="text-sm font-bold text-slate-600">
+                                    {phase.value} <span className="text-xs font-normal text-slate-400">({pct}%)</span>
+                                  </span>
+                                </div>
+                                <div className="w-full bg-slate-100 rounded-full h-2">
+                                  <div
+                                    className="h-2 rounded-full transition-all"
+                                    style={{ width: `${pct}%`, backgroundColor: color }}
+                                  />
+                                </div>
+                              </button>
+                            );
+                          })}
+                          {estatus2026PhaseDistribution.length === 0 && !loadingData && (
+                            <p className="text-sm text-slate-400 text-center py-4">Sin datos de estatus.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Detail view: services in selected phase */
+                    <div className="space-y-6">
+                      <button
+                        onClick={() => setSelectedEstatus2026Phase(null)}
+                        className="flex items-center text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                      >
+                        <ArrowLeft className="h-4 w-4 mr-1" />
+                        Volver al resumen 2026
+                      </button>
+
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-900">
+                          Servicios en estatus: <span className="text-[#B38E5D]">{selectedEstatus2026Phase}</span>
+                        </h2>
+                        <p className="text-slate-500 mt-1">
+                          {estatus2026Data.filter((row) => {
+                            const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
+                            if (!raw && selectedEstatus2026Phase === 'Sin estatus') return true;
+                            const idx = resolveServicioStatusIndex(raw);
+                            const canon = idx >= 0
+                              ? SERVICIOS_STATUS_STEPS[idx]
+                              : String(raw ?? '').trim().charAt(0).toUpperCase() + String(raw ?? '').trim().slice(1).toLowerCase();
+                            return canon === selectedEstatus2026Phase;
+                          }).length} servicio(s) en esta etapa.
+                        </p>
+                      </div>
+
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-slate-200">
+                            <thead className="bg-[#0F4C3A] text-white">
+                              <tr>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
+                                {estatus2026MontoFieldSummary && (
+                                  <th scope="col" className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider">Monto</th>
+                                )}
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-200">
+                              {estatus2026Data
+                                .filter((row) => {
+                                  const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
+                                  if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin estatus') return true;
+                                  const idx = resolveServicioStatusIndex(raw);
+                                  const canon = idx >= 0
+                                    ? SERVICIOS_STATUS_STEPS[idx]
+                                    : String(raw ?? '').trim().charAt(0).toUpperCase() + String(raw ?? '').trim().slice(1).toLowerCase();
+                                  return canon === selectedEstatus2026Phase;
+                                })
+                                .map((row, idx) => (
+                                  <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                    <td className="px-6 py-4 text-sm font-semibold text-slate-800">
+                                      {estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? 'Sin nombre') : 'Sin nombre'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                        {estatus2026SubdirFieldSummary ? String(row[estatus2026SubdirFieldSummary] ?? 'N/A') : 'N/A'}
+                                      </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">
+                                        {estatus2026GerenciaFieldSummary ? String(row[estatus2026GerenciaFieldSummary] ?? 'N/A') : 'N/A'}
+                                      </span>
+                                    </td>
+                                    {estatus2026MontoFieldSummary && (
+                                      <td className="px-6 py-4 text-right font-mono text-sm text-slate-700">
+                                        {formatCurrency(parseNumericValue(row[estatus2026MontoFieldSummary]))}
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
               {active2026View === 'estatus' && (
               <>
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
