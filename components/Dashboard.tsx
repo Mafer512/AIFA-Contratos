@@ -516,6 +516,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [calendarDate, setCalendarDate] = useState(new Date());
   
   const [is2025Expanded, setIs2025Expanded] = useState(true);
+  const [is2026Expanded, setIs2026Expanded] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Database State
@@ -2292,6 +2293,66 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
     ubicacion: 'ubicación',
     observaciones: 'observaciones',
     justificac: 'justificación',
+    // Accentuated words for common column name patterns
+    investigacion: 'investigación',
+    contratacion: 'contratación',
+    remision: 'remisión',
+    recepcion: 'recepción',
+    publicacion: 'publicación',
+    adjudicacion: 'adjudicación',
+    actualizacion: 'actualización',
+    tramitacion: 'tramitación',
+    revision: 'revisión',
+    validacion: 'validación',
+    elaboracion: 'elaboración',
+    generacion: 'generación',
+    distribucion: 'distribución',
+    notificacion: 'notificación',
+    adquisicion: 'adquisición',
+    gestion: 'gestión',
+    seleccion: 'selección',
+    conclusion: 'conclusión',
+    relacion: 'relación',
+    condicion: 'condición',
+    facturacion: 'facturación',
+    atencion: 'atención',
+    operacion: 'operación',
+    comunicacion: 'comunicación',
+    autorizacion: 'autorización',
+    ejecucion: 'ejecución',
+    presentacion: 'presentación',
+    evaluacion: 'evaluación',
+    negociacion: 'negociación',
+    verificacion: 'verificación',
+    inspeccion: 'inspección',
+    extension: 'extensión',
+    denominacion: 'denominación',
+    asignacion: 'asignación',
+    duracion: 'duración',
+    produccion: 'producción',
+    participacion: 'participación',
+    disposicion: 'disposición',
+    situacion: 'situación',
+    informacion: 'información',
+    modificacion: 'modificación',
+    cancelacion: 'cancelación',
+    intervencion: 'intervención',
+    prorroga: 'prórroga',
+    tecnico: 'técnico',
+    tecnica: 'técnica',
+    calculo: 'cálculo',
+    calculos: 'cálculos',
+    analisis: 'análisis',
+    codigo: 'código',
+    credito: 'crédito',
+    deposito: 'depósito',
+    tramite: 'trámite',
+    tramites: 'trámites',
+    proximo: 'próximo',
+    proxima: 'próxima',
+    pagina: 'página',
+    periodo: 'período',
+    periodos: 'períodos',
     ene: 'enero',
     feb: 'febrero',
     mar: 'marzo',
@@ -3923,8 +3984,31 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
     estatus2026Data.forEach((row) => {
       const raw = row[estatus2026GerenciaFieldSummary!];
       if (!raw) return;
-      const label = String(raw).trim();
-      if (!label) return;
+      const rawLabel = String(raw).trim();
+      if (!rawLabel) return;
+      // Restore accents on common Spanish proper-name words stored without them in the DB
+      const ACCENT_MAP: [RegExp, string][] = [
+        [/\bAeronautica\b/gi, 'Aeronáutica'],
+        [/\bElectromecanica\b/gi, 'Electromecánica'],
+        [/\bElectromecanico\b/gi, 'Electromecánico'],
+        [/\bIngenieria\b/gi, 'Ingeniería'],
+        [/\bGerencia\b/gi, 'Gerencia'],
+        [/\bDistribucion\b/gi, 'Distribución'],
+        [/\bGeneracion\b/gi, 'Generación'],
+        [/\bOperacion\b/gi, 'Operación'],
+        [/\bOperaciones\b/gi, 'Operaciones'],
+        [/\bSeguridad\b/gi, 'Seguridad'],
+        [/\bAdministracion\b/gi, 'Administración'],
+        [/\bMedico\b/gi, 'Médico'],
+        [/\bTecnico\b/gi, 'Técnico'],
+        [/\bTecnica\b/gi, 'Técnica'],
+        [/\bJuridica\b/gi, 'Jurídica'],
+        [/\bJuridico\b/gi, 'Jurídico'],
+        [/\bEconomia\b/gi, 'Economía'],
+        [/\bGestion\b/gi, 'Gestión'],
+        [/\bComunicacion\b/gi, 'Comunicación'],
+      ];
+      const label = ACCENT_MAP.reduce((s, [re, rep]) => s.replace(re, rep), rawLabel);
       counts[label] = (counts[label] ?? 0) + 1;
     });
     return Object.entries(counts)
@@ -5838,18 +5922,53 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
             )}
           </div>
         
-           {/* 2026 */}
-             <button
-              onClick={() => handleSidebarSelection('2026')}
-              className={`w-full flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-colors ${
-                activeTab === '2026'
-                  ? 'bg-slate-100 text-[#B38E5D]'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+          {/* 2026 Group */}
+          <div>
+            <button
+              onClick={() => setIs2026Expanded(!is2026Expanded)}
+              className="w-full flex items-center justify-between px-3 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors"
             >
-               <CalendarDays className={`h-5 w-5 mr-3 ${activeTab === '2026' ? 'text-[#B38E5D]' : 'text-slate-400'}`} />
-              2026
+              <div className="flex items-center">
+                <CalendarDays className="h-5 w-5 mr-3 text-slate-400" />
+                2026
+              </div>
+              {is2026Expanded ? (
+                <Minimize2 className="h-4 w-4 text-slate-400" />
+              ) : (
+                <Plus className="h-4 w-4 text-slate-400" />
+              )}
             </button>
+
+            {is2026Expanded && (
+              <div className="pl-4 mt-1 space-y-1">
+                {[
+                  { view: 'resumen' as const, icon: LayoutDashboard, label: 'Resumen' },
+                  { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
+                  { view: 'pagos' as const, icon: FileText, label: 'Pagos 2026' },
+                ].map((item) => {
+                  const isActive = activeTab === '2026' && active2026View === item.view;
+                  return (
+                    <button
+                      key={item.view}
+                      onClick={() => {
+                        handleSidebarSelection('2026');
+                        setActive2026View(item.view);
+                        setSelectedEstatus2026Phase(null);
+                      }}
+                      className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        isActive
+                          ? 'bg-slate-100 text-[#B38E5D]'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      }`}
+                    >
+                      <item.icon className={`h-4 w-4 mr-3 ${isActive ? 'text-[#B38E5D]' : 'text-slate-400'}`} />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
              {/* History */}
              <button
@@ -7070,38 +7189,6 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
 
           {activeTab === '2026' && (
             <div className="space-y-6">
-                <div className="flex bg-slate-100 p-1 rounded-lg mb-4 self-start w-fit">
-                    <button
-                        onClick={() => { setActive2026View('resumen'); setSelectedEstatus2026Phase(null); }}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                            active2026View === 'resumen'
-                            ? 'bg-white text-[#0F4C3A] shadow-sm'
-                            : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                    >
-                        Resumen
-                    </button>
-                    <button
-                        onClick={() => setActive2026View('estatus')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                            active2026View === 'estatus'
-                            ? 'bg-white text-[#0F4C3A] shadow-sm'
-                            : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                    >
-                        Estatus
-                    </button>
-                    <button
-                        onClick={() => setActive2026View('pagos')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                            active2026View === 'pagos'
-                            ? 'bg-white text-[#0F4C3A] shadow-sm'
-                            : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                    >
-                        Pagos 2026
-                    </button>
-                </div>
               {active2026View === 'resumen' && (
                 <>
                   {!selectedEstatus2026Phase ? (
@@ -7251,7 +7338,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                      <div className="grid grid-cols-1 gap-6">
                         {/* Bar chart: Flujo mensual de pagos 2026 */}
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
                           <div className="flex items-center justify-between mb-4">
@@ -7288,52 +7375,53 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                           </div>
                         </div>
 
-                        {/* Bar chart: Servicios por Gerencia */}
+                        {/* Bar chart: Servicios por Gerencia – HTML/CSS (no SVG clipping) */}
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
                           <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-bold text-slate-800">Servicios por Gerencia</h3>
                             <span className="text-xs text-slate-400">{estatus2026GerenciaDistribution.length} gerencias</span>
                           </div>
-                          <div className="h-72">
-                            {loadingData ? (
-                              <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
-                            ) : estatus2026GerenciaDistribution.length > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <BarChart
-                                  data={estatus2026GerenciaDistribution}
-                                  layout="vertical"
-                                  margin={{ top: 10, right: 48, left: 0, bottom: 10 }}
-                                  barCategoryGap={18}
-                                >
-                                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                                  <XAxis type="number" hide />
-                                  <YAxis
-                                    type="category"
-                                    dataKey="name"
-                                    width={200}
-                                    tick={renderCompanyTick}
-                                    axisLine={false}
-                                    tickLine={false}
-                                  />
-                                  <Tooltip
-                                    formatter={(value: number) => {
-                                      const pct = estatus2026KPIs.total > 0 ? ` (${((value / estatus2026KPIs.total) * 100).toFixed(1)}%)` : '';
-                                      return [`${value} servicio${value === 1 ? '' : 's'}${pct}`, 'Servicios'];
-                                    }}
-                                  />
-                                  <Bar dataKey="value" fill="#B38E5D" radius={[0, 6, 6, 0]}>
-                                    {estatus2026GerenciaDistribution.map((entry, index) => (
-                                      <Cell key={`gerencia-cell-${index}`} fill={chartPalette[index % chartPalette.length]} />
-                                    ))}
-                                  </Bar>
-                                </BarChart>
-                              </ResponsiveContainer>
-                            ) : (
-                              <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
-                                Sin columna de gerencia detectada o sin datos.
+                          {loadingData ? (
+                            <div className="flex items-center justify-center py-12 text-slate-400 text-sm">Cargando...</div>
+                          ) : estatus2026GerenciaDistribution.length > 0 ? (() => {
+                            const maxVal = Math.max(...estatus2026GerenciaDistribution.map(d => d.value));
+                            return (
+                              <div className="space-y-3">
+                                {estatus2026GerenciaDistribution.map((entry, index) => {
+                                  const barWidth = maxVal > 0 ? (entry.value / maxVal) * 100 : 0;
+                                  const pct = estatus2026KPIs.total > 0
+                                    ? ((entry.value / estatus2026KPIs.total) * 100).toFixed(1)
+                                    : '0';
+                                  const color = chartPalette[index % chartPalette.length];
+                                  return (
+                                    <div key={entry.name} className="flex items-center gap-3">
+                                      <div
+                                        className="text-xs text-slate-700 text-right leading-tight shrink-0"
+                                        style={{ width: '38%', wordBreak: 'break-word' }}
+                                      >
+                                        {entry.name}
+                                      </div>
+                                      <div className="flex-1 flex items-center gap-2 min-w-0">
+                                        <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
+                                          <div
+                                            className="h-full rounded-full transition-all duration-500"
+                                            style={{ width: `${barWidth}%`, backgroundColor: color }}
+                                          />
+                                        </div>
+                                        <span className="text-xs text-slate-500 shrink-0 font-medium">
+                                          {entry.value} ({pct}%)
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            )}
-                          </div>
+                            );
+                          })() : (
+                            <div className="flex items-center justify-center py-12 text-slate-400 text-sm text-center px-4">
+                              Sin columna de gerencia detectada o sin datos.
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -7442,7 +7530,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">
-                                        {estatus2026GerenciaFieldSummary ? String(row[estatus2026GerenciaFieldSummary] ?? 'N/A') : 'N/A'}
+                                        {estatus2026GerenciaFieldSummary ? [['Aeronautica','Aeronáutica'],['Electromecanica','Electromecánica'],['Electromecanico','Electromecánico'],['Ingenieria','Ingeniería'],['Distribucion','Distribución'],['Generacion','Generación'],['Operacion','Operación'],['Administracion','Administración'],['Medico','Médico'],['Tecnico','Técnico'],['Tecnica','Técnica'],['Juridica','Jurídica'],['Juridico','Jurídico'],['Gestion','Gestión'],['Comunicacion','Comunicación']].reduce((s, [a, b]) => s.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}
                                       </span>
                                     </td>
                                     {estatus2026MontoFieldSummary && (
