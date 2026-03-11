@@ -4072,15 +4072,15 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
 
   const estatus2026KPIs = useMemo(() => {
     const total = estatus2026Data.length;
-    const uniqueStatuses = estatus2026PhaseDistribution.length;
-    const adjudicados = estatus2026PhaseDistribution.find(d => 
+    const uniqueStatuses = estatus2026EstatusDistribution.length;
+    const adjudicados = estatus2026EstatusDistribution.find(d =>
       d.name.toLowerCase().includes('adjudicad') || d.name.toLowerCase().includes('contratad')
     )?.value ?? 0;
-    const procedimiento = estatus2026PhaseDistribution.find(d =>
+    const procedimiento = estatus2026EstatusDistribution.find(d =>
       d.name.toLowerCase().includes('procedimiento') || d.name.toLowerCase().includes('contratacion')
     )?.value ?? 0;
     return { total, uniqueStatuses, adjudicados, procedimiento };
-  }, [estatus2026Data, estatus2026PhaseDistribution]);
+  }, [estatus2026Data, estatus2026EstatusDistribution]);
 
   const pagos2026MonthlyFlow = useMemo(() => {
     if (!pagos2026Data.length) return [] as { name: string; value: number }[];
