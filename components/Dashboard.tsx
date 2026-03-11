@@ -638,8 +638,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [isEstatus2026Compact, setIsEstatus2026Compact] = useState(false);
   const [isPagos2026Editing, setIsPagos2026Editing] = useState(false);
   const [isPagos2026Compact, setIsPagos2026Compact] = useState(false);
+  // Tracks which observation cells are open for editing (key = rowKey__column)
+  const [obsOpenSet, setObsOpenSet] = useState<Record<string, true>>({});
+  // Holds uncontrolled textarea DOM refs so we can read value only on Save (no re-renders while typing)
+  const obsTextareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const [active2026View, setActive2026View] = useState<'resumen' | 'estatus' | 'pagos'>('resumen');
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
+  const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
 
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [tableFilters, setTableFilters] = useState<TableFilterMap>({
@@ -2262,7 +2267,11 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
     'sep': 'Septiembre',
     'oct': 'Octubre',
     'nov': 'Noviembre',
-    'dic': 'Diciembre'
+    'dic': 'Diciembre',
+    'incidencias del servicio': 'Observaciones',
+    'incidencias_del_servicio': 'Observaciones',
+    'incidencias del servicio.': 'Observaciones',
+    'incidencias': 'Observaciones'
   };
 
   const HUMANIZED_WORD_OVERRIDES: Record<string, string> = {
@@ -3814,6 +3823,12 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
     return Array.from(columns).sort((a, b) => {
       const normalizedA = normalizeAnnualKey(a);
       const normalizedB = normalizeAnnualKey(b);
+
+      // Always put the observations/incidencias column last
+      const isIncA = normalizedA.includes('incidencia');
+      const isIncB = normalizedB.includes('incidencia');
+      if (isIncA !== isIncB) return isIncA ? 1 : -1;
+
       const priorityA = priorityMap.get(normalizedA);
       const priorityB = priorityMap.get(normalizedB);
 
@@ -3863,6 +3878,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
         isBoolean: boolean; 
         isDate: boolean; 
         isHighlighted: boolean;
+        isObservations: boolean;
         stickyConfig?: { left: number; width: number };
         isLastSticky: boolean;
     }>();
@@ -3887,7 +3903,12 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
             'plurianual', 
             'anticipo', 
             'convenio', 
-            'validado'
+            'validado',
+            'complemento de pago',
+            'complementos de pago',
+            'entregable',
+            'poliza',
+            'paas'
             // Removed 'publicacion' to avoid conflict with dates like 'publicacion de convocatoria'
         ];
         if (explicitBooleans.some(k => norm.includes(k))) {
@@ -3910,11 +3931,13 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
         }
 
         const isHighlighted = highlightColumns.includes(norm);
+        const isObservations = norm.includes('incidencia');
         
         meta.set(column, {
             isBoolean,
             isDate,
             isHighlighted,
+            isObservations,
             stickyConfig: estatus2026StickyInfo.meta.get(column),
             isLastSticky: estatus2026LastStickyKey === column
         });
@@ -3926,7 +3949,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
   // ── RESUMEN 2026 ──────────────────────────────────────────────────────────
 
   const estatus2026StatusFieldSummary = useMemo(() => (
-    findColumnByFragments(estatus2026TableColumns, ['estatus', 'status', 'fase', 'avance'])
+    findColumnByFragments(estatus2026TableColumns, ['fase', 'estatus', 'status', 'avance'])
   ), [estatus2026TableColumns]);
 
   const estatus2026ServiceNameFieldSummary = useMemo(() => (
@@ -3951,24 +3974,54 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
     estatus2026Data.forEach((row) => {
       const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
       if (raw === null || raw === undefined || String(raw).trim() === '') {
-        counts['Sin estatus'] = (counts['Sin estatus'] ?? 0) + 1;
+        counts['Sin fase'] = (counts['Sin fase'] ?? 0) + 1;
         return;
       }
+      // Use raw value from 'Fase' column as-is (capitalize first letter for display consistency)
       const label = String(raw).trim();
-      // Inline status resolution to avoid forward reference to resolveServicioStatusIndex
-      const normalized = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
-      let idx = -1;
-      for (let i = 0; i < SERVICIOS_STATUS_STEPS.length; i++) {
-        const stepToken = SERVICIOS_STATUS_STEPS[i].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
-        if (normalized.includes(stepToken) || stepToken.includes(normalized)) { idx = i; break; }
-      }
-      const canonicalLabel = idx >= 0 ? SERVICIOS_STATUS_STEPS[idx] : label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
-      counts[canonicalLabel] = (counts[canonicalLabel] ?? 0) + 1;
+      const displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
+      counts[displayLabel] = (counts[displayLabel] ?? 0) + 1;
     });
     return Object.entries(counts)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
   }, [estatus2026Data, estatus2026StatusFieldSummary]);
+
+  // Column that holds the 'estatus' value (distinct from 'fase')
+  const estatus2026EstatusColumnField = useMemo(() => {
+    if (!estatus2026TableColumns.length) return null;
+    // Exact match first (column literally named 'Estatus', 'estatus', etc.)
+    const exactEstatus = estatus2026TableColumns.find(col => col.toLowerCase() === 'estatus');
+    if (exactEstatus) return exactEstatus;
+    // Fuzzy fallback: contains 'estatus' or 'status' but NOT 'fase'
+    for (const col of estatus2026TableColumns) {
+      const norm = col.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+      if ((norm.includes('estatus') || norm.includes('status')) && !norm.includes('fase')) return col;
+    }
+    return null;
+  }, [estatus2026TableColumns]);
+
+  const estatus2026EstatusDistribution = useMemo(() => {
+    if (!estatus2026Data.length || !estatus2026EstatusColumnField) return [] as { name: string; value: number }[];
+    const counts: Record<string, number> = {};
+    estatus2026Data.forEach((row) => {
+      const raw = row[estatus2026EstatusColumnField];
+      if (raw === null || raw === undefined || String(raw).trim() === '') {
+        counts['Sin estatus'] = (counts['Sin estatus'] ?? 0) + 1;
+        return;
+      }
+      const label = String(raw).trim();
+      let displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
+      // Merge all "Investigación de mercado" variants (with or without date) into one label
+      if (displayLabel.toLowerCase().startsWith('investigaci')) {
+        displayLabel = 'Investigación de mercado';
+      }
+      counts[displayLabel] = (counts[displayLabel] ?? 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [estatus2026Data, estatus2026EstatusColumnField]);
 
   const estatus2026TotalMonto = useMemo(() => {
     if (!estatus2026Data.length || !estatus2026MontoFieldSummary) return 0;
@@ -4065,6 +4118,72 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
   ), [pagos2026MonthlyFlow]);
 
   // ── END RESUMEN 2026 ──────────────────────────────────────────────────────
+
+  // ── EXTRA ANALYSIS MEMOS ──────────────────────────────────────────────────
+
+  // 2026 estatus_2026 — subdirección distribution
+  const estatus2026SubdirDistribution = useMemo(() => {
+    if (!estatus2026Data.length || !estatus2026SubdirFieldSummary) return [] as { name: string; value: number }[];
+    const counts: Record<string, number> = {};
+    estatus2026Data.forEach(row => {
+      const raw = row[estatus2026SubdirFieldSummary!];
+      if (!raw) return;
+      const label = String(raw).trim();
+      if (label) counts[label] = (counts[label] ?? 0) + 1;
+    });
+    return Object.entries(counts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [estatus2026Data, estatus2026SubdirFieldSummary]);
+
+  // 2026 estatus_2026 — monto (presupuesto) by gerencia
+  const estatus2026MontoByGerencia = useMemo(() => {
+    if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary || !estatus2026MontoFieldSummary) return [] as { name: string; value: number }[];
+    const ACCENTS: [RegExp, string][] = [
+      [/\bAeronautica\b/gi, 'Aeronáutica'], [/\bElectromecanica\b/gi, 'Electromecánica'],
+      [/\bIngenieria\b/gi, 'Ingeniería'], [/\bDistribucion\b/gi, 'Distribución'],
+      [/\bGeneracion\b/gi, 'Generación'], [/\bOperacion\b/gi, 'Operación'],
+      [/\bAdministracion\b/gi, 'Administración'], [/\bTecnico\b/gi, 'Técnico'],
+      [/\bTecnica\b/gi, 'Técnica'], [/\bJuridica\b/gi, 'Jurídica'],
+      [/\bGestion\b/gi, 'Gestión'], [/\bComunicacion\b/gi, 'Comunicación'],
+    ];
+    const totals: Record<string, number> = {};
+    estatus2026Data.forEach(row => {
+      const rawG = row[estatus2026GerenciaFieldSummary!];
+      if (!rawG) return;
+      const label = ACCENTS.reduce((s, [re, rep]) => s.replace(re, rep), String(rawG).trim());
+      const monto = parseNumericValue(row[estatus2026MontoFieldSummary!]);
+      if (Number.isFinite(monto) && monto > 0) {
+        totals[label] = (totals[label] ?? 0) + monto;
+      }
+    });
+    return Object.entries(totals).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
+  }, [estatus2026Data, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
+
+  // 2026 estatus_2026 — completion rate of key boolean columns
+  const estatus2026BooleanCompletion = useMemo(() => {
+    if (!estatus2026Data.length || !estatus2026TableColumns.length) return [] as { name: string; done: number; pending: number; pct: number }[];
+    const total = estatus2026Data.length;
+    const targets = [
+      { fragment: 'investigacion', label: 'Inv. de Mercado' },
+      { fragment: 'suficiencia', label: 'Suficiencia Presup.' },
+      { fragment: 'procedimiento de contratacion', label: 'Proc. de Contratación' },
+      { fragment: 'anticipo', label: 'Anticipo' },
+      { fragment: 'convenio', label: 'Convenio' },
+      { fragment: 'plurianual', label: 'Plurianual' },
+      { fragment: 'validado', label: 'Validado' },
+    ];
+    const results: { name: string; done: number; pending: number; pct: number }[] = [];
+    targets.forEach(({ fragment, label }) => {
+      const col = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes(fragment));
+      if (!col) return;
+      const allNull = estatus2026Data.every(r => r[col] === null || r[col] === undefined);
+      if (allNull) return;
+      const done = estatus2026Data.filter(r => getBooleanChecked(r[col])).length;
+      results.push({ name: label, done, pending: total - done, pct: Math.round((done / total) * 100) });
+    });
+    return results;
+  }, [estatus2026Data, estatus2026TableColumns]);
+
+  // ── END EXTRA ANALYSIS MEMOS ──────────────────────────────────────────────
 
   // PAGOS 2026 TABLE CONFIGURATION
 
@@ -4532,6 +4651,40 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
   const serviciosGerenciaField = useMemo(() => (
     findColumnByFragments(serviciosTableColumns, ['gerencia'])
   ), [serviciosTableColumns]);
+
+  // 2025 estatus_servicios — gerencia distribution
+  const serviciosGerenciaDistribution = useMemo(() => {
+    if (!servicios2026Data.length || !serviciosGerenciaField) return [] as { name: string; value: number }[];
+    const ACCENTS: [RegExp, string][] = [
+      [/\bAeronautica\b/gi, 'Aeronáutica'], [/\bElectromecanica\b/gi, 'Electromecánica'],
+      [/\bIngenieria\b/gi, 'Ingeniería'], [/\bDistribucion\b/gi, 'Distribución'],
+      [/\bGeneracion\b/gi, 'Generación'], [/\bOperacion\b/gi, 'Operación'],
+      [/\bAdministracion\b/gi, 'Administración'], [/\bTecnico\b/gi, 'Técnico'],
+      [/\bTecnica\b/gi, 'Técnica'], [/\bJuridica\b/gi, 'Jurídica'],
+      [/\bGestion\b/gi, 'Gestión'], [/\bComunicacion\b/gi, 'Comunicación'],
+    ];
+    const counts: Record<string, number> = {};
+    servicios2026Data.forEach(row => {
+      const raw = row[serviciosGerenciaField!];
+      if (!raw) return;
+      const label = ACCENTS.reduce((s, [re, rep]) => s.replace(re, rep), String(raw).trim());
+      if (label) counts[label] = (counts[label] ?? 0) + 1;
+    });
+    return Object.entries(counts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 10);
+  }, [servicios2026Data, serviciosGerenciaField]);
+
+  // 2025 estatus_servicios — subdirección distribution
+  const serviciosSubdirDistribution = useMemo(() => {
+    if (!servicios2026Data.length || !serviciosSubdireccionField) return [] as { name: string; value: number }[];
+    const counts: Record<string, number> = {};
+    servicios2026Data.forEach(row => {
+      const raw = serviciosSubdireccionField ? row[serviciosSubdireccionField] : null;
+      if (!raw) return;
+      const label = String(raw).trim();
+      if (label) counts[label] = (counts[label] ?? 0) + 1;
+    });
+    return Object.entries(counts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [servicios2026Data, serviciosSubdireccionField]);
 
   const serviciosStatusSteps = useMemo(() => (
     SERVICIOS_STATUS_STEPS.map((label) => ({
@@ -6204,6 +6357,68 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                   </div>
               </div>
 
+              {/* ── Servicios 2025: Gerencia + Subdirección ─────────────────────────── */}
+              {(serviciosGerenciaDistribution.length > 0 || serviciosSubdirDistribution.length > 0) && (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  {/* Gerencia 2025 */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-bold text-slate-800">Servicios 2025 por Gerencia</h3>
+                      <span className="text-xs font-medium text-slate-400">{servicios2026Data.length} total</span>
+                    </div>
+                    <div className="space-y-3">
+                      {serviciosGerenciaDistribution.length > 0 ? (() => {
+                        const maxVal = Math.max(...serviciosGerenciaDistribution.map(e => e.value), 1);
+                        return serviciosGerenciaDistribution.map((entry, index) => {
+                          const barWidth = Math.round((entry.value / maxVal) * 100);
+                          const pct = servicios2026Data.length > 0 ? Math.round((entry.value / servicios2026Data.length) * 100) : 0;
+                          const color = chartPalette[index % chartPalette.length];
+                          return (
+                            <div key={entry.name} className="flex items-center gap-3">
+                              <div className="w-32 text-xs text-slate-600 truncate text-right shrink-0" title={entry.name}>{entry.name}</div>
+                              <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+                                <div className="h-3 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                              </div>
+                              <span className="text-xs text-slate-500 shrink-0 font-medium">{entry.value} ({pct}%)</span>
+                            </div>
+                          );
+                        });
+                      })() : (
+                        <div className="flex items-center justify-center py-10 text-slate-400 text-sm">Sin datos de gerencia</div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Subdirección 2025 */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-bold text-slate-800">Servicios 2025 por Subdirección</h3>
+                      <span className="text-xs font-medium text-slate-400">{servicios2026Data.length} total</span>
+                    </div>
+                    <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                      {serviciosSubdirDistribution.length > 0 ? (() => {
+                        const maxVal = Math.max(...serviciosSubdirDistribution.map(e => e.value), 1);
+                        return serviciosSubdirDistribution.map((entry, index) => {
+                          const barWidth = Math.round((entry.value / maxVal) * 100);
+                          const pct = servicios2026Data.length > 0 ? Math.round((entry.value / servicios2026Data.length) * 100) : 0;
+                          const color = chartPalette[index % chartPalette.length];
+                          return (
+                            <div key={entry.name} className="flex items-center gap-3">
+                              <div className="w-32 text-xs text-slate-600 truncate text-right shrink-0" title={entry.name}>{entry.name}</div>
+                              <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+                                <div className="h-3 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                              </div>
+                              <span className="text-xs text-slate-500 shrink-0 font-medium">{entry.value} ({pct}%)</span>
+                            </div>
+                          );
+                        });
+                      })() : (
+                        <div className="flex items-center justify-center py-10 text-slate-400 text-sm">Sin datos de subdirección</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
                   <div className="flex items-center justify-between mb-4">
@@ -7191,7 +7406,84 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
             <div className="space-y-6">
               {active2026View === 'resumen' && (
                 <>
-                  {!selectedEstatus2026Phase ? (
+                  {selectedEstatus2026Estatus ? (
+                    /* Detail view: services in selected estatus */
+                    <div className="space-y-6">
+                      <button
+                        onClick={() => setSelectedEstatus2026Estatus(null)}
+                        className="flex items-center text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                      >
+                        <ArrowLeft className="h-4 w-4 mr-1" />
+                        Volver al resumen 2026
+                      </button>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-900">
+                          Servicios con estatus: <span className="text-[#B38E5D]">{selectedEstatus2026Estatus}</span>
+                        </h2>
+                        <p className="text-slate-500 mt-1">
+                          {estatus2026Data.filter((row) => {
+                            if (!estatus2026EstatusColumnField) return false;
+                            const raw = row[estatus2026EstatusColumnField];
+                            if ((!raw || String(raw).trim() === '') && selectedEstatus2026Estatus === 'Sin estatus') return true;
+                            const label = String(raw ?? '').trim();
+                            let displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
+                            if (displayLabel.toLowerCase().startsWith('investigaci')) displayLabel = 'Investigación de mercado';
+                            return displayLabel === selectedEstatus2026Estatus;
+                          }).length} servicio(s) con este estatus.
+                        </p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-slate-200">
+                            <thead className="bg-[#0F4C3A] text-white">
+                              <tr>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
+                                {estatus2026MontoFieldSummary && (
+                                  <th scope="col" className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider">Monto</th>
+                                )}
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-200">
+                              {estatus2026Data
+                                .filter((row) => {
+                                  if (!estatus2026EstatusColumnField) return false;
+                                  const raw = row[estatus2026EstatusColumnField];
+                                  if ((!raw || String(raw).trim() === '') && selectedEstatus2026Estatus === 'Sin estatus') return true;
+                                  const label = String(raw ?? '').trim();
+                                  let displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
+                                  if (displayLabel.toLowerCase().startsWith('investigaci')) displayLabel = 'Investigación de mercado';
+                                  return displayLabel === selectedEstatus2026Estatus;
+                                })
+                                .map((row, idx) => (
+                                  <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                    <td className="px-6 py-4 text-sm font-semibold text-slate-800">
+                                      {estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? 'Sin nombre') : 'Sin nombre'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                        {estatus2026SubdirFieldSummary ? String(row[estatus2026SubdirFieldSummary] ?? 'N/A') : 'N/A'}
+                                      </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">
+                                        {estatus2026GerenciaFieldSummary ? [['Aeronautica','Aeronáutica'],['Electromecanica','Electromecánica'],['Electromecanico','Electromecánico'],['Ingenieria','Ingeniería'],['Distribucion','Distribución'],['Generacion','Generación'],['Operacion','Operación'],['Administracion','Administración'],['Medico','Médico'],['Tecnico','Técnico'],['Tecnica','Técnica'],['Juridica','Jurídica'],['Juridico','Jurídico'],['Gestion','Gestión'],['Comunicacion','Comunicación']].reduce((s, [a, b]) => s.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}
+                                      </span>
+                                    </td>
+                                    {estatus2026MontoFieldSummary && (
+                                      <td className="px-6 py-4 text-right font-mono text-sm text-slate-700">
+                                        {formatCurrency(parseNumericValue(row[estatus2026MontoFieldSummary]))}
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  ) : !selectedEstatus2026Phase ? (
                     <div className="space-y-6">
                       <div>
                         <h1 className="text-2xl font-bold text-slate-900">Resumen 2026</h1>
@@ -7263,11 +7555,107 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                         </div>
                       </div>
 
-                      {/* Pie chart: Distribución por Estatus */}
+                      {/* Pie chart: Distribución por Estatus – columna Estatus de la tabla estatus_2026 */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
                         <div className="flex items-center justify-between mb-4">
                           <div>
                             <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Estatus</h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Haz clic en un estatus para ver los servicios en esa categoría.
+                            </p>
+                          </div>
+                          <span className="text-xs text-slate-400">{estatus2026Data.length} servicios</span>
+                        </div>
+                        <div className="h-[460px] w-full">
+                          {loadingData ? (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                          ) : estatus2026EstatusDistribution.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart margin={{ top: 40, bottom: 40, left: 40, right: 40 }}>
+                                <Pie
+                                  data={estatus2026EstatusDistribution}
+                                  dataKey="value"
+                                  nameKey="name"
+                                  cx="50%"
+                                  cy="50%"
+                                  outerRadius={100}
+                                  onClick={(data: any) => setSelectedEstatus2026Estatus(data.name)}
+                                  className="cursor-pointer"
+                                  label={({ cx, cy, midAngle = 0, outerRadius, percent = 0, index, name = '' }: any) => {
+                                    const RADIAN = Math.PI / 180;
+                                    const radius = outerRadius + 55;
+                                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                                    if ((percent * 100) < 2) return null;
+                                    return (
+                                      <text
+                                        x={x}
+                                        y={y}
+                                        fill={chartPalette[index % chartPalette.length]}
+                                        textAnchor={x > cx ? 'start' : 'end'}
+                                        dominantBaseline="central"
+                                        className="text-[11px] font-bold"
+                                      >
+                                        {`${name} (${(percent * 100).toFixed(0)}%)`}
+                                      </text>
+                                    );
+                                  }}
+                                  labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
+                                >
+                                  {estatus2026EstatusDistribution.map((entry, index) => (
+                                    <Cell key={`cell-estatus2-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  formatter={(value: number, name: string) => {
+                                    const total = estatus2026EstatusDistribution.reduce((a, b) => a + b.value, 0);
+                                    const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+                                    return [`${value} servicio${value === 1 ? '' : 's'} (${pct}%)`, name];
+                                  }}
+                                />
+                                <Legend
+                                  verticalAlign="bottom"
+                                  height={36}
+                                  iconType="circle"
+                                  wrapperStyle={{ fontSize: '12px', paddingTop: '20px', cursor: 'pointer' }}
+                                  onClick={(data: any) => setSelectedEstatus2026Estatus(data.value || null)}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                              No hay datos en la columna Estatus de la tabla Estatus 2026.
+                            </div>
+                          )}
+                        </div>
+                        {/* Desglose rápido por estatus */}
+                        {estatus2026EstatusDistribution.length > 0 && (
+                          <div className="mt-6 space-y-3">
+                            <h4 className="text-sm font-semibold text-slate-600">Desglose por estatus</h4>
+                            {estatus2026EstatusDistribution.map((item, index) => {
+                              const pct = estatus2026Data.length > 0 ? Math.round((item.value / estatus2026Data.length) * 100) : 0;
+                              const color = chartPalette[index % chartPalette.length];
+                              return (
+                                <button key={item.name} className="w-full text-left group" onClick={() => setSelectedEstatus2026Estatus(item.name)}>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors">{item.name}</span>
+                                    <span className="text-sm font-bold text-slate-600">{item.value} <span className="text-xs font-normal text-slate-400">({pct}%)</span></span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 rounded-full h-2">
+                                    <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Pie chart: Distribución por Fase */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Fase</h3>
                             <p className="text-xs text-slate-500 mt-1">
                               Haz clic en una fase para ver los servicios en esa etapa.
                             </p>
@@ -7425,6 +7813,94 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                         </div>
                       </div>
 
+                      {/* ── Subdirección 2026 + Presupuesto por Gerencia 2026 ──────── */}
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        {/* Subdirección 2026 */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-slate-800">Servicios 2026 por Subdirección</h3>
+                            <span className="text-xs font-medium text-slate-400">{estatus2026KPIs.total} total</span>
+                          </div>
+                          <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                            {estatus2026SubdirDistribution.length > 0 ? (() => {
+                              const maxVal = Math.max(...estatus2026SubdirDistribution.map(e => e.value), 1);
+                              return estatus2026SubdirDistribution.map((entry, index) => {
+                                const barWidth = Math.round((entry.value / maxVal) * 100);
+                                const pct = estatus2026KPIs.total > 0 ? Math.round((entry.value / estatus2026KPIs.total) * 100) : 0;
+                                const color = chartPalette[index % chartPalette.length];
+                                return (
+                                  <div key={entry.name} className="flex items-center gap-3">
+                                    <div className="w-32 text-xs text-slate-600 truncate text-right shrink-0" title={entry.name}>{entry.name}</div>
+                                    <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+                                      <div className="h-3 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                                    </div>
+                                    <span className="text-xs text-slate-500 shrink-0 font-medium">{entry.value} ({pct}%)</span>
+                                  </div>
+                                );
+                              });
+                            })() : (
+                              <div className="flex items-center justify-center py-10 text-slate-400 text-sm">Sin datos de subdirección</div>
+                            )}
+                          </div>
+                        </div>
+                        {/* Presupuesto por Gerencia 2026 */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-slate-800">Presupuesto por Gerencia 2026</h3>
+                            <span className="text-xs font-medium text-slate-400">Monto total</span>
+                          </div>
+                          <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                            {estatus2026MontoByGerencia.length > 0 ? (() => {
+                              const maxVal = Math.max(...estatus2026MontoByGerencia.map(e => e.value), 1);
+                              return estatus2026MontoByGerencia.map((entry, index) => {
+                                const barWidth = Math.round((entry.value / maxVal) * 100);
+                                const color = chartPalette[index % chartPalette.length];
+                                return (
+                                  <div key={entry.name} className="flex items-center gap-3">
+                                    <div className="w-32 text-xs text-slate-600 truncate text-right shrink-0" title={entry.name}>{entry.name}</div>
+                                    <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+                                      <div className="h-3 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 shrink-0 font-medium">{formatCurrency(entry.value)}</span>
+                                  </div>
+                                );
+                              });
+                            })() : (
+                              <div className="flex items-center justify-center py-10 text-slate-400 text-sm">Sin datos de monto</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Avance de Requisitos Clave 2026 */}
+                      {estatus2026BooleanCompletion.length > 0 && (
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-slate-800">Avance de Requisitos Clave</h3>
+                            <span className="text-xs text-slate-400">% de contratos con el requisito completo</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {estatus2026BooleanCompletion.map((item) => (
+                              <div key={item.name} className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-medium text-slate-700">{item.name}</span>
+                                  <span className={`text-xs font-bold ${item.pct >= 80 ? 'text-emerald-600' : item.pct >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
+                                    {item.pct}%
+                                  </span>
+                                </div>
+                                <div className="bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                  <div
+                                    className={`h-2.5 rounded-full transition-all duration-700 ${item.pct >= 80 ? 'bg-emerald-500' : item.pct >= 50 ? 'bg-amber-400' : 'bg-red-400'}`}
+                                    style={{ width: `${item.pct}%` }}
+                                  />
+                                </div>
+                                <p className="text-[10px] text-slate-400">{item.done} listos · {item.pending} pendientes</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Resumen por estatus (tabla rápida) */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                         <div className="flex items-center justify-between mb-4">
@@ -7475,6 +7951,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                       >
                         <ArrowLeft className="h-4 w-4 mr-1" />
                         Volver al resumen 2026
+
                       </button>
 
                       <div>
@@ -7484,12 +7961,10 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                         <p className="text-slate-500 mt-1">
                           {estatus2026Data.filter((row) => {
                             const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
-                            if (!raw && selectedEstatus2026Phase === 'Sin estatus') return true;
-                            const idx = resolveServicioStatusIndex(raw);
-                            const canon = idx >= 0
-                              ? SERVICIOS_STATUS_STEPS[idx]
-                              : String(raw ?? '').trim().charAt(0).toUpperCase() + String(raw ?? '').trim().slice(1).toLowerCase();
-                            return canon === selectedEstatus2026Phase;
+                            if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin fase') return true;
+                            const label = String(raw ?? '').trim();
+                            const displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
+                            return displayLabel === selectedEstatus2026Phase;
                           }).length} servicio(s) en esta etapa.
                         </p>
                       </div>
@@ -7511,12 +7986,10 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                               {estatus2026Data
                                 .filter((row) => {
                                   const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
-                                  if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin estatus') return true;
-                                  const idx = resolveServicioStatusIndex(raw);
-                                  const canon = idx >= 0
-                                    ? SERVICIOS_STATUS_STEPS[idx]
-                                    : String(raw ?? '').trim().charAt(0).toUpperCase() + String(raw ?? '').trim().slice(1).toLowerCase();
-                                  return canon === selectedEstatus2026Phase;
+                                  if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin fase') return true;
+                                  const label = String(raw ?? '').trim();
+                                  const displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
+                                  return displayLabel === selectedEstatus2026Phase;
                                 })
                                 .map((row, idx) => (
                                   <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
@@ -7627,23 +8100,26 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                 const stickyConfig = estatus2026StickyInfo.meta.get(key);
                                 const isSticky = !!stickyConfig;
                                 const isLastSticky = estatus2026LastStickyKey === key;
+                                const isObsCol = normalizeAnnualKey(key).includes('incidencia');
+                                const headerBg = isObsCol ? '#7C3AED' : '#0F4C3A';
                                 const stickyStyle: React.CSSProperties = isSticky ? {
                                   position: 'sticky',
                                   left: stickyConfig.left,
                                   top: 0,
                                   zIndex: 30, // Intersection (Header + Sticky Col)
-                                  backgroundColor: '#0F4C3A',
+                                  backgroundColor: headerBg,
                                 } : {
                                   position: 'sticky',
                                   top: 0,
                                   zIndex: 20, // Normal Header
-                                  backgroundColor: '#0F4C3A',
+                                  backgroundColor: headerBg,
                                 };
                                  
                                 return (
-                               <th key={key} className={`px-2 py-3 whitespace-nowrap text-center border-b border-white/20 text-white ${isEstatus2026Compact ? 'py-2' : ''} ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-white/20' : ''}`} style={stickyStyle}>
+                               <th key={key} className={`px-2 py-3 whitespace-nowrap text-center border-b border-white/20 text-white ${isEstatus2026Compact ? 'py-2' : ''} ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-white/20' : ''} ${isObsCol ? 'min-w-[260px]' : ''}`} style={stickyStyle}>
                                  <div className="flex flex-col items-stretch gap-2 group text-white">
                                     <div className="flex items-center justify-center gap-1">
+                                        {isObsCol && <span className="text-purple-200 mr-1">📝</span>}
                                         <span className="truncate font-bold">{humanizeKey(key)}</span>
                                         {renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data)}
                                     </div>
@@ -7680,18 +8156,21 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                              </tr>
                          ) : (
                             filteredEstatus2026Data.map((row, idx) => {
-                               const rowKey = row['id'] || row['ID'] || idx; // prefer unique ID
-                               const zebraBackground = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+                               const rowKey = String(row['id'] ?? row['ID'] ?? idx); // prefer unique ID
+                               // Find the observations column for this row to decide row alert color
+                               const obsCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('incidencia'));
+                               const hasObs = obsCol ? String(row[obsCol] ?? '').trim().length > 0 : false;
+                               const zebraBackground = hasObs ? '#FFFBEB' : (idx % 2 === 0 ? '#ffffff' : '#f8fafc');
                                const rowStyle = buildRowStyle(zebraBackground);
                                const isCellEditable = isEstatus2026Editing;
                                return (
-                                 <tr key={rowKey} className="hover:bg-slate-50 transition-colors group" style={rowStyle}>
+                                 <tr key={rowKey} className={`transition-colors group ${hasObs ? 'hover:bg-amber-100' : 'hover:bg-slate-50'}`} style={rowStyle}>
                                     {estatus2026TableColumns.map((column) => {
                                         const rawValue = row[column];
                                         const columnMeta = estatus2026ColumnMeta.get(column)!;
                                         
                                         // Use pre-calculated types
-                                        const { isBoolean, isDate, isHighlighted, stickyConfig, isLastSticky } = columnMeta;
+                                        const { isBoolean, isDate, isHighlighted, isObservations, stickyConfig, isLastSticky } = columnMeta;
 
                                         const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
                                         
@@ -7747,7 +8226,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                             }
                                         }
 
-                                        const cellBackgroundColor = isHighlighted ? '#F4CCCC' : undefined; 
+                                        const cellBackgroundColor = isHighlighted ? '#F4CCCC' : isObservations ? '#F5F3FF' : undefined; 
 
                                         const isSticky = !!stickyConfig;
                                         const stickyCellStyle: React.CSSProperties = isSticky ? {
@@ -7762,7 +8241,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                             backgroundColor: cellBackgroundColor
                                         };
                                         
-                                        const finalCellClasses = `${cellClasses} ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-slate-100' : ''}`;
+                                        const finalCellClasses = `${cellClasses} ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-slate-100' : ''} ${isObservations ? 'border-l-2 border-l-violet-300 min-w-[260px]' : ''}`;
                                         
                                         const isChecked = isBoolean ? getBooleanChecked(rawValue) : false;
 
@@ -7779,9 +8258,6 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                                         checked={isChecked}
                                                         onChange={(e) => {
                                                             const newVal = e.target.checked;
-                                                            // Determine value to save based on original type compatibility if known, otherwise boolean
-                                                            // We default to saving boolean now as DB handles it well usually.
-                                                            // If string 'SI'/'NO' was present, we preserve that convention.
                                                             const valToSave = getBooleanSaveValue(rawValue, column, newVal);
                                                             handleEstatus2026CellEdit(row, column, valToSave);
                                                         }}
@@ -7797,6 +8273,53 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                                     onChange={(e) => handleEstatus2026CellEdit(row, column, e.target.value)}
                                                     onClick={(e) => e.stopPropagation()}
                                                 />
+                                              ) : isObservations ? (
+                                                (() => {
+                                                  const draftKey = `${rowKey}__${column}`;
+                                                  const isEditing = !!obsOpenSet[draftKey];
+                                                  const closeObs = () => setObsOpenSet(prev => { const n = { ...prev }; delete n[draftKey]; return n; });
+                                                  return isEditing ? (
+                                                    <div className="flex flex-col gap-1.5 min-w-[240px]" onClick={(e) => e.stopPropagation()}>
+                                                      <textarea
+                                                        rows={3}
+                                                        autoFocus
+                                                        aria-label={humanizeKey(column)}
+                                                        className="w-full bg-violet-50 border border-violet-300 rounded-md px-2 py-1.5 text-xs text-slate-700 placeholder-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-400 resize-y leading-relaxed"
+                                                        placeholder="Escribe las observaciones..."
+                                                        defaultValue={editingValue}
+                                                        ref={(el) => { if (el) obsTextareaRefs.current.set(draftKey, el); else obsTextareaRefs.current.delete(draftKey); }}
+                                                      />
+                                                      <div className="flex gap-1.5 justify-end">
+                                                        <button type="button" onClick={closeObs} className="px-2 py-1 text-xs rounded border border-slate-300 text-slate-500 hover:bg-slate-100 transition-colors">Cancelar</button>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => {
+                                                            const val = obsTextareaRefs.current.get(draftKey)?.value ?? editingValue;
+                                                            handleEstatus2026CellEdit(row, column, val);
+                                                            closeObs();
+                                                          }}
+                                                          className="px-2 py-1 text-xs rounded bg-violet-600 text-white hover:bg-violet-700 transition-colors font-medium flex items-center gap-1"
+                                                        >
+                                                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                                          Guardar
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  ) : (
+                                                    <div
+                                                      className="group/obs flex items-start gap-1 min-w-[220px] cursor-pointer"
+                                                      onClick={(e) => { e.stopPropagation(); setObsOpenSet(prev => ({ ...prev, [draftKey]: true })); }}
+                                                      title="Haz clic para editar"
+                                                    >
+                                                      {editingValue ? (
+                                                        <p className="text-left text-xs text-amber-800 whitespace-pre-wrap leading-relaxed px-1 py-0.5 italic flex-1">{editingValue}</p>
+                                                      ) : (
+                                                        <span className="text-violet-300 italic text-xs flex-1">Sin observaciones</span>
+                                                      )}
+                                                      <svg className="w-3.5 h-3.5 text-violet-400 opacity-0 group-hover/obs:opacity-100 transition-opacity mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 2.828L11.828 15.828a2 2 0 01-.828.485l-3 1 1-3a2 2 0 01.485-.828z" /></svg>
+                                                    </div>
+                                                  );
+                                                })()
                                               ) : (
                                                 <div
                                                     contentEditable
@@ -7824,6 +8347,53 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                                           )}
                                                       </div>
                                                   </div>
+                                              ) : isObservations ? (
+                                                  (() => {
+                                                    const draftKey = `${rowKey}__${column}`;
+                                                    const isEditing = !!obsOpenSet[draftKey];
+                                                    const closeObs = () => setObsOpenSet(prev => { const n = { ...prev }; delete n[draftKey]; return n; });
+                                                    return isEditing ? (
+                                                      <div className="flex flex-col gap-1.5 min-w-[240px]" onClick={(e) => e.stopPropagation()}>
+                                                        <textarea
+                                                          rows={3}
+                                                          autoFocus
+                                                          aria-label={humanizeKey(column)}
+                                                          className="w-full bg-violet-50 border border-violet-300 rounded-md px-2 py-1.5 text-xs text-slate-700 placeholder-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-400 resize-y leading-relaxed"
+                                                          placeholder="Escribe las observaciones..."
+                                                          defaultValue={editingValue}
+                                                          ref={(el) => { if (el) obsTextareaRefs.current.set(draftKey, el); else obsTextareaRefs.current.delete(draftKey); }}
+                                                        />
+                                                        <div className="flex gap-1.5 justify-end">
+                                                          <button type="button" onClick={closeObs} className="px-2 py-1 text-xs rounded border border-slate-300 text-slate-500 hover:bg-slate-100 transition-colors">Cancelar</button>
+                                                          <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                              const val = obsTextareaRefs.current.get(draftKey)?.value ?? editingValue;
+                                                              handleEstatus2026CellEdit(row, column, val);
+                                                              closeObs();
+                                                            }}
+                                                            className="px-2 py-1 text-xs rounded bg-violet-600 text-white hover:bg-violet-700 transition-colors font-medium flex items-center gap-1"
+                                                          >
+                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                                            Guardar
+                                                          </button>
+                                                        </div>
+                                                      </div>
+                                                    ) : (
+                                                      <div
+                                                        className="group/obs flex items-start gap-1 min-w-[220px] cursor-pointer"
+                                                        onClick={(e) => { e.stopPropagation(); setObsOpenSet(prev => ({ ...prev, [draftKey]: true })); }}
+                                                        title="Haz clic para editar"
+                                                      >
+                                                        {editingValue ? (
+                                                          <p className="text-left text-xs text-amber-800 whitespace-pre-wrap leading-relaxed px-1 py-0.5 italic flex-1">{editingValue}</p>
+                                                        ) : (
+                                                          <span className="text-violet-300 italic text-xs flex-1">Sin observaciones</span>
+                                                        )}
+                                                        <svg className="w-3.5 h-3.5 text-violet-400 opacity-0 group-hover/obs:opacity-100 transition-opacity mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 2.828L11.828 15.828a2 2 0 01-.828.485l-3 1 1-3a2 2 0 01.485-.828z" /></svg>
+                                                      </div>
+                                                    );
+                                                  })()
                                               ) : (
                                                   editingValue
                                               )
