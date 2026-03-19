@@ -2201,8 +2201,11 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
   };
 
   const shouldTreatAsBooleanColumn = (column: string, value: any, extraHints: string[] = []) => {
-    if (isBooleanLikeValue(value)) return true;
     const normalized = normalizeAnnualKey(column);
+    const explicitNonBooleans = ['ene', 'enero', 'feb', 'febrero', 'mar', 'marzo', 'abr', 'abril', 'may', 'mayo', 'jun', 'junio', 'jul', 'julio', 'ago', 'agosto', 'sep', 'septiembre', 'oct', 'octubre', 'nov', 'noviembre', 'dic', 'diciembre'];
+    if (explicitNonBooleans.some(k => normalized === k || (normalized.startsWith(`${k} `) && !normalized.includes('si no')))) return false;
+    
+    if (isBooleanLikeValue(value)) return true;
     const defaultHints = ['si/no', 'pagado', 'complemento', 'confirmado', 'validado', 'documentacion', 'documentación', 'investigacion', 'investigación', 'suficiencia', 'plurianual', 'anticipo', 'convenio', 'procedimiento'];
     return [...defaultHints, ...extraHints].some((hint) => normalized.includes(normalizeAnnualKey(hint)));
   };
@@ -2241,7 +2244,9 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
 
   const shouldFormatAsCurrency = (key: string) => {
     const normalized = key.toLowerCase();
-    return ['monto', 'importe', 'total', 'presupuesto', 'costo', 'valor', 'ejercido', 'pagado'].some(fragment => normalized.includes(fragment));
+    const exactMonths = ['ene', 'enero', 'feb', 'febrero', 'mar', 'marzo', 'abr', 'abril', 'may', 'mayo', 'jun', 'junio', 'jul', 'julio', 'ago', 'agosto', 'sep', 'septiembre', 'oct', 'octubre', 'nov', 'noviembre', 'dic', 'diciembre'].flatMap(m => [m, `${m}.`]);
+    if (exactMonths.includes(normalized)) return true;
+    return ['monto', 'importe', 'total', 'presupuesto', 'costo', 'valor', 'ejercido', 'pagado', 'preventivos', 'correctivos', 'nota de', 'credito', 'crédito'].some(fragment => normalized.includes(fragment));
   };
 
   const HUMANIZED_LABEL_OVERRIDES: Record<string, string> = {
@@ -4294,12 +4299,17 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
         // Boolean Detection
         let isBoolean = false; 
         const explicitBooleans = ['pagado', 'validado', 'autorizado', 'anticipo', 'finiquito'];
+        const explicitNonBooleans = ['ene', 'enero', 'feb', 'febrero', 'mar', 'marzo', 'abr', 'abril', 'may', 'mayo', 'jun', 'junio', 'jul', 'julio', 'ago', 'agosto', 'sep', 'septiembre', 'oct', 'octubre', 'nov', 'noviembre', 'dic', 'diciembre'];
+        
         if (explicitBooleans.some(k => norm.includes(k))) {
             isBoolean = true;
         }
         if (!isBoolean) {
           const hasBooleanLike = pagos2026Data.some((row) => isBooleanLikeValue(row?.[column]));
           if (hasBooleanLike) isBoolean = true;
+        }
+        if (isBoolean && explicitNonBooleans.some(k => norm === k || norm.startsWith(`${k} `) && !norm.includes('si no'))) {
+            isBoolean = false;
         }
 
         // Date Detection
