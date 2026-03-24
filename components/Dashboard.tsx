@@ -636,6 +636,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [isPendingOctCompact, setIsPendingOctCompact] = useState(false);
   const [isEstatus2026Editing, setIsEstatus2026Editing] = useState(false);
   const [isEstatus2026Compact, setIsEstatus2026Compact] = useState(false);
+  const [isAddingEstatus2026Row, setIsAddingEstatus2026Row] = useState(false);
+  const [isDeletingRecord, setIsDeletingRecord] = useState(false);
+  const [deletingRecordKey, setDeletingRecordKey] = useState<string | null>(null);
   const [isPagos2026Editing, setIsPagos2026Editing] = useState(false);
   const [isPagos2026Compact, setIsPagos2026Compact] = useState(false);
   // Tracks which observation cells are open for editing (key = rowKey__column)
@@ -878,6 +881,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const PRIMARY_KEY_HINTS: Record<string, string> = {
     'año_2026': 'id',
     'estatus_servicios_2026': 'id',
+    'estatus_2026': 'id',
     'pagos_2026': 'id',
     'balance_paas_2026': 'id',
     'paas': 'id',
@@ -1264,6 +1268,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       case 'estatus_servicios_2026':
         await fetchServicios2026Data();
         break;
+      case 'estatus_2026':
+        await fetchEstatus2026Data();
+        break;
       case 'pagos_2026':
         await fetchPagos2026Data();
         break;
@@ -1478,6 +1485,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     primaryKey?: string | null
   ) => {
     if (!requireManagePermission()) return;
+    if (isDeletingRecord) {
+      alert('Espera, se está eliminando un registro.');
+      return;
+    }
+
     const resolvedKey = resolvePrimaryKey(row, table, primaryKey);
     if (!resolvedKey) {
       alert('No se pudo determinar la clave primaria del registro. Verifique que exista un campo "id" o similar.');
@@ -1495,25 +1507,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     const previousRecord = sanitizeRecord(row);
 
-    const { error } = await supabase
-      .from(table)
-      .delete()
-      .eq(resolvedKey, resolvedValue);
+    const activeDeleteKey = `${table}:${resolvedKey}:${String(resolvedValue)}`;
+    setIsDeletingRecord(true);
+    setDeletingRecordKey(activeDeleteKey);
 
-    if (error) {
-      alert(`Error al eliminar: ${error.message}`);
-      return;
+    try {
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq(resolvedKey, resolvedValue);
+
+      if (error) {
+        alert(`Error al eliminar: ${error.message}`);
+        return;
+      }
+
+      await logChange({
+        table,
+        action: 'DELETE',
+        recordId: resolvedValue,
+        before: previousRecord,
+        after: null,
+      });
+
+      await refreshTable(table);
+    } finally {
+      setIsDeletingRecord(false);
+      setDeletingRecordKey(null);
     }
-
-    await logChange({
-      table,
-      action: 'DELETE',
-      recordId: resolvedValue,
-      before: previousRecord,
-      after: null,
-    });
-
-    await refreshTable(table);
   };
 
   const closeRecordEditor = () => {
@@ -1829,28 +1850,30 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
     });
   }, [servicios2026Data, tableFilters.servicios2026, columnFilters.servicios2026]);
 
+  const estatus2026ActiveColumnSearch = useMemo(
+    () => Object.entries(estatus2026ColumnSearch ?? {}).filter(([, term]) => Boolean(term && term.trim().length > 0)).map(([key, term]) => [key, term.toLowerCase()] as const),
+    [estatus2026ColumnSearch]
+  );
+
   const filteredEstatus2026Data = useMemo(() => {
     const query = tableFilters.estatus2026.trim();
     const columnMap = columnFilters.estatus2026;
-    const searchMap = estatus2026ColumnSearch;
     const hasColumnFilters = Object.keys(columnMap ?? {}).length > 0;
-    const hasSearchFilters = Object.keys(searchMap ?? {}).length > 0;
+    const hasSearchFilters = estatus2026ActiveColumnSearch.length > 0;
 
     if (!query && !hasColumnFilters && !hasSearchFilters) return estatus2026Data;
     return estatus2026Data.filter((row) => {
       if (query && !rowMatchesFilter(row as Record<string, any>, query)) return false;
       if (hasColumnFilters && !rowMatchesColumnFilters(row as Record<string, any>, columnMap)) return false;
       if (hasSearchFilters) {
-          for (const [key, term] of Object.entries(searchMap)) {
-              if (term) {
-                  const val = String(row[key] ?? '').toLowerCase();
-                  if (!val.includes(term.toLowerCase())) return false;
-              }
+          for (const [key, term] of estatus2026ActiveColumnSearch) {
+              const val = String(row[key] ?? '').toLowerCase();
+              if (!val.includes(term)) return false;
           }
       }
       return true;
     });
-  }, [estatus2026Data, tableFilters.estatus2026, columnFilters.estatus2026, estatus2026ColumnSearch]);
+  }, [estatus2026Data, tableFilters.estatus2026, columnFilters.estatus2026, estatus2026ActiveColumnSearch]);
 
   const filteredPagos2026Data = useMemo(() => {
     const query = tableFilters.pagos2026.trim();
@@ -3877,6 +3900,11 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
 
   const estatus2026LastStickyKey = estatus2026StickyInfo.order[estatus2026StickyInfo.order.length - 1];
 
+  const estatus2026ObservationsColumn = useMemo(
+    () => estatus2026TableColumns.find((c) => normalizeAnnualKey(c).includes('incidencia')) ?? null,
+    [estatus2026TableColumns]
+  );
+
   // Pre-calculate column metadata (types, sticky configs, highlights) to improve render performance
   const estatus2026ColumnMeta = useMemo(() => {
     const meta = new Map<string, { 
@@ -5382,6 +5410,27 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
 
     if (deepEqual(normalizedCurrent, normalizedNext)) return;
 
+    // estatus_2026 requires editable but unique IDs in UI to avoid duplicated rows.
+    const isIdColumn = column.toLowerCase() === 'id';
+    if (tableName === 'estatus_2026' && isIdColumn) {
+      if (normalizedNext === null || normalizedNext === '') {
+        alert('El ID no puede estar vacío.');
+        return;
+      }
+      const nextIdNormalized = String(normalizedNext).trim();
+      const hasDuplicate = data.some((entry) => {
+        const sameRow = entry === rowRef;
+        if (sameRow) return false;
+        const candidate = String(entry?.id ?? entry?.ID ?? entry?.Id ?? '').trim();
+        return candidate.length > 0 && candidate === nextIdNormalized;
+      });
+
+      if (hasDuplicate) {
+        alert(`El ID ${nextIdNormalized} ya existe. Usa un ID diferente.`);
+        return;
+      }
+    }
+
     const optimisticSnapshot = [...data];
     const updatedRecord = { ...rowRef, [column]: nextValue };
 
@@ -5464,30 +5513,59 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
   }, [serviciosTableColumns]);
 
   const handleAddEstatus2026Row = useCallback(async () => {
-    if (!estatus2026TableColumns.length) return;
-    const template = generateTemplateFromColumns(estatus2026TableColumns);
+    if (!estatus2026TableColumns.length || isAddingEstatus2026Row) return;
+    setIsAddingEstatus2026Row(true);
     try {
-      let { data, error } = await supabase.from('estatus_2026').insert({}).select().single();
-      if (error) {
-         const safeRecord = createSafeInitialRecord(estatus2026TableColumns);
-         if (!safeRecord['id']) {
-            safeRecord['id'] = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000);
-         }
-         const retry = await supabase.from('estatus_2026').insert(safeRecord).select().single();
-         data = retry.data;
-         error = retry.error;
+      // Build a full safe record and assign a consecutive ID that does not exist.
+      const safeRecord = createSafeInitialRecord(estatus2026TableColumns);
+
+      const localNumericIds = estatus2026Data
+        .map((row) => Number(row?.id ?? row?.ID ?? row?.Id))
+        .filter((val) => Number.isFinite(val));
+
+      let nextId = (localNumericIds.length ? Math.max(...localNumericIds) : 0) + 1;
+
+      // Try to anchor from DB max(id) so consecutive ID is based on the latest persisted value.
+      const { data: maxIdRows, error: maxIdError } = await supabase
+        .from('estatus_2026')
+        .select('id')
+        .order('id', { ascending: false })
+        .limit(1);
+
+      if (!maxIdError && Array.isArray(maxIdRows) && maxIdRows.length > 0) {
+        const dbMax = Number(maxIdRows[0]?.id);
+        if (Number.isFinite(dbMax)) {
+          nextId = Math.max(nextId, dbMax + 1);
+        }
       }
+
+      // Final anti-duplicate guard (important when users are editing IDs manually).
+      for (let i = 0; i < 50; i += 1) {
+        const { count, error: countError } = await supabase
+          .from('estatus_2026')
+          .select('*', { count: 'exact', head: true })
+          .eq('id', nextId);
+
+        if (countError) throw countError;
+        if ((count ?? 0) === 0) break;
+        nextId += 1;
+      }
+
+      safeRecord.id = nextId;
+
+      const { error } = await supabase.from('estatus_2026').insert(safeRecord);
       if (error) throw error;
-      if (data) {
-        const newRow = { ...template, ...data };
-        setEstatus2026Data((prev) => [...prev, newRow]);
-        setIsEstatus2026Editing(true);
-      }
+
+      // Always refetch canonical data after insert.
+      await fetchEstatus2026Data();
+      setIsEstatus2026Editing(true);
     } catch (error: any) {
       console.error('Error creating row in estatus_2026:', error);
       alert(`Error al crear la fila: ${error.message || 'Error desconocido'}.`);
+    } finally {
+      setIsAddingEstatus2026Row(false);
     }
-  }, [estatus2026TableColumns]);
+  }, [estatus2026TableColumns, isAddingEstatus2026Row, estatus2026Data]);
 
   const handlePagos2026CellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('pagos_2026', row, col, val, setPagos2026Data, pagos2026Data);
 
@@ -6116,6 +6194,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                       onClick={() => {
                         handleSidebarSelection('2026');
                         setActive2026View(item.view);
+                        setSelectedEstatus2026Estatus(null);
                         setSelectedEstatus2026Phase(null);
                       }}
                       className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -7911,10 +7990,10 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                         </div>
                       )}
 
-                      {/* Resumen por estatus (tabla rápida) */}
+                      {/* Resumen por fase (tabla rápida) */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                         <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-bold text-slate-800">Desglose por estatus</h3>
+                          <h3 className="text-lg font-bold text-slate-800">Desglose por fase</h3>
                           <span className="text-xs text-slate-400">Haz clic en una fila para ver servicios</span>
                         </div>
                         <div className="space-y-3">
@@ -7966,7 +8045,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
 
                       <div>
                         <h2 className="text-2xl font-bold text-slate-900">
-                          Servicios en estatus: <span className="text-[#B38E5D]">{selectedEstatus2026Phase}</span>
+                          Servicios en fase: <span className="text-[#B38E5D]">{selectedEstatus2026Phase}</span>
                         </h2>
                         <p className="text-slate-500 mt-1">
                           {estatus2026Data.filter((row) => {
@@ -8064,10 +8143,11 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                       <button
                         type="button"
                         onClick={handleAddEstatus2026Row}
-                        className="btn-primary flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 transition-colors text-sm font-medium"
+                        disabled={isAddingEstatus2026Row}
+                        className={`btn-primary flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${isAddingEstatus2026Row ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
                       >
-                        <Plus className="h-4 w-4" />
-                        Agregar fila
+                        {isAddingEstatus2026Row ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                        {isAddingEstatus2026Row ? 'Agregando...' : 'Agregar fila'}
                       </button>
                     )}
                 </div>
@@ -8097,6 +8177,13 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                       )}
                     </div>
                  </div>
+
+                 {isDeletingRecord && (
+                   <div className="px-4 py-2 border-b border-amber-200 bg-amber-50 text-amber-700 text-sm flex items-center gap-2">
+                     <Loader2 className="h-4 w-4 animate-spin" />
+                     Espera, se está eliminando el registro...
+                   </div>
+                 )}
                  
                  {renderActiveColumnFilterBadges('estatus2026')}
 
@@ -8152,7 +8239,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                       <tbody className="divide-y divide-slate-100 text-sm text-slate-600">
                          {loadingData ? (
                             <tr>
-                              <td colSpan={10} className="px-4 py-8 text-center text-slate-400">
+                              <td colSpan={estatus2026TableColumns.length || 10} className="px-4 py-8 text-center text-slate-400">
                                 <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-[#0F4C3A]" />
                                 <p>Cargando información...</p>
                               </td>
@@ -8167,9 +8254,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                          ) : (
                             filteredEstatus2026Data.map((row, idx) => {
                                const rowKey = String(row['id'] ?? row['ID'] ?? idx); // prefer unique ID
-                               // Find the observations column for this row to decide row alert color
-                               const obsCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('incidencia'));
-                               const hasObs = obsCol ? String(row[obsCol] ?? '').trim().length > 0 : false;
+                             const hasObs = estatus2026ObservationsColumn ? String(row[estatus2026ObservationsColumn] ?? '').trim().length > 0 : false;
                                const zebraBackground = hasObs ? '#FFFBEB' : (idx % 2 === 0 ? '#ffffff' : '#f8fafc');
                                const rowStyle = buildRowStyle(zebraBackground);
                                const isCellEditable = isEstatus2026Editing;
@@ -8182,35 +8267,35 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                         // Use pre-calculated types
                                         const { isBoolean, isDate, isHighlighted, isObservations, stickyConfig, isLastSticky } = columnMeta;
 
-                                        const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
+                                        const isCurrencyColumn = shouldFormatAsCurrency(column);
+                                        const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || isCurrencyColumn);
                                         
                                         const baseClasses = `px-4 border-b border-slate-50 min-w-[120px] whitespace-pre-wrap break-words ${isEstatus2026Compact ? 'py-1' : 'py-3'} ${numeric ? "text-right font-mono" : "text-center"}`;
                                         const cellClasses = isCellEditable ? `${baseClasses} cursor-text` : baseClasses;
                                        
+                                        let parsedDateValue: Date | null = null;
+                                        if (isDate) {
+                                          parsedDateValue = rawValue instanceof Date
+                                          ? rawValue
+                                          : (typeof rawValue === 'string' ? parsePotentialDate(rawValue) : null);
+                                        }
+
                                         let editingValue = '';
                                         // Optimize formatting logic
                                         if (rawValue !== null && rawValue !== undefined) {
                                             if (isDate) {
-                                                // Assuming Date object or ISODate string based on previous handling
-                                                if (rawValue instanceof Date) editingValue = formatDateToDDMMYYYY(rawValue);
-                                                else if (typeof rawValue === 'string') {
-                                                    // Parse date manually only if not already done in fetch
-                                                    // For display speed, simple regex or cached parse is better if possible.
-                                                    // But reusing existing logic is safe.
-                                                    const parsed = parsePotentialDate(rawValue);
-                                                    editingValue = parsed ? formatDateToDDMMYYYY(parsed) : rawValue;
-                                                }
+                                            editingValue = parsedDateValue ? formatDateToDDMMYYYY(parsedDateValue) : String(rawValue);
                                             } else if (isBoolean) {
                                                 // No need to format editingValue string for boolean, we use isChecked
                                             } else if (typeof rawValue === 'number') {
-                                                 if (shouldFormatAsCurrency(column)) {
+                                             if (isCurrencyColumn) {
                                                     editingValue = rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                                                 } else {
                                                     editingValue = String(rawValue);
                                                 }
                                             } else {
                                                 // String Fallback
-                                                if (shouldFormatAsCurrency(column) && typeof rawValue === 'string') {
+                                            if (isCurrencyColumn && typeof rawValue === 'string') {
                                                     // Try to parse string currency
                                                      const sanitized = rawValue.replace(/,/g, '');
                                                         const num = parseFloat(sanitized);
@@ -8226,14 +8311,11 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                         }
 
                                         let dateInputValue = '';
-                                        if (isDate) {
-                                            const p = (rawValue instanceof Date) ? rawValue : parsePotentialDate(rawValue);
-                                            if (p) {
-                                                const y = p.getFullYear();
-                                                const m = String(p.getMonth() + 1).padStart(2, '0');
-                                                const d = String(p.getDate()).padStart(2, '0');
+                    if (parsedDateValue) {
+                      const y = parsedDateValue.getFullYear();
+                      const m = String(parsedDateValue.getMonth() + 1).padStart(2, '0');
+                      const d = String(parsedDateValue.getDate()).padStart(2, '0');
                                                 dateInputValue = `${y}-${m}-${d}`;
-                                            }
                                         }
 
                                         const cellBackgroundColor = isHighlighted ? '#F4CCCC' : isObservations ? '#F5F3FF' : undefined; 
@@ -8254,9 +8336,13 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                         const finalCellClasses = `${cellClasses} ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-slate-100' : ''} ${isObservations ? 'border-l-2 border-l-violet-300 min-w-[260px]' : ''}`;
                                         
                                         const isChecked = isBoolean ? getBooleanChecked(rawValue) : false;
+                                        const showInlineDelete = canManageRecords && column === estatus2026TableColumns[0];
+                                        const rowDeleteKey = `estatus_2026:id:${String(row?.id ?? row?.ID ?? row?.Id ?? rowKey)}`;
+                                        const isDeletingThisRow = isDeletingRecord && deletingRecordKey === rowDeleteKey;
 
                                        return (
                                        <td key={column} className={finalCellClasses} title={String(editingValue || isChecked)} style={stickyCellStyle}>
+                                          <div className={showInlineDelete ? 'flex flex-col items-center gap-1' : undefined}>
                                           {isCellEditable ? (
                                               isBoolean ? (
                                                 <div className="flex items-center justify-center h-full min-h-[1.5em]" onClick={(e) => e.stopPropagation()}>
@@ -8408,6 +8494,21 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                                                   editingValue
                                               )
                                           )}
+                                          {showInlineDelete && (
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteGenericRecord('estatus_2026', row as Record<string, any>, 'Registro estatus_2026');
+                                              }}
+                                              disabled={isDeletingRecord}
+                                              className={`mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-md border transition-colors text-[11px] font-semibold ${isDeletingRecord ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200'}`}
+                                              title={isDeletingRecord ? 'Espera, eliminando registro...' : 'Eliminar fila'}
+                                            >
+                                              {isDeletingThisRow ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                              {isDeletingThisRow ? 'Eliminando...' : 'Eliminar'}
+                                            </button>
+                                          )}
+                                          </div>
                                        </td>
                                     )})}
                                  </tr>
