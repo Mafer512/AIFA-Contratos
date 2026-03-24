@@ -8,6 +8,9 @@ const hmrPort = Number(process.env.VITE_HMR_PORT || 3000);
 const useSecureHmr = process.env.VITE_HMR_SECURE === 'true';
 
 export default defineConfig({
+  build: {
+    chunkSizeWarningLimit: 1400,
+  },
   server: {
     port: 3000,
     host: '0.0.0.0',

@@ -646,6 +646,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   // Holds uncontrolled textarea DOM refs so we can read value only on Save (no re-renders while typing)
   const obsTextareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const [active2026View, setActive2026View] = useState<'resumen' | 'estatus' | 'pagos'>('resumen');
+  const [activePagos2026View, setActivePagos2026View] = useState<'tabla' | 'resumen'>('tabla');
+  const [expandedPagos2026SummaryKey, setExpandedPagos2026SummaryKey] = useState<string | null>(null);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
 
@@ -1657,6 +1659,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const [debugError, setDebugError] = useState<string | null>(null);
 
+  const extractPagosRowId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'] ?? row['No contrato'] ?? row['No. de contrato'] ?? null;
+
   const fetchEstatus2026Data = async () => {
     try {
         // Removed .order('id') to avoid potential Supabase type errors, sorting client-side instead.
@@ -1705,10 +1709,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
           if (data) {
              // Sort clientside just in case, similar to estatus_2026
-const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'] ?? null;
              const sortedData = [...data].sort((a, b) => {
-                 const idA = extractId(a);
-                 const idB = extractId(b);
+         const idA = extractPagosRowId(a);
+         const idB = extractPagosRowId(b);
 
                  if (typeof idA === 'number' && typeof idB === 'number') return idA - idB;
                  const valA = parseFloat(idA);
@@ -4359,6 +4362,105 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
     });
     return meta;
   }, [pagos2026TableColumns, pagos2026StickyInfo, pagos2026LastStickyKey, pagos2026Data]);
+
+  const pagos2026ServiceFieldSummary = useMemo(() => (
+    findColumnByFragments(pagos2026TableColumns, ['objeto del contrato', 'nombre del servicio', 'servicio', 'objeto', 'concepto'])
+  ), [pagos2026TableColumns]);
+
+  const pagos2026MontoMaxFieldSummary = useMemo(() => (
+    findColumnByFragments(pagos2026TableColumns, ['monto maximo contrato', 'mont. max.', 'monto maximo', 'monto maximo 2026', 'monto maximo 2025', 'monto maximo 2024'])
+  ), [pagos2026TableColumns]);
+
+  const pagos2026MonthColumns = useMemo(() => {
+    const defs = [
+      { label: 'Enero', tokens: ['ene', 'enero'] },
+      { label: 'Febrero', tokens: ['feb', 'febrero'] },
+      { label: 'Marzo', tokens: ['mar', 'marzo'] },
+      { label: 'Abril', tokens: ['abr', 'abril'] },
+      { label: 'Mayo', tokens: ['may', 'mayo'] },
+      { label: 'Junio', tokens: ['jun', 'junio'] },
+      { label: 'Julio', tokens: ['jul', 'julio'] },
+      { label: 'Agosto', tokens: ['ago', 'agosto'] },
+      { label: 'Septiembre', tokens: ['sep', 'sept', 'septiembre'] },
+      { label: 'Octubre', tokens: ['oct', 'octubre'] },
+      { label: 'Noviembre', tokens: ['nov', 'noviembre'] },
+      { label: 'Diciembre', tokens: ['dic', 'diciembre'] },
+    ];
+
+    const exclusions = ['preventivo', 'correctivo', 'nota', 'credito', 'complemento', 'observacion'];
+
+    const pickColumn = (tokens: string[]) => {
+      const candidates = pagos2026TableColumns
+        .map((col) => {
+          const norm = normalizeAnnualKey(col);
+          if (exclusions.some((x) => norm.includes(x))) return null;
+
+          let score = 0;
+          tokens.forEach((token, idx) => {
+            if (norm === token) score = Math.max(score, 100 - idx);
+            else if (norm.startsWith(`${token} `) || norm.endsWith(` ${token}`) || norm.includes(` ${token} `)) score = Math.max(score, 80 - idx);
+            else if (norm.includes(token)) score = Math.max(score, 60 - idx);
+          });
+
+          if (score === 0) return null;
+          return { col, score, len: norm.length };
+        })
+        .filter(Boolean) as { col: string; score: number; len: number }[];
+
+      if (!candidates.length) return null;
+      candidates.sort((a, b) => (b.score - a.score) || (a.len - b.len));
+      return candidates[0].col;
+    };
+
+    return defs.map((def) => ({ label: def.label, column: pickColumn(def.tokens) }));
+  }, [pagos2026TableColumns]);
+
+  const pagos2026ServicePaymentProgress = useMemo(() => {
+    if (!pagos2026Data.length) return [] as Array<{
+      key: string;
+      service: string;
+      paid: number;
+      total: number;
+      pct: number;
+      pctRaw: number;
+      monthly: Array<{ month: string; value: number }>;
+    }>;
+
+    return pagos2026Data.map((row, index) => {
+      const serviceValue = pagos2026ServiceFieldSummary ? row[pagos2026ServiceFieldSummary] : null;
+      const contractRef = String(row['No. Contrato'] ?? row['No contrato'] ?? row['No. de contrato'] ?? '').trim();
+      const service = String(serviceValue ?? '').trim() || (contractRef ? `Contrato ${contractRef}` : `Servicio ${index + 1}`);
+
+      const total = parseNumericValue(pagos2026MontoMaxFieldSummary ? row[pagos2026MontoMaxFieldSummary] : null);
+      const monthly = pagos2026MonthColumns.map((monthDef) => ({
+        month: monthDef.label,
+        value: monthDef.column ? parseNumericValue(row[monthDef.column]) : 0,
+      }));
+      const paid = monthly.reduce((acc, item) => acc + (Number.isFinite(item.value) ? item.value : 0), 0);
+
+      const pctRaw = total > 0 ? (paid / total) * 100 : 0;
+      const pct = Math.max(0, Math.min(100, pctRaw));
+
+      const key = String(extractPagosRowId(row) ?? contractRef ?? index);
+
+      return {
+        key,
+        service,
+        paid,
+        total,
+        pct,
+        pctRaw,
+        monthly,
+      };
+    }).sort((a, b) => b.paid - a.paid);
+  }, [pagos2026Data, pagos2026ServiceFieldSummary, pagos2026MontoMaxFieldSummary, pagos2026MonthColumns]);
+
+  const pagos2026ProgressTotals = useMemo(() => {
+    const totalToPay = pagos2026ServicePaymentProgress.reduce((acc, row) => acc + row.total, 0);
+    const totalPaid = pagos2026ServicePaymentProgress.reduce((acc, row) => acc + row.paid, 0);
+    const pct = totalToPay > 0 ? (totalPaid / totalToPay) * 100 : 0;
+    return { totalToPay, totalPaid, pct };
+  }, [pagos2026ServicePaymentProgress]);
 
   const serviciosStickyDefinitions = [
     { id: 'indice', match: ['id', 'no', 'no.', '#'], width: 90 },
@@ -8532,6 +8634,22 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
+                         <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-1">
+                           <button
+                             type="button"
+                             onClick={() => setActivePagos2026View('tabla')}
+                             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${activePagos2026View === 'tabla' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                           >
+                             Tabla
+                           </button>
+                           <button
+                             type="button"
+                             onClick={() => setActivePagos2026View('resumen')}
+                             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${activePagos2026View === 'resumen' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                           >
+                             Resumen pagos
+                           </button>
+                         </div>
                          <button
                             onClick={() => setIsPagos2026Compact(!isPagos2026Compact)}
                             className={`p-2 rounded-md transition-colors ${isPagos2026Compact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
@@ -8563,6 +8681,7 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                     </div>
                   </div>
 
+                   {activePagos2026View === 'tabla' ? (
                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                      <div className="p-4 border-b border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="relative w-full sm:w-96">
@@ -8826,6 +8945,102 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                         </table>
                      </div>
                    </div>
+                   ) : (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Servicios</p>
+                          <p className="text-2xl font-bold text-slate-900 mt-2">{pagos2026ServicePaymentProgress.length}</p>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total pagado</p>
+                          <p className="text-2xl font-bold text-slate-900 mt-2">{formatCurrency(pagos2026ProgressTotals.totalPaid)}</p>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Avance global</p>
+                          <p className="text-2xl font-bold text-slate-900 mt-2">{pagos2026ProgressTotals.pct.toFixed(1)}%</p>
+                          <p className="text-xs text-slate-500 mt-1">Meta total: {formatCurrency(pagos2026ProgressTotals.totalToPay)}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+                          <h3 className="text-sm font-semibold text-slate-700">Resumen de pagos por servicio</h3>
+                          <p className="text-xs text-slate-500 mt-1">Haz click en el total para ver el desglose por mes.</p>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm">
+                            <thead className="bg-[#0F4C3A] text-white">
+                              <tr>
+                                <th className="px-4 py-3 text-left font-semibold">Servicio</th>
+                                <th className="px-4 py-3 text-right font-semibold">Avance</th>
+                                <th className="px-4 py-3 text-right font-semibold">Pagado</th>
+                                <th className="px-4 py-3 text-right font-semibold">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {loadingData ? (
+                                <tr>
+                                  <td colSpan={4} className="px-4 py-8 text-center text-slate-400">
+                                    <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+                                    Cargando resumen...
+                                  </td>
+                                </tr>
+                              ) : pagos2026ServicePaymentProgress.length === 0 ? (
+                                <tr>
+                                  <td colSpan={4} className="px-4 py-8 text-center text-slate-400">No hay registros de pagos para resumir.</td>
+                                </tr>
+                              ) : (
+                                pagos2026ServicePaymentProgress.map((item, idx) => {
+                                  const isExpanded = expandedPagos2026SummaryKey === item.key;
+                                  return (
+                                    <React.Fragment key={item.key}>
+                                      <tr className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                                        <td className="px-4 py-3 text-slate-800 font-medium">{item.service}</td>
+                                        <td className="px-4 py-3 text-right">
+                                          <div className="inline-flex flex-col items-end min-w-[140px]">
+                                            <span className="text-slate-700 font-semibold">{item.pctRaw.toFixed(1)}%</span>
+                                            <div className="w-28 bg-slate-200 rounded-full h-1.5 mt-1">
+                                              <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${item.pct}%` }} />
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-mono text-slate-700">{formatCurrency(item.paid)}</td>
+                                        <td className="px-4 py-3 text-right">
+                                          <button
+                                            type="button"
+                                            onClick={() => setExpandedPagos2026SummaryKey(isExpanded ? null : item.key)}
+                                            className="font-mono text-[#0F4C3A] hover:text-[#0b3a2d] hover:underline"
+                                            title="Ver desglose mensual"
+                                          >
+                                            {formatCurrency(item.total)}
+                                          </button>
+                                        </td>
+                                      </tr>
+                                      {isExpanded && (
+                                        <tr className="bg-emerald-50/50">
+                                          <td colSpan={4} className="px-4 py-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                              {item.monthly.map((month) => (
+                                                <div key={`${item.key}-${month.month}`} className="rounded-lg border border-emerald-100 bg-white px-3 py-2 flex items-center justify-between">
+                                                  <span className="text-xs text-slate-500">{month.month}</span>
+                                                  <span className="text-xs font-semibold text-slate-700">{formatCurrency(month.value)}</span>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </React.Fragment>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                   )}
                 </div>
               )}
             </div>
@@ -11296,7 +11511,6 @@ const extractId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'
                               <button
                                 key={summary.responsible}
                                 type="button"
-                                aria-pressed={isActive}
                                 onClick={() => setSelectedResponsibleName((current) => (current === summary.responsible ? null : summary.responsible))}
                                 className={`text-left rounded-xl border transition-all p-5 bg-white ${isActive ? 'border-[#0F4C3A] shadow-lg ring-1 ring-[#0F4C3A]/20' : 'border-slate-200 hover:border-[#B38E5D] hover:shadow-md'}`}
                               >
