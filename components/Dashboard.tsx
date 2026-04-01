@@ -933,7 +933,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         record[col] = null; 
       } 
       // Boolean
-      else if (['activo', 'active', 'enabled', 'visible', 'check', 'valid', 'is_', 'has_', 'es_', 'tiene_', 'requiere', 'aplica', 'cumple', 'entregado', 'autorizado', 'cerrado', 'finalizado'].some(t => lower.includes(t))) {
+      else if (['activo', 'active', 'enabled', 'visible', 'check', 'valid', 'is_', 'has_', 'es_', 'tiene_', 'requiere', 'aplica', 'cumple', 'cumplimiento', 'garantia', 'entregado', 'autorizado', 'cerrado', 'finalizado'].some(t => lower.includes(t))) {
         record[col] = false;
       }
       // Text (Explicit)
@@ -2242,7 +2242,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (explicitNonBooleans.some(k => normalized === k || (normalized.startsWith(`${k} `) && !normalized.includes('si no')))) return false;
     
     if (isBooleanLikeValue(value)) return true;
-    const defaultHints = ['si/no', 'pagado', 'complemento', 'confirmado', 'validado', 'documentacion', 'documentación', 'investigacion', 'investigación', 'suficiencia', 'plurianual', 'anticipo', 'convenio', 'procedimiento'];
+    const defaultHints = ['si/no', 'pagado', 'complemento', 'confirmado', 'validado', 'documentacion', 'documentación', 'investigacion', 'investigación', 'suficiencia', 'plurianual', 'anticipo', 'convenio', 'procedimiento', 'garantia', 'cumplimiento'];
     return [...defaultHints, ...extraHints].some((hint) => normalized.includes(normalizeAnnualKey(hint)));
   };
 
@@ -3989,6 +3989,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             'complemento de pago',
             'complementos de pago',
             'entregable',
+            'garantia de cumplimiento',
+            'garantia cumplimiento',
+            'cumplimiento',
+            'garantia',
             'poliza',
             'paas'
             // Removed 'publicacion' to avoid conflict with dates like 'publicacion de convocatoria'
@@ -4041,6 +4045,82 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const estatus2026ClaveFieldSummary = useMemo(() => (
     findColumnByFragments(estatus2026TableColumns, ['clave_cucop', 'clave cucop', 'cucop', 'clave servicio', 'clave'])
   ), [estatus2026TableColumns]);
+
+  const estatus2026GarantiaCumplimientoField = useMemo(() => (
+    findColumnByFragments(estatus2026TableColumns, ['garantia de cumplimiento', 'garantia cumplimiento'])
+      ?? findColumnByFragments(estatus2026TableColumns, ['garantia'])
+  ), [estatus2026TableColumns]);
+
+  const estatus2026PolizaResponsabilidadCivilField = useMemo(() => (
+    findColumnByFragments(estatus2026TableColumns, ['poliza de responsabilidad civil', 'poliza responsabilidad civil', 'responsabilidad civil'])
+      ?? findColumnByFragments(estatus2026TableColumns, ['poliza'])
+  ), [estatus2026TableColumns]);
+
+  const getEstatus2026PaymentRequirementState = useCallback((row: Record<string, any>) => {
+    const garantiaOk = estatus2026GarantiaCumplimientoField
+      ? getBooleanChecked(row?.[estatus2026GarantiaCumplimientoField])
+      : true;
+    const polizaOk = estatus2026PolizaResponsabilidadCivilField
+      ? getBooleanChecked(row?.[estatus2026PolizaResponsabilidadCivilField])
+      : true;
+
+    const missingItems: string[] = [];
+    if (!garantiaOk) missingItems.push('garantía de cumplimiento');
+    if (!polizaOk) missingItems.push('póliza de responsabilidad civil');
+
+    let shortLabel = '';
+    if (missingItems.length === 2) {
+      shortLabel = 'Faltan garantía y póliza';
+    } else if (missingItems.length === 1) {
+      shortLabel = `Falta ${missingItems[0]}`;
+    }
+
+    return {
+      garantiaOk,
+      polizaOk,
+      missingItems,
+      readyForPayment: missingItems.length === 0,
+      shortLabel,
+    };
+  }, [estatus2026GarantiaCumplimientoField, estatus2026PolizaResponsabilidadCivilField]);
+
+  const estatus2026PaymentAlertSummary = useMemo(() => {
+    if (!estatus2026GarantiaCumplimientoField && !estatus2026PolizaResponsabilidadCivilField) {
+      return {
+        pendingCount: 0,
+        garantiaMissingCount: 0,
+        polizaMissingCount: 0,
+        bothMissingCount: 0,
+      };
+    }
+
+    let pendingCount = 0;
+    let garantiaMissingCount = 0;
+    let polizaMissingCount = 0;
+    let bothMissingCount = 0;
+
+    filteredEstatus2026Data.forEach((row) => {
+      const state = getEstatus2026PaymentRequirementState(row as Record<string, any>);
+      if (state.readyForPayment) return;
+
+      pendingCount += 1;
+      if (!state.garantiaOk) garantiaMissingCount += 1;
+      if (!state.polizaOk) polizaMissingCount += 1;
+      if (!state.garantiaOk && !state.polizaOk) bothMissingCount += 1;
+    });
+
+    return {
+      pendingCount,
+      garantiaMissingCount,
+      polizaMissingCount,
+      bothMissingCount,
+    };
+  }, [
+    estatus2026GarantiaCumplimientoField,
+    estatus2026PolizaResponsabilidadCivilField,
+    filteredEstatus2026Data,
+    getEstatus2026PaymentRequirementState,
+  ]);
 
   const displayedEstatus2026Rows = useMemo(() => {
     if (!estatus2026ServiceNameFieldSummary) {
@@ -8741,6 +8821,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                  
                  {renderActiveColumnFilterBadges('estatus2026')}
 
+                 {estatus2026PaymentAlertSummary.pendingCount > 0 && (
+                   <div className="mx-4 mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                       <div className="flex items-start gap-3">
+                         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                         <div className="space-y-1">
+                           <p className="text-sm font-semibold text-amber-900">
+                             {estatus2026PaymentAlertSummary.pendingCount} servicio{estatus2026PaymentAlertSummary.pendingCount === 1 ? '' : 's'} pendiente{estatus2026PaymentAlertSummary.pendingCount === 1 ? '' : 's'} para pago
+                           </p>
+                           <p className="text-sm text-amber-800">
+                             Para liberar pagos, deben estar palomeadas <span className="font-semibold">Garantía de cumplimiento</span> y <span className="font-semibold">Póliza de responsabilidad civil</span>.
+                           </p>
+                         </div>
+                       </div>
+                       <div className="flex flex-wrap gap-2 text-xs">
+                         <span className="inline-flex items-center rounded-full border border-amber-200 bg-white px-3 py-1 font-semibold text-amber-800">
+                           Falta garantía: {estatus2026PaymentAlertSummary.garantiaMissingCount}
+                         </span>
+                         <span className="inline-flex items-center rounded-full border border-amber-200 bg-white px-3 py-1 font-semibold text-amber-800">
+                           Falta póliza: {estatus2026PaymentAlertSummary.polizaMissingCount}
+                         </span>
+                         {estatus2026PaymentAlertSummary.bothMissingCount > 0 && (
+                           <span className="inline-flex items-center rounded-full border border-amber-200 bg-white px-3 py-1 font-semibold text-amber-800">
+                             Faltan ambas: {estatus2026PaymentAlertSummary.bothMissingCount}
+                           </span>
+                         )}
+                       </div>
+                     </div>
+                   </div>
+                 )}
+
                  <div className="relative h-[calc(100vh-280px)] overflow-auto shadow-inner rounded-xl border border-slate-200">
                     <table className="min-w-full text-center border-collapse">
                       <thead className="sticky top-0 z-20 shadow-sm">
@@ -8809,6 +8920,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                              displayedEstatus2026Rows.map(({ row, isPrimary, turnNumber }, idx) => {
                                const rowKey = String(row['id'] ?? row['ID'] ?? idx); // prefer unique ID
                               const rowHasConvenio = Object.entries(row as Record<string, any>).some(([key, value]) => isConvenioColumnName(key) && getBooleanChecked(value));
+                              const paymentRequirementState = getEstatus2026PaymentRequirementState(row as Record<string, any>);
                               const hasObs = estatus2026ObservationsColumn ? String(row[estatus2026ObservationsColumn] ?? '').trim().length > 0 : false;
                                 const zebraBackground = rowHasConvenio ? '#ECFDF5' : (hasObs ? '#FFFBEB' : (idx % 2 === 0 ? '#ffffff' : '#f8fafc'));
                                 const rowStyle = buildRowStyle(zebraBackground);
@@ -8825,6 +8937,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         const isCurrencyColumn = shouldFormatAsCurrency(column);
                                         const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || isCurrencyColumn);
                                         const isServiceNameCell = column === estatus2026ServiceNameFieldSummary;
+                                        const isGarantiaRequirementCell = column === estatus2026GarantiaCumplimientoField;
+                                        const isPolizaRequirementCell = column === estatus2026PolizaResponsabilidadCivilField;
+                                        const isPendingRequirementCell =
+                                          (isGarantiaRequirementCell && !paymentRequirementState.garantiaOk) ||
+                                          (isPolizaRequirementCell && !paymentRequirementState.polizaOk);
                                         const convenioBadge = rowHasConvenio ? (
                                           <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                                             Convenio modificatorio
@@ -8883,7 +9000,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 dateInputValue = `${y}-${m}-${d}`;
                                         }
 
-                                        const cellBackgroundColor = isHighlighted ? '#F4CCCC' : isObservations ? '#F5F3FF' : undefined; 
+                                        const cellBackgroundColor = isPendingRequirementCell
+                                          ? '#FEF3C7'
+                                          : isHighlighted
+                                            ? '#F4CCCC'
+                                            : isObservations
+                                              ? '#F5F3FF'
+                                              : undefined; 
 
                                         const isSticky = !!stickyConfig;
                                         const stickyCellStyle: React.CSSProperties = isSticky ? {
@@ -9021,6 +9144,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                         Convenio modificatorio
                                                       </button>
                                                     ) : convenioBadge}
+                                                    {!paymentRequirementState.readyForPayment && (
+                                                      <>
+                                                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                                          Pago pendiente
+                                                        </span>
+                                                        <p className="max-w-[220px] text-center text-[10px] leading-4 text-amber-700">
+                                                          {paymentRequirementState.shortLabel}. Sin ambos documentos no se pueden liberar pagos.
+                                                        </p>
+                                                      </>
+                                                    )}
                                                   </div>
                                                 ) : (
                                                   <div
@@ -9120,6 +9253,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                           Convenio modificatorio
                                                         </button>
                                                       ) : convenioBadge}
+                                                      {!paymentRequirementState.readyForPayment && (
+                                                        <>
+                                                          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                                            Pago pendiente
+                                                          </span>
+                                                          <p className="max-w-[220px] text-center text-[10px] leading-4 text-amber-700">
+                                                            {paymentRequirementState.shortLabel}. Sin ambos documentos no se pueden liberar pagos.
+                                                          </p>
+                                                        </>
+                                                      )}
                                                     </div>
                                                   ) : (
                                                     editingValue
