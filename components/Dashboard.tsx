@@ -650,8 +650,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [expandedPagos2026SummaryKey, setExpandedPagos2026SummaryKey] = useState<string | null>(null);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
-
+  
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
+  const [expandedServiciosConvenio, setExpandedServiciosConvenio] = useState<Record<string, boolean>>({});
+  const [expandedEstatus2026Convenio, setExpandedEstatus2026Convenio] = useState<Record<string, boolean>>({});
   const [tableFilters, setTableFilters] = useState<TableFilterMap>({
     annual2026: '',
     servicios2026: '',
@@ -1798,20 +1800,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const fetchAllData = async () => {
       try {
         setLoadingData(true);
-        
-        await fetchContractsData();
-        await fetchCommercialSpacesData();
-        await fetchAnnual2026Data();
-        await fetchServicios2026Data();
-        await fetchEstatus2026Data();
-        await fetchPagos2026Data();
-        await fetchPaasData();
-        await fetchPaymentsData();
-        await fetchInvoicesData();
-        await fetchCompranetData();
-        await fetchProceduresData();
-        await fetchProcedureStatusData();
-        await fetchChangeHistory();
+
+        const results = await Promise.allSettled([
+          fetchContractsData(),
+          fetchCommercialSpacesData(),
+          fetchAnnual2026Data(),
+          fetchServicios2026Data(),
+          fetchEstatus2026Data(),
+          fetchPagos2026Data(),
+          fetchPaasData(),
+          fetchPaymentsData(),
+          fetchInvoicesData(),
+          fetchCompranetData(),
+          fetchProceduresData(),
+          fetchProcedureStatusData(),
+          fetchChangeHistory(),
+        ]);
+
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            console.error(`Error cargando bloque ${index + 1}:`, result.reason);
+          }
+        });
 
       } catch (e) {
         console.error("Exception fetching data", e);
@@ -2737,6 +2747,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return null;
   };
 
+  const findServiceNameColumn = (columns: string[]) => {
+    if (!columns.length) return null;
+
+    const candidates = columns
+      .map((column) => {
+        const normalized = normalizeAnnualKey(column);
+        let score = -1;
+
+        if (normalized === 'nombre del servicio' || normalized === 'nombre_servicio' || normalized === 'nombre del servicio.') {
+          score = 100;
+        } else if (normalized.includes('nombre del servicio') || normalized.includes('nombre_servicio')) {
+          score = 95;
+        } else if (normalized === 'objeto del contrato' || normalized === 'descripcion del servicio') {
+          score = 85;
+        } else if (
+          (normalized.includes('servicio') || normalized.includes('objeto') || normalized.includes('concepto') || normalized.includes('descripcion')) &&
+          !normalized.includes('observacion') &&
+          !normalized.includes('observación') &&
+          !normalized.includes('estatus') &&
+          !normalized.includes('fase') &&
+          !normalized.includes('clave')
+        ) {
+          score = 60;
+        }
+
+        return score >= 0 ? { column, score, length: normalized.length } : null;
+      })
+      .filter((value): value is { column: string; score: number; length: number } => value !== null);
+
+    if (!candidates.length) return null;
+
+    candidates.sort((a, b) => (b.score - a.score) || (a.length - b.length));
+    return candidates[0].column;
+  };
+
   const parsePotentialDate = (value: any) => {
     if (!value) return null;
     if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
@@ -2744,21 +2789,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       const trimmed = value.trim();
       if (!trimmed) return null;
 
-      // Handle ISO text format YYYY-MM-DD manually to prevent UTC shift
-      const isoPattern = /^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/;
-      const isoMatch = trimmed.match(isoPattern);
-      if (isoMatch) {
-          const year = parseInt(isoMatch[1], 10);
-          const month = parseInt(isoMatch[2], 10) - 1;
-          const day = parseInt(isoMatch[3], 10);
-          const candidate = new Date(year, month, day);
-          if (!Number.isNaN(candidate.getTime())) return candidate;
-      }
-
       const hasDateSeparator = /[-\/]/.test(trimmed);
       const hasTimeComponent = /t\d{2}:/i.test(trimmed) || /\d{1,2}:\d{2}/.test(trimmed);
       if (!hasDateSeparator && !hasTimeComponent) {
         return null;
+      }
+
+      // Preserve local-day handling only for pure dates like 2026-03-31.
+      // If the string already includes time, let the native parser keep it.
+      const exactIsoDatePattern = /^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/;
+      const exactIsoDateMatch = !hasTimeComponent ? trimmed.match(exactIsoDatePattern) : null;
+      if (exactIsoDateMatch) {
+        const year = parseInt(exactIsoDateMatch[1], 10);
+        const month = parseInt(exactIsoDateMatch[2], 10) - 1;
+        const day = parseInt(exactIsoDateMatch[3], 10);
+        const candidate = new Date(year, month, day);
+        if (!Number.isNaN(candidate.getTime())) return candidate;
       }
 
       const direct = new Date(trimmed);
@@ -3989,8 +4035,49 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   ), [estatus2026TableColumns]);
 
   const estatus2026ServiceNameFieldSummary = useMemo(() => (
-    findColumnByFragments(estatus2026TableColumns, ['nombre del servicio', 'nombre_servicio', 'servicio', 'descripcion', 'concepto', 'objeto'])
+    findServiceNameColumn(estatus2026TableColumns)
   ), [estatus2026TableColumns]);
+
+  const estatus2026ClaveFieldSummary = useMemo(() => (
+    findColumnByFragments(estatus2026TableColumns, ['clave_cucop', 'clave cucop', 'cucop', 'clave servicio', 'clave'])
+  ), [estatus2026TableColumns]);
+
+  const displayedEstatus2026Rows = useMemo(() => {
+    if (!estatus2026ServiceNameFieldSummary) {
+      return filteredEstatus2026Data.map((row) => ({ row, groupKey: '', isPrimary: true, turnNumber: 1 }));
+    }
+
+    const grouped = new Map<string, Record<string, any>[]>();
+    filteredEstatus2026Data.forEach((row) => {
+      const key = buildConvenioGroupKey(row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary);
+      const current = grouped.get(key) ?? [];
+      current.push(row);
+      grouped.set(key, current);
+    });
+
+    const result: Array<{ row: Record<string, any>; groupKey: string; isPrimary: boolean; turnNumber: number }> = [];
+    grouped.forEach((rows, key) => {
+      const hasConvenioGroup = rows.some((row) =>
+        Object.entries(row).some(([column, value]) => isConvenioColumnName(column) && getBooleanChecked(value))
+      );
+      const shouldCollapseGroup = hasConvenioGroup && rows.length > 1;
+
+      if (!shouldCollapseGroup) {
+        rows.forEach((row) => {
+          result.push({ row, groupKey: '', isPrimary: true, turnNumber: 1 });
+        });
+        return;
+      }
+
+      rows.forEach((row, index) => {
+        if (index === 0 || expandedEstatus2026Convenio[key]) {
+          result.push({ row, groupKey: key, isPrimary: index === 0, turnNumber: index + 1 });
+        }
+      });
+    });
+
+    return result;
+  }, [estatus2026ClaveFieldSummary, estatus2026ServiceNameFieldSummary, expandedEstatus2026Convenio, filteredEstatus2026Data]);
 
   const estatus2026SubdirFieldSummary = useMemo(() => (
     findColumnByFragments(estatus2026TableColumns, ['subdireccion', 'subdirección', 'subdir'])
@@ -4777,12 +4864,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   ), [serviciosTableColumns]);
 
   const serviciosServiceNameField = useMemo(() => (
-    findColumnByFragments(serviciosTableColumns, ['nombre del servicio', 'servicio', 'descripcion', 'concepto', 'objeto'])
+    findServiceNameColumn(serviciosTableColumns)
   ), [serviciosTableColumns]);
 
   const serviciosClaveField = useMemo(() => (
     findColumnByFragments(serviciosTableColumns, ['clave cucop', 'clave servicio', 'clave'])
   ), [serviciosTableColumns]);
+
+  const displayedServicios2026Rows = useMemo(() => {
+    const visibleRows = filteredServicios2026Data.filter((row) => !isEmptyStatusLikeRow(row));
+    if (!serviciosServiceNameField) {
+      return visibleRows.map((row) => ({ row, groupKey: '', isPrimary: true, turnNumber: 1 }));
+    }
+
+    const grouped = new Map<string, Record<string, any>[]>();
+    visibleRows.forEach((row) => {
+      const key = buildConvenioGroupKey(row, serviciosServiceNameField, serviciosClaveField);
+      const current = grouped.get(key) ?? [];
+      current.push(row);
+      grouped.set(key, current);
+    });
+
+    const result: Array<{ row: Record<string, any>; groupKey: string; isPrimary: boolean; turnNumber: number }> = [];
+    grouped.forEach((rows, key) => {
+      const hasConvenioGroup = rows.some((row) =>
+        Object.entries(row).some(([column, value]) => isConvenioColumnName(column) && getBooleanChecked(value))
+      );
+      const shouldCollapseGroup = hasConvenioGroup && rows.length > 1;
+
+      if (!shouldCollapseGroup) {
+        rows.forEach((row) => {
+          result.push({ row, groupKey: '', isPrimary: true, turnNumber: 1 });
+        });
+        return;
+      }
+
+      rows.forEach((row, index) => {
+        if (index === 0 || expandedServiciosConvenio[key]) {
+          result.push({ row, groupKey: key, isPrimary: index === 0, turnNumber: index + 1 });
+        }
+      });
+    });
+
+    return result;
+  }, [expandedServiciosConvenio, filteredServicios2026Data, serviciosClaveField, serviciosServiceNameField]);
 
   const serviciosSubdireccionField = useMemo(() => (
     findColumnByFragments(serviciosTableColumns, ['subdireccion', 'subdirección'])
@@ -5567,6 +5692,255 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       alert('No se pudo guardar el cambio en Supabase. Se restauró el valor anterior.');
       setData(optimisticSnapshot);
     }
+  };
+
+  function isConvenioColumnName(column: string) {
+    return normalizeAnnualKey(column).includes('convenio');
+  }
+
+  const buildNextConvenioId = (rows: Record<string, any>[], primaryKey: string, currentValue: any) => {
+    const numericIds = rows
+      .map((entry) => {
+        const raw = entry?.[primaryKey];
+        if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+        if (typeof raw === 'string' && raw.trim().length > 0) {
+          const parsed = Number(raw.trim());
+          return Number.isFinite(parsed) ? parsed : null;
+        }
+        return null;
+      })
+      .filter((value): value is number => value !== null);
+
+    if (numericIds.length > 0) return Math.max(...numericIds) + 1;
+
+    const base = String(currentValue ?? 'convenio').trim() || 'convenio';
+    return `${base}-${Date.now()}`;
+  };
+
+  const handleConvenioCellEdit = async (
+    tableName: string,
+    rowRef: Record<string, any>,
+    column: string,
+    checked: boolean,
+    setData: React.Dispatch<React.SetStateAction<any[]>>,
+    data: Record<string, any>[]
+  ) => {
+    if (!requireManagePermission()) return;
+
+    const currentChecked = getBooleanChecked(rowRef[column]);
+    if (currentChecked === checked) return;
+
+    if (!checked) {
+      await handleGenericCellEdit(tableName, rowRef, column, false, setData, data);
+      return;
+    }
+
+    const pk = resolvePrimaryKey(rowRef, tableName);
+    if (!pk) {
+      alert('No se pudo identificar la llave primaria para crear la vuelta del convenio.');
+      return;
+    }
+
+    const sourceIndex = data.findIndex((entry) => entry?.[pk] === rowRef?.[pk]);
+    if (sourceIndex < 0) {
+      await handleGenericCellEdit(tableName, rowRef, column, true, setData, data);
+      return;
+    }
+
+    const sourceRow = { ...rowRef };
+    const updatedSourceRow = { ...sourceRow, [column]: true };
+    const clonePayload: Record<string, any> = { ...sourceRow, [column]: false };
+    delete clonePayload[pk];
+
+    const nextId = buildNextConvenioId(data, pk, rowRef?.[pk]);
+    const optimisticClone = { ...clonePayload, [pk]: nextId };
+    const optimisticRows = [...data];
+    optimisticRows[sourceIndex] = updatedSourceRow;
+    optimisticRows.splice(sourceIndex + 1, 0, optimisticClone);
+    setData(optimisticRows);
+
+    try {
+      const { error: updateError } = await supabase
+        .from(tableName)
+        .update({ [column]: true })
+        .eq(pk, rowRef[pk]);
+
+      if (updateError) throw updateError;
+
+      const insertPayload = { ...clonePayload, [pk]: nextId };
+      const { data: insertedData, error: insertError } = await supabase
+        .from(tableName)
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      const insertedRow = insertedData ?? optimisticClone;
+
+      setData((prev) => {
+        const refreshed = [...prev];
+        const refreshedSourceIndex = refreshed.findIndex((entry) => entry?.[pk] === rowRef?.[pk]);
+        if (refreshedSourceIndex >= 0) {
+          refreshed[refreshedSourceIndex] = { ...refreshed[refreshedSourceIndex], [column]: true };
+          const cloneIndex = refreshed.findIndex((entry) => entry?.[pk] === optimisticClone?.[pk]);
+          if (cloneIndex >= 0) {
+            refreshed[cloneIndex] = insertedRow;
+          } else {
+            refreshed.splice(refreshedSourceIndex + 1, 0, insertedRow);
+          }
+        }
+        return refreshed;
+      });
+
+      await logChange({
+        table: tableName,
+        action: 'UPDATE',
+        recordId: rowRef[pk],
+        before: { [column]: rowRef[column] },
+        after: { [column]: true },
+      });
+
+      await logChange({
+        table: tableName,
+        action: 'INSERT',
+        recordId: insertedRow?.[pk] ?? nextId,
+        before: null,
+        after: insertedRow,
+      });
+    } catch (error) {
+      console.error(`Error guardando convenio modificatorio en ${tableName}:`, error);
+      alert('No se pudo crear la nueva vuelta del convenio modificatorio. Se restauró el valor anterior.');
+      setData(data);
+    }
+  };
+
+  function normalizeConvenioServiceKey(value: any) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  function buildConvenioGroupKey(row: Record<string, any>, serviceField: string | null, secondaryField?: string | null) {
+    const serviceKey = normalizeConvenioServiceKey(serviceField ? row?.[serviceField] : null);
+    const secondaryKey = secondaryField ? normalizeConvenioServiceKey(row?.[secondaryField]) : '';
+    return secondaryKey ? `${serviceKey}::${secondaryKey}` : serviceKey;
+  }
+
+  function isEmptyStatusLikeRow(row: Record<string, any>) {
+    const ignoredKeys = new Set(['id', 'ID', 'Id', 'created_at', 'updated_at', 'createdAt', 'updatedAt']);
+
+    return !Object.entries(row ?? {}).some(([key, value]) => {
+      if (ignoredKeys.has(key)) return false;
+
+      if (value === null || value === undefined) return false;
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'number') return value !== 0;
+      if (value instanceof Date) return !Number.isNaN(value.getTime());
+
+      const normalized = String(value).replace(/\s+/g, ' ').trim();
+      if (!normalized.length) return false;
+
+      const normalizedLower = normalized.toLowerCase();
+      if (normalizedLower === 'false' || normalizedLower === 'no') return false;
+
+      return true;
+    });
+  }
+
+  const createConvenioDuplicateRow = async (
+    tableName: string,
+    rowRef: Record<string, any>,
+    serviceField: string | null,
+    setData: React.Dispatch<React.SetStateAction<any[]>>,
+    data: Record<string, any>[]
+  ) => {
+    const pk = resolvePrimaryKey(rowRef, tableName);
+    if (!pk) {
+      alert('No se pudo identificar la llave primaria para crear la nueva vuelta.');
+      return null;
+    }
+
+    const nextId = buildNextConvenioId(data, pk, rowRef?.[pk]);
+    const clonePayload: Record<string, any> = { ...rowRef, [pk]: nextId };
+
+    Object.keys(clonePayload).forEach((key) => {
+      if (isConvenioColumnName(key)) {
+        clonePayload[key] = false;
+      }
+    });
+
+    const sourceIndex = data.findIndex((entry) => entry?.[pk] === rowRef?.[pk]);
+    const optimisticRows = [...data];
+    if (sourceIndex >= 0) {
+      optimisticRows.splice(sourceIndex + 1, 0, clonePayload);
+      setData(optimisticRows);
+    }
+
+    try {
+      const { data: insertedData, error } = await supabase
+        .from(tableName)
+        .insert(clonePayload)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const insertedRow = insertedData ?? clonePayload;
+      setData((prev) => {
+        const refreshed = [...prev];
+        const optimisticIndex = refreshed.findIndex((entry) => entry?.[pk] === nextId);
+        if (optimisticIndex >= 0) {
+          refreshed[optimisticIndex] = insertedRow;
+        } else if (sourceIndex >= 0) {
+          refreshed.splice(sourceIndex + 1, 0, insertedRow);
+        } else {
+          refreshed.push(insertedRow);
+        }
+        return refreshed;
+      });
+
+      await logChange({
+        table: tableName,
+        action: 'INSERT',
+        recordId: insertedRow?.[pk] ?? nextId,
+        before: null,
+        after: insertedRow,
+      });
+
+      return insertedRow;
+    } catch (error) {
+      console.error(`Error creando nueva vuelta en ${tableName}:`, error);
+      alert('No se pudo crear la nueva vuelta del servicio.');
+      setData(data);
+      return null;
+    }
+  };
+
+  const handleConvenioServiceClick = async (
+    tableName: string,
+    rowRef: Record<string, any>,
+    serviceField: string | null,
+    secondaryField: string | null,
+    data: Record<string, any>[],
+    setData: React.Dispatch<React.SetStateAction<any[]>>,
+    expandedMap: Record<string, boolean>,
+    setExpandedMap: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+  ) => {
+    if (!serviceField) return;
+
+    const serviceKey = buildConvenioGroupKey(rowRef, serviceField, secondaryField);
+    if (!serviceKey) return;
+
+    const matchingRows = data.filter((entry) => buildConvenioGroupKey(entry, serviceField, secondaryField) === serviceKey);
+    const hasConvenio = Object.entries(rowRef).some(([key, value]) => isConvenioColumnName(key) && getBooleanChecked(value));
+    if (!hasConvenio) return;
+
+    const hasDuplicate = matchingRows.length > 1;
+    if (!hasDuplicate) {
+      const insertedRow = await createConvenioDuplicateRow(tableName, rowRef, serviceField, setData, data);
+      if (!insertedRow) return;
+    }
+
+    setExpandedMap((prev) => ({ ...prev, [serviceKey]: !prev[serviceKey] }));
   };
 
   const handleAnnualCellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('año_2026', row, col, val, setAnnual2026Data, annual2026Data);
@@ -7224,7 +7598,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </button>
                         )}
                         <span className="text-slate-500">
-                          {formatResultLabel(filteredServicios2026Data.length)}
+                          {formatResultLabel(displayedServicios2026Rows.length)}
                           {tableFilters.servicios2026.trim() ? ' · filtro general' : ''}
                           {serviciosColumnFiltersCount ? ` · ${formatColumnFilterLabel(serviciosColumnFiltersCount)}` : ''}
                         </span>
@@ -7258,13 +7632,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <tbody className="divide-y divide-slate-100">
                           {loadingData ? (
                             <tr><td colSpan={serviciosTableColumns.length + 1} className="text-center py-10 text-slate-500">Cargando...</td></tr>
-                          ) : !filteredServicios2026Data.length ? (
+                          ) : !displayedServicios2026Rows.length ? (
                             <tr><td colSpan={serviciosTableColumns.length + 1} className="text-center py-10 text-slate-500">No hay datos.</td></tr>
                           ) : (
-                            filteredServicios2026Data.map((row, rowIndex) => {
+                            displayedServicios2026Rows.map(({ row, isPrimary, turnNumber }, rowIndex) => {
                               const rowKey = row.id ?? `servicio-row-${rowIndex}`;
+                              const rowHasConvenio = Object.entries(row as Record<string, any>).some(([key, value]) => isConvenioColumnName(key) && getBooleanChecked(value));
                               const isStriped = rowIndex % 2 === 0;
-                              const zebraBackground = isStriped ? '#ffffff' : '#f8fafc';
+                              const zebraBackground = rowHasConvenio ? '#ECFDF5' : (isStriped ? '#ffffff' : '#f8fafc');
                               const rowStyle = buildRowStyle(zebraBackground);
                               const columns = serviciosColumnsToRender.length ? serviciosColumnsToRender : serviciosTableColumns;
 
@@ -7320,6 +7695,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     ]);
                                     
                                     const isDateCol = normalizeAnnualKey(column).includes('fecha');
+                                    const isServiceNameCell = column === serviciosServiceNameField;
+                                    const convenioBadge = rowHasConvenio ? (
+                                      <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                        Convenio modificatorio
+                                      </span>
+                                    ) : !isPrimary ? (
+                                      <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                                        {`Vuelta ${turnNumber}`}
+                                      </span>
+                                    ) : null;
 
                                     const isChecked = isBooleanCol ? getBooleanChecked(rawValue) : false;
 
@@ -7336,6 +7721,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                       checked={isChecked}
                                                         onChange={(e) => {
                                                           const newVal = e.target.checked;
+                                                          if (isConvenioColumnName(column)) {
+                                                            handleConvenioCellEdit('estatus_servicios_2026', row, column, newVal, setServicios2026Data, servicios2026Data);
+                                                            return;
+                                                          }
                                                           const valToSave = getBooleanSaveValue(rawValue, column, newVal);
                                                           handleServiciosCellEdit(row, column, valToSave);
                                                         }}
@@ -7359,20 +7748,58 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 onClick={(e) => e.stopPropagation()}
                                             />
                                           ) : (
-                                          <div
-                                            contentEditable
-                                            suppressContentEditableWarning
-                                            className={`inline-block w-full ${serviciosSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
-                                            onBlur={(event) => handleServiciosCellEdit(row, column, event.currentTarget.textContent ?? '')}
-                                            onKeyDown={(event) => {
-                                              if (event.key === 'Enter') {
-                                                event.preventDefault();
-                                                (event.currentTarget as HTMLDivElement).blur();
-                                              }
-                                            }}
-                                          >
-                                            {editingValue}
-                                          </div>
+                                          isServiceNameCell ? (
+                                            <div className="flex flex-col items-center gap-1">
+                                              {rowHasConvenio && isPrimary ? (
+                                                <button
+                                                  type="button"
+                                                  className="inline-block w-full px-0.5 py-0.5 text-center font-medium text-slate-700 hover:text-emerald-700"
+                                                  onClick={() => handleConvenioServiceClick('estatus_servicios_2026', row, serviciosServiceNameField, serviciosClaveField, servicios2026Data, setServicios2026Data, expandedServiciosConvenio, setExpandedServiciosConvenio)}
+                                                >
+                                                  {editingValue}
+                                                </button>
+                                              ) : (
+                                                <div
+                                                  contentEditable
+                                                  suppressContentEditableWarning
+                                                  className={`inline-block w-full ${serviciosSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                                  onBlur={(event) => handleServiciosCellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                                  onKeyDown={(event) => {
+                                                    if (event.key === 'Enter') {
+                                                      event.preventDefault();
+                                                      (event.currentTarget as HTMLDivElement).blur();
+                                                    }
+                                                  }}
+                                                >
+                                                  {editingValue}
+                                                </div>
+                                              )}
+                                              {rowHasConvenio && isPrimary ? (
+                                                <button
+                                                  type="button"
+                                                  className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200"
+                                                  onClick={() => handleConvenioServiceClick('estatus_servicios_2026', row, serviciosServiceNameField, serviciosClaveField, servicios2026Data, setServicios2026Data, expandedServiciosConvenio, setExpandedServiciosConvenio)}
+                                                >
+                                                  Convenio modificatorio
+                                                </button>
+                                              ) : convenioBadge}
+                                            </div>
+                                          ) : (
+                                            <div
+                                              contentEditable
+                                              suppressContentEditableWarning
+                                              className={`inline-block w-full ${serviciosSizing.editorMinHeightClass} whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                              onBlur={(event) => handleServiciosCellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                              onKeyDown={(event) => {
+                                                if (event.key === 'Enter') {
+                                                  event.preventDefault();
+                                                  (event.currentTarget as HTMLDivElement).blur();
+                                                }
+                                              }}
+                                            >
+                                              {editingValue}
+                                            </div>
+                                          )
                                           )
                                         ) : (
                                           isBooleanCol ? (
@@ -7386,7 +7813,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                   </div>
                                               </div>
                                           ) : (
-                                            formatTableValue(column, rawValue)
+                                            isServiceNameCell ? (
+                                              <div className="flex flex-col items-center gap-1">
+                                                {rowHasConvenio && isPrimary ? (
+                                                  <button
+                                                    type="button"
+                                                    className="font-medium text-slate-700 hover:text-emerald-700"
+                                                    onClick={() => handleConvenioServiceClick('estatus_servicios_2026', row, serviciosServiceNameField, serviciosClaveField, servicios2026Data, setServicios2026Data, expandedServiciosConvenio, setExpandedServiciosConvenio)}
+                                                  >
+                                                    {formatTableValue(column, rawValue)}
+                                                  </button>
+                                                ) : (
+                                                  <span>{formatTableValue(column, rawValue)}</span>
+                                                )}
+                                                {rowHasConvenio && isPrimary ? (
+                                                  <button
+                                                    type="button"
+                                                    className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200"
+                                                    onClick={() => handleConvenioServiceClick('estatus_servicios_2026', row, serviciosServiceNameField, serviciosClaveField, servicios2026Data, setServicios2026Data, expandedServiciosConvenio, setExpandedServiciosConvenio)}
+                                                  >
+                                                    Convenio modificatorio
+                                                  </button>
+                                                ) : convenioBadge}
+                                              </div>
+                                            ) : (
+                                              formatTableValue(column, rawValue)
+                                            )
                                           )
                                         )}
                                       </td>
@@ -8354,12 +8806,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                </td>
                              </tr>
                          ) : (
-                            filteredEstatus2026Data.map((row, idx) => {
+                             displayedEstatus2026Rows.map(({ row, isPrimary, turnNumber }, idx) => {
                                const rowKey = String(row['id'] ?? row['ID'] ?? idx); // prefer unique ID
-                             const hasObs = estatus2026ObservationsColumn ? String(row[estatus2026ObservationsColumn] ?? '').trim().length > 0 : false;
-                               const zebraBackground = hasObs ? '#FFFBEB' : (idx % 2 === 0 ? '#ffffff' : '#f8fafc');
-                               const rowStyle = buildRowStyle(zebraBackground);
-                               const isCellEditable = isEstatus2026Editing;
+                              const rowHasConvenio = Object.entries(row as Record<string, any>).some(([key, value]) => isConvenioColumnName(key) && getBooleanChecked(value));
+                              const hasObs = estatus2026ObservationsColumn ? String(row[estatus2026ObservationsColumn] ?? '').trim().length > 0 : false;
+                                const zebraBackground = rowHasConvenio ? '#ECFDF5' : (hasObs ? '#FFFBEB' : (idx % 2 === 0 ? '#ffffff' : '#f8fafc'));
+                                const rowStyle = buildRowStyle(zebraBackground);
+                                const isCellEditable = isEstatus2026Editing;
                                return (
                                  <tr key={rowKey} className={`transition-colors group ${hasObs ? 'hover:bg-amber-100' : 'hover:bg-slate-50'}`} style={rowStyle}>
                                     {estatus2026TableColumns.map((column) => {
@@ -8371,6 +8824,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                                         const isCurrencyColumn = shouldFormatAsCurrency(column);
                                         const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || isCurrencyColumn);
+                                        const isServiceNameCell = column === estatus2026ServiceNameFieldSummary;
+                                        const convenioBadge = rowHasConvenio ? (
+                                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                            Convenio modificatorio
+                                          </span>
+                                        ) : !isPrimary ? (
+                                          <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                                            {`Vuelta ${turnNumber}`}
+                                          </span>
+                                        ) : null;
                                         
                                         const baseClasses = `px-4 border-b border-slate-50 min-w-[120px] whitespace-pre-wrap break-words ${isEstatus2026Compact ? 'py-1' : 'py-3'} ${numeric ? "text-right font-mono" : "text-center"}`;
                                         const cellClasses = isCellEditable ? `${baseClasses} cursor-text` : baseClasses;
@@ -8456,6 +8919,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                         checked={isChecked}
                                                         onChange={(e) => {
                                                             const newVal = e.target.checked;
+                                                            if (isConvenioColumnName(column)) {
+                                                              handleConvenioCellEdit('estatus_2026', row, column, newVal, setEstatus2026Data, estatus2026Data);
+                                                              return;
+                                                            }
                                                             const valToSave = getBooleanSaveValue(rawValue, column, newVal);
                                                             handleEstatus2026CellEdit(row, column, valToSave);
                                                         }}
@@ -8519,20 +8986,58 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                   );
                                                 })()
                                               ) : (
-                                                <div
-                                                    contentEditable
-                                                    suppressContentEditableWarning
-                                                    className={`inline-block w-full min-h-[1.5em] whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
-                                                    onBlur={(event) => handleEstatus2026CellEdit(row, column, event.currentTarget.textContent ?? '')}
-                                                    onKeyDown={(event) => {
-                                                    if (event.key === 'Enter') {
-                                                        event.preventDefault();
-                                                        (event.currentTarget as HTMLDivElement).blur();
-                                                    }
-                                                    }}
-                                                >
-                                                    {editingValue}
-                                                </div>
+                                                isServiceNameCell ? (
+                                                  <div className="flex flex-col items-center gap-1">
+                                                    {rowHasConvenio && isPrimary ? (
+                                                      <button
+                                                        type="button"
+                                                        className="inline-block w-full px-0.5 py-0.5 text-center font-medium text-slate-700 hover:text-emerald-700"
+                                                        onClick={() => handleConvenioServiceClick('estatus_2026', row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatus2026Data, setEstatus2026Data, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
+                                                      >
+                                                        {editingValue}
+                                                      </button>
+                                                    ) : (
+                                                      <div
+                                                        contentEditable
+                                                        suppressContentEditableWarning
+                                                        className={`inline-block w-full min-h-[1.5em] whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                                        onBlur={(event) => handleEstatus2026CellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                                        onKeyDown={(event) => {
+                                                          if (event.key === 'Enter') {
+                                                            event.preventDefault();
+                                                            (event.currentTarget as HTMLDivElement).blur();
+                                                          }
+                                                        }}
+                                                      >
+                                                        {editingValue}
+                                                      </div>
+                                                    )}
+                                                    {rowHasConvenio && isPrimary ? (
+                                                      <button
+                                                        type="button"
+                                                        className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200"
+                                                        onClick={() => handleConvenioServiceClick('estatus_2026', row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatus2026Data, setEstatus2026Data, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
+                                                      >
+                                                        Convenio modificatorio
+                                                      </button>
+                                                    ) : convenioBadge}
+                                                  </div>
+                                                ) : (
+                                                  <div
+                                                      contentEditable
+                                                      suppressContentEditableWarning
+                                                      className={`inline-block w-full min-h-[1.5em] whitespace-pre-wrap break-words px-0.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded-sm`}
+                                                      onBlur={(event) => handleEstatus2026CellEdit(row, column, event.currentTarget.textContent ?? '')}
+                                                      onKeyDown={(event) => {
+                                                      if (event.key === 'Enter') {
+                                                          event.preventDefault();
+                                                          (event.currentTarget as HTMLDivElement).blur();
+                                                      }
+                                                      }}
+                                                  >
+                                                      {editingValue}
+                                                  </div>
+                                                )
                                               )
                                           ) : (
                                               isBoolean ? (
@@ -8593,7 +9098,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                     );
                                                   })()
                                               ) : (
-                                                  editingValue
+                                                  isServiceNameCell ? (
+                                                    <div className="flex flex-col items-center gap-1">
+                                                      {rowHasConvenio && isPrimary ? (
+                                                        <button
+                                                          type="button"
+                                                          className="font-medium text-slate-700 hover:text-emerald-700"
+                                                          onClick={() => handleConvenioServiceClick('estatus_2026', row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatus2026Data, setEstatus2026Data, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
+                                                        >
+                                                          {editingValue}
+                                                        </button>
+                                                      ) : (
+                                                        <span>{editingValue}</span>
+                                                      )}
+                                                      {rowHasConvenio && isPrimary ? (
+                                                        <button
+                                                          type="button"
+                                                          className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200"
+                                                          onClick={() => handleConvenioServiceClick('estatus_2026', row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatus2026Data, setEstatus2026Data, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
+                                                        >
+                                                          Convenio modificatorio
+                                                        </button>
+                                                      ) : convenioBadge}
+                                                    </div>
+                                                  ) : (
+                                                    editingValue
+                                                  )
                                               )
                                           )}
                                           {showInlineDelete && (

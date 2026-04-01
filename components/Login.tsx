@@ -84,11 +84,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
     setSuccessMessage('');
     setShowApiKeyHelp(false);
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     try {
       if (isRegistering) {
         const currentUrl = window.location.origin;
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: normalizedEmail,
           password,
           options: {
             emailRedirectTo: currentUrl,
@@ -128,7 +130,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
-          email,
+          email: normalizedEmail,
           password,
         });
 

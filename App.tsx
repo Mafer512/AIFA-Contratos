@@ -29,8 +29,9 @@ const App: React.FC = () => {
         forceLoginRef.current = false;
         setCurrentUser(null);
         setCurrentScreen(Screen.LOGIN);
+        setAuthNotice('No se pudo recuperar la sesión automáticamente. Puedes iniciar sesión manualmente.');
         setLoading(false);
-      }, 8000);
+      }, 12000);
     };
 
     const clearAuthFallback = () => {
