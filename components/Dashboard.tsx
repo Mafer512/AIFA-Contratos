@@ -9653,7 +9653,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                    </div>
                    ) : (
                     <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Servicios</p>
                           <p className="text-2xl font-bold text-slate-900 mt-2">{pagos2026ServicePaymentProgress.length}</p>
@@ -9666,6 +9666,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Avance global</p>
                           <p className="text-2xl font-bold text-slate-900 mt-2">{pagos2026ProgressTotals.pct.toFixed(1)}%</p>
                           <p className="text-xs text-slate-500 mt-1">Meta total: {formatCurrency(pagos2026ProgressTotals.totalToPay)}</p>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saldo restante</p>
+                          <p className="text-2xl font-bold text-amber-700 mt-2">{formatCurrency(pagos2026ProgressTotals.totalToPay - pagos2026ProgressTotals.totalPaid)}</p>
+                          <p className="text-xs text-slate-500 mt-1">{pagos2026ProgressTotals.totalToPay > 0 ? (100 - pagos2026ProgressTotals.pct).toFixed(1) : '0.0'}% pendiente</p>
                         </div>
                       </div>
 
@@ -9681,20 +9686,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <th className="px-4 py-3 text-left font-semibold">Servicio</th>
                                 <th className="px-4 py-3 text-right font-semibold">Avance</th>
                                 <th className="px-4 py-3 text-right font-semibold">Pagado</th>
+                                <th className="px-4 py-3 text-right font-semibold">Saldo restante</th>
                                 <th className="px-4 py-3 text-right font-semibold">Total</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                               {loadingData ? (
                                 <tr>
-                                  <td colSpan={4} className="px-4 py-8 text-center text-slate-400">
+                                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
                                     <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
                                     Cargando resumen...
                                   </td>
                                 </tr>
                               ) : pagos2026ServicePaymentProgress.length === 0 ? (
                                 <tr>
-                                  <td colSpan={4} className="px-4 py-8 text-center text-slate-400">No hay registros de pagos para resumir.</td>
+                                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">No hay registros de pagos para resumir.</td>
                                 </tr>
                               ) : (
                                 pagos2026ServicePaymentProgress.map((item, idx) => {
@@ -9713,6 +9719,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         </td>
                                         <td className="px-4 py-3 text-right font-mono text-slate-700">{formatCurrency(item.paid)}</td>
                                         <td className="px-4 py-3 text-right">
+                                          <div className="inline-flex flex-col items-end">
+                                            <span className="font-mono text-amber-700 font-semibold">{formatCurrency(Math.max(0, item.total - item.paid))}</span>
+                                            {item.total > 0 && (
+                                              <span className="text-[11px] text-slate-400 mt-0.5">{Math.max(0, 100 - item.pctRaw).toFixed(1)}%</span>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
                                           <button
                                             type="button"
                                             onClick={() => setExpandedPagos2026SummaryKey(isExpanded ? null : item.key)}
@@ -9725,7 +9739,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       </tr>
                                       {isExpanded && (
                                         <tr className="bg-emerald-50/50">
-                                          <td colSpan={4} className="px-4 py-3">
+                                          <td colSpan={5} className="px-4 py-3">
                                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                                               {item.monthly.map((month) => (
                                                 <div key={`${item.key}-${month.month}`} className="rounded-lg border border-emerald-100 bg-white px-3 py-2 flex items-center justify-between">
