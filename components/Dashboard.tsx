@@ -4054,8 +4054,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   ), [estatus2026TableColumns]);
 
   const estatus2026GarantiaCumplimientoField = useMemo(() => (
+    // Do NOT use a generic 'garantia' fallback — it would accidentally match
+    // the "Garantía de Calidad" column when no cumplimiento column exists.
     findColumnByFragments(estatus2026TableColumns, ['garantia de cumplimiento', 'garantia cumplimiento'])
-      ?? findColumnByFragments(estatus2026TableColumns, ['garantia'])
   ), [estatus2026TableColumns]);
 
   const estatus2026PolizaResponsabilidadCivilField = useMemo(() => (
@@ -4065,6 +4066,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const estatus2026GarantiaCalidadField = useMemo(() => (
     findColumnByFragments(estatus2026TableColumns, ['garantia de calidad', 'garantia calidad'])
+      ?? findColumnByFragments(estatus2026TableColumns, ['calidad'])
   ), [estatus2026TableColumns]);
 
   const getEstatus2026PaymentRequirementState = useCallback((row: Record<string, any>) => {
