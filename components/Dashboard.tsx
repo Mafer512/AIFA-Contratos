@@ -2459,6 +2459,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (value === null || value === undefined || value === '') return '-';
     if (typeof value === 'number') return formatMetricValue(key, value);
     if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+    if (typeof value === 'string') {
+      const lower = value.trim().toLowerCase();
+      if (lower === 'true') return 'Sí';
+      if (lower === 'false') return 'No';
+    }
     if (Array.isArray(value)) {
       if (!value.length) return '-';
       const printableItems = value
@@ -4060,7 +4065,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const estatus2026GarantiaCalidadField = useMemo(() => (
     findColumnByFragments(estatus2026TableColumns, ['garantia de calidad', 'garantia calidad'])
-      ?? findColumnByFragments(estatus2026TableColumns, ['calidad'])
   ), [estatus2026TableColumns]);
 
   const getEstatus2026PaymentRequirementState = useCallback((row: Record<string, any>) => {
@@ -4514,7 +4518,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
         // Boolean Detection
         let isBoolean = false; 
-        const explicitBooleans = ['pagado', 'validado', 'autorizado', 'anticipo', 'finiquito'];
+        const explicitBooleans = ['pagado', 'validado', 'autorizado', 'anticipo', 'finiquito', 'complemento de pago', 'complemento', 'si/no', 'si no'];
         const explicitNonBooleans = ['ene', 'enero', 'feb', 'febrero', 'mar', 'marzo', 'abr', 'abril', 'may', 'mayo', 'jun', 'junio', 'jul', 'julio', 'ago', 'agosto', 'sep', 'septiembre', 'oct', 'octubre', 'nov', 'noviembre', 'dic', 'diciembre'];
         
         if (explicitBooleans.some(k => norm.includes(k))) {
@@ -5700,7 +5704,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     };
 
     let nextValue: any;
-    if (!normalizedInput.length) {
+    if (typeof rawInput === 'boolean') {
+      // Preserve booleans as-is so PostgreSQL boolean columns receive the correct type
+      // and the change history records display "Sí"/"No" instead of "true"/"false".
+      nextValue = rawInput;
+    } else if (!normalizedInput.length) {
       nextValue = null;
     } else {
       let parsedDateInput: Date | null = null;
