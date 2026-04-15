@@ -2253,7 +2253,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       if (normalized === 'si' || normalized === 'no') return checked ? 'SI' : 'NO';
       if (BOOLEAN_TRUE_VALUES.has(normalized) || BOOLEAN_FALSE_VALUES.has(normalized)) return checked;
     }
-    if (normalizeAnnualKey(column).includes('si/no')) return checked ? 'SI' : 'NO';
+    // rawValue is null/undefined — the DB column is boolean, so send the actual boolean value.
     return checked;
   };
 
@@ -3901,8 +3901,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         if (key && !shouldSkipColumnForForm(key)) columns.add(key);
       });
     });
-    
-    return Array.from(columns).sort((a, b) => {
+
+    // Deduplicate columns that normalise to the same key, keeping the
+    // exact-lowercase version when possible (e.g. keep 'id', drop 'ID').
+    const seenNorm = new Map<string, string>(); // normalizedKey → chosen column name
+    for (const col of Array.from(columns)) {
+      const norm = normalizeAnnualKey(col);
+      if (!seenNorm.has(norm)) {
+        seenNorm.set(norm, col);
+      } else {
+        const existing = seenNorm.get(norm)!;
+        // Prefer the exact lowercase version over uppercase variants
+        if (col === col.toLowerCase() && existing !== existing.toLowerCase()) {
+          seenNorm.set(norm, col);
+        }
+      }
+    }
+    const dedupedColumns = new Set(seenNorm.values());
+    return Array.from(dedupedColumns).sort((a, b) => {
       const normalizedA = normalizeAnnualKey(a);
       const normalizedB = normalizeAnnualKey(b);
 
@@ -4164,7 +4180,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       const hasConvenioGroup = rows.some((row) =>
         Object.entries(row).some(([column, value]) => isConvenioColumnName(column) && getBooleanChecked(value))
       );
-      const shouldCollapseGroup = hasConvenioGroup && rows.length > 1;
+      // Collapse any group with >1 rows sharing the same clave+service name.
+      // This handles properly-flagged convenios AND unflagged duplicates created when
+      // the convenio_modificatorio flag wasn't persisted on the original row.
+      const shouldCollapseGroup = rows.length > 1;
 
       if (!shouldCollapseGroup) {
         rows.forEach((row) => {
@@ -4173,7 +4192,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         return;
       }
 
-      rows.forEach((row, index) => {
+      // Sort so the row with convenio_modificatorio=true (the original) is always first.
+      const sortedRows = [...rows].sort((a, b) => {
+        const aIsConvenio = Object.entries(a).some(([col, val]) => isConvenioColumnName(col) && getBooleanChecked(val));
+        const bIsConvenio = Object.entries(b).some(([col, val]) => isConvenioColumnName(col) && getBooleanChecked(val));
+        if (aIsConvenio && !bIsConvenio) return -1;
+        if (!aIsConvenio && bIsConvenio) return 1;
+        // Secondary: sort by id ascending so original (lower id) comes first
+        const aId = typeof a.id === 'number' ? a.id : parseFloat(String(a.id ?? '0'));
+        const bId = typeof b.id === 'number' ? b.id : parseFloat(String(b.id ?? '0'));
+        return aId - bId;
+      });
+
+      sortedRows.forEach((row, index) => {
         if (index === 0 || expandedEstatus2026Convenio[key]) {
           result.push({ row, groupKey: key, isPrimary: index === 0, turnNumber: index + 1 });
         }
@@ -4537,7 +4568,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         // Date Detection
         let isDate = false;
         if (!isBoolean) {
-            const dateKeywords = ['fecha', 'vigencia', 'pago', 'emision', 'vencimiento'];
+            // Do NOT include 'pago' here — it would misclassify "Observación de pago Enero" as a date column.
+            const dateKeywords = ['fecha', 'vigencia', 'emision', 'vencimiento'];
              if (dateKeywords.some(k => norm.includes(k))) isDate = true;
         }
 
@@ -8968,6 +9000,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         const isCurrencyColumn = shouldFormatAsCurrency(column);
                                         const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || isCurrencyColumn);
                                         const isServiceNameCell = column === estatus2026ServiceNameFieldSummary;
+                                        // Only one column normalises to 'id' now (dedup above ensures this),
+                                        // so use the normalised check again — works regardless of case (id / ID).
+                                        const isIdColumn = normalizeAnnualKey(column) === 'id';
                                         const isGarantiaRequirementCell = column === estatus2026GarantiaCumplimientoField;
                                         const isPolizaRequirementCell = column === estatus2026PolizaResponsabilidadCivilField;
                                         const isCalidadRequirementCell = column === estatus2026GarantiaCalidadField;
@@ -9142,7 +9177,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                   );
                                                 })()
                                               ) : (
-                                                isServiceNameCell ? (
+                                                isIdColumn ? (
+                                                  <span className="font-mono text-slate-600 select-none">{idx + 1}</span>
+                                                ) : isServiceNameCell ? (
                                                   <div className="flex flex-col items-center gap-1">
                                                     {rowHasConvenio && isPrimary ? (
                                                       <button
@@ -9264,7 +9301,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                     );
                                                   })()
                                               ) : (
-                                                  isServiceNameCell ? (
+                                                  isIdColumn ? (
+                                                    <span className="font-mono text-slate-600 select-none">{idx + 1}</span>
+                                                  ) : isServiceNameCell ? (
                                                     <div className="flex flex-col items-center gap-1">
                                                       {rowHasConvenio && isPrimary ? (
                                                         <button
@@ -10528,6 +10567,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                          </span>
                        </div>
                         {renderActiveColumnFilterBadges('controlPagos')}
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={() => setIsPaymentsEditing((prev) => !prev)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${isPaymentsEditing ? 'bg-amber-50 border-amber-200 text-amber-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                            {isPaymentsEditing ? 'Salir de edición' : 'Editar'}
+                          </button>
+                        )}
                         <button
                             onClick={() => setIsPaymentsCompact(!isPaymentsCompact)}
                             className={`ml-auto p-2 rounded-md transition-colors ${isPaymentsCompact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
@@ -10670,41 +10719,91 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                
                                {/* CELDAS FIJAS - 3 PRIMERAS COLUMNAS */}
                                <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-bold text-slate-800 border-b border-slate-200 text-center sticky-cell`} style={{ position: 'sticky', left: 0, width: '150px', minWidth: '150px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
-                                  {item.no_contrato || '-'}
+                                  {isPaymentsEditing ? (
+                                    <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1" onBlur={(e) => handlePaymentsCellEdit(item as any, 'no_contrato', e.currentTarget.textContent ?? '')}>{item.no_contrato ?? ''}</div>
+                                  ) : (item.no_contrato || '-')}
                                </td>
                                <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-slate-600 border-b border-slate-200 whitespace-pre-wrap break-words text-center sticky-cell`} style={{ position: 'sticky', left: '150px', width: '350px', minWidth: '350px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
-                                  {item.objeto_del_contrato || '-'}
+                                  {isPaymentsEditing ? (
+                                    <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 whitespace-pre-wrap" onBlur={(e) => handlePaymentsCellEdit(item as any, 'objeto_del_contrato', e.currentTarget.textContent ?? '')}>{item.objeto_del_contrato ?? ''}</div>
+                                  ) : (item.objeto_del_contrato || '-')}
                                </td>
                                <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-slate-600 shadow-[6px_0_10px_-4px_rgba(0,0,0,0.1)] border-b border-slate-200 whitespace-pre-wrap break-words border-r border-slate-300 text-center sticky-cell`} style={{ position: 'sticky', left: '500px', width: '250px', minWidth: '250px', zIndex: 40, backgroundColor: 'var(--row-bg, #ffffff)' }}>
-                                  {item.proveedor || '-'}
+                                  {isPaymentsEditing ? (
+                                    <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 whitespace-pre-wrap" onBlur={(e) => handlePaymentsCellEdit(item as any, 'proveedor', e.currentTarget.textContent ?? '')}>{item.proveedor ?? ''}</div>
+                                  ) : (item.proveedor || '-')}
                                </td>
 
                                {/* CELDAS GENERALES */}
-                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-slate-600 border-b border-slate-200 text-center`}>{item.tipo_de_contrato || '-'}</td>
-                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-xs border-b border-slate-200 text-center`}>{item.fecha_de_inicio || '-'}</td>
-                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-xs border-b border-slate-200 text-center`}>{item.fecha_de_termino || '-'}</td>
-                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono border-b border-slate-200 text-center`}>{formatCurrency(item.mont_max)}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-slate-600 border-b border-slate-200 text-center`}>
+                                 {isPaymentsEditing ? (
+                                   <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1" onBlur={(e) => handlePaymentsCellEdit(item as any, 'tipo_de_contrato', e.currentTarget.textContent ?? '')}>{item.tipo_de_contrato ?? ''}</div>
+                                 ) : (item.tipo_de_contrato || '-')}
+                               </td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-xs border-b border-slate-200 text-center`}>
+                                 {isPaymentsEditing ? (
+                                   <input type="date" className="w-full bg-transparent text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded cursor-pointer text-xs font-mono" defaultValue={item.fecha_de_inicio ?? ''} onBlur={(e) => handlePaymentsCellEdit(item as any, 'fecha_de_inicio', e.target.value)} />
+                                 ) : (item.fecha_de_inicio || '-')}
+                               </td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-xs border-b border-slate-200 text-center`}>
+                                 {isPaymentsEditing ? (
+                                   <input type="date" className="w-full bg-transparent text-center focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded cursor-pointer text-xs font-mono" defaultValue={item.fecha_de_termino ?? ''} onBlur={(e) => handlePaymentsCellEdit(item as any, 'fecha_de_termino', e.target.value)} />
+                                 ) : (item.fecha_de_termino || '-')}
+                               </td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono border-b border-slate-200 text-center`}>
+                                 {isPaymentsEditing ? (
+                                   <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 font-mono" onBlur={(e) => { const n = parseFloat((e.currentTarget.textContent ?? '').replace(/[^0-9.\-]/g, '')); handlePaymentsCellEdit(item as any, 'mont_max', isNaN(n) ? null : n); }}>{item.mont_max ?? ''}</div>
+                                 ) : formatCurrency(item.mont_max)}
+                               </td>
 
                                {/* CELDAS MENSUALES */}
                                {monthsConfig.map((m) => {
                                  const prefix = m.dbPrefix || m.key; 
                                  const row = item as any; 
-                                 const baseVal = m.key === 'sep' ? row['sept'] : row[m.key];
+                                 const baseKey = m.key === 'sep' ? 'sept' : m.key;
+                                 const baseVal = row[baseKey];
                                  
                                  return (
                                   <React.Fragment key={m.key}>
-                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono font-bold text-slate-700 border-l border-slate-200 bg-emerald-50/30 text-center`}>{formatCurrency(baseVal)}</td>
-                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-slate-500 bg-emerald-50/30 text-center`}>{formatCurrency(row[`${prefix}_preventivos`])}</td>
-                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-slate-500 bg-emerald-50/30 text-center`}>{formatCurrency(row[`${prefix}_correctivos`])}</td>
-                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-red-400 bg-emerald-50/30 text-center`}>{formatCurrency(row[`${prefix}_nota_de_credito`])}</td>
+                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono font-bold text-slate-700 border-l border-slate-200 bg-emerald-50/30 text-center`}>
+                                      {isPaymentsEditing ? (
+                                        <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 font-mono" onBlur={(e) => { const n = parseFloat((e.currentTarget.textContent ?? '').replace(/[^0-9.\-]/g, '')); handlePaymentsCellEdit(row, baseKey, isNaN(n) ? null : n); }}>{baseVal ?? ''}</div>
+                                      ) : formatCurrency(baseVal)}
+                                    </td>
+                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-slate-500 bg-emerald-50/30 text-center`}>
+                                      {isPaymentsEditing ? (
+                                        <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 font-mono" onBlur={(e) => { const n = parseFloat((e.currentTarget.textContent ?? '').replace(/[^0-9.\-]/g, '')); handlePaymentsCellEdit(row, `${prefix}_preventivos`, isNaN(n) ? null : n); }}>{row[`${prefix}_preventivos`] ?? ''}</div>
+                                      ) : formatCurrency(row[`${prefix}_preventivos`])}
+                                    </td>
+                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-slate-500 bg-emerald-50/30 text-center`}>
+                                      {isPaymentsEditing ? (
+                                        <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 font-mono" onBlur={(e) => { const n = parseFloat((e.currentTarget.textContent ?? '').replace(/[^0-9.\-]/g, '')); handlePaymentsCellEdit(row, `${prefix}_correctivos`, isNaN(n) ? null : n); }}>{row[`${prefix}_correctivos`] ?? ''}</div>
+                                      ) : formatCurrency(row[`${prefix}_correctivos`])}
+                                    </td>
+                                    <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-4 py-4'} font-mono text-xs text-red-400 bg-emerald-50/30 text-center`}>
+                                      {isPaymentsEditing ? (
+                                        <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 font-mono" onBlur={(e) => { const n = parseFloat((e.currentTarget.textContent ?? '').replace(/[^0-9.\-]/g, '')); handlePaymentsCellEdit(row, `${prefix}_nota_de_credito`, isNaN(n) ? null : n); }}>{row[`${prefix}_nota_de_credito`] ?? ''}</div>
+                                      ) : formatCurrency(row[`${prefix}_nota_de_credito`])}
+                                    </td>
                                   </React.Fragment>
                                  );
                                })}
 
                                {/* TOTALES */}
-                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-slate-500 border-l border-slate-300 bg-slate-100 text-center`}>{formatCurrency(item.monto_maximo_contrato)}</td>
-                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono font-bold text-slate-800 bg-slate-100 text-center`}>{formatCurrency(item.monto_ejercido)}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono text-slate-500 border-l border-slate-300 bg-slate-100 text-center`}>
+                                 {isPaymentsEditing ? (
+                                   <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 font-mono" onBlur={(e) => { const n = parseFloat((e.currentTarget.textContent ?? '').replace(/[^0-9.\-]/g, '')); handlePaymentsCellEdit(item as any, 'monto_maximo_contrato', isNaN(n) ? null : n); }}>{item.monto_maximo_contrato ?? ''}</div>
+                                 ) : formatCurrency(item.monto_maximo_contrato)}
+                               </td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} font-mono font-bold text-slate-800 bg-slate-100 text-center`}>
+                                 {isPaymentsEditing ? (
+                                   <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 font-mono" onBlur={(e) => { const n = parseFloat((e.currentTarget.textContent ?? '').replace(/[^0-9.\-]/g, '')); handlePaymentsCellEdit(item as any, 'monto_ejercido', isNaN(n) ? null : n); }}>{item.monto_ejercido ?? ''}</div>
+                                 ) : formatCurrency(item.monto_ejercido)}
+                               </td>
                                <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} bg-slate-100 text-center`}>
+                                 {isPaymentsEditing ? (
+                                   <div contentEditable suppressContentEditableWarning className="min-h-[1.5em] outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 rounded px-1 font-mono" onBlur={(e) => { const raw = (e.currentTarget.textContent ?? '').replace(/[^0-9.\-]/g, ''); const n = parseFloat(raw); handlePaymentsCellEdit(item as any, 'facturas_devengadas', isNaN(n) ? null : n / 100); }}>{item.facturas_devengadas != null ? ((item.facturas_devengadas) * 100).toFixed(0) : ''}</div>
+                                 ) : (
                                   <div className="flex items-center gap-2 justify-center">
                                     <div className="w-24 h-2 bg-slate-200 rounded-full overflow-hidden">
                                       <div 
@@ -10716,8 +10815,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       {((item.facturas_devengadas || 0) * 100).toFixed(0)}%
                                     </span>
                                   </div>
+                                 )}
                                </td>
-                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center`}>{item.observaciones || '-'}</td>
+                               <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-xs text-slate-500 whitespace-pre-wrap max-w-xs text-center`}>
+                                 {isPaymentsEditing ? (
+                                   <textarea rows={2} className="w-full bg-transparent text-xs text-slate-700 border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 resize-y" defaultValue={item.observaciones ?? ''} onBlur={(e) => handlePaymentsCellEdit(item as any, 'observaciones', e.target.value)} />
+                                 ) : (item.observaciones || '-')}
+                               </td>
                                {canManageRecords && (
                                  <td className={`${isPaymentsCompact ? 'px-2 py-1.5' : 'px-6 py-4'} text-center`} style={{ minWidth: '160px' }}>
                                    <div className="flex justify-center gap-2">
