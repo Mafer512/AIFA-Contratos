@@ -3750,6 +3750,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     ['fecha_remision_investigacion_mercado', 'fecha de remisión de investigación de mercado', 'remisión im'],
     ['tiempo_en_oic', 'tiempo en oic'],
     ['fecha_recepcion_investigacion_mercado', 'fecha de recepción de investigación de mercado', 'recepción im'],
+    ['Validación por el área', 'validacion por el area', 'validación por el área', 'validacion por area'],
     ['monto_maximo_2025', 'monto máximo 2025', 'monto 2025'],
     ['monto_suficiencia_presupuestal', 'monto de suficiencia presupuestal'],
     ['monto_maximo_2026', 'monto máximo 2026', 'monto 2026'],
@@ -4038,6 +4039,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             const dateKeywords = ['fecha', 'vigencia', 'fallo', 'apertura', 'inicio', 'término', 'termino', 'visita', 'revision', 'revisión', 'diferimiento', 'junta', 'programacion', 'formalizacion'];
              if (dateKeywords.some(k => norm.includes(k))) isDate = true;
              else if (['publicacion de convocatoria', 'publicacion convocatoria'].some(k => norm.includes(k))) isDate = true;
+             else if (['validacion por el area', 'validacion por area'].some(k => norm.includes(k))) isDate = true;
         }
 
         const isHighlighted = highlightColumns.includes(norm);
