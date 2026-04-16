@@ -2243,6 +2243,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     
     if (isBooleanLikeValue(value)) return true;
     const defaultHints = ['si/no', 'pagado', 'complemento', 'confirmado', 'validado', 'documentacion', 'documentación', 'investigacion', 'investigación', 'suficiencia', 'plurianual', 'anticipo', 'convenio', 'procedimiento', 'garantia', 'cumplimiento', 'garantia de calidad'];
+    if (normalized.includes('fecha')) return false;
     return [...defaultHints, ...extraHints].some((hint) => normalized.includes(normalizeAnnualKey(hint)));
   };
 
@@ -4020,7 +4021,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             'paas'
             // Removed 'publicacion' to avoid conflict with dates like 'publicacion de convocatoria'
         ];
-        if (explicitBooleans.some(k => norm.includes(k))) {
+        if (!norm.includes('fecha') && explicitBooleans.some(k => norm.includes(k))) {
             isBoolean = true;
         } else if (['estatus', 'fase'].some(k => norm.includes(k))) {
             isBoolean = false;
