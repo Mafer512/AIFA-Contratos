@@ -920,30 +920,68 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       if (['id', 'created_at', 'updated_at', 'inserted_at'].includes(lower)) return;
 
       // Special case for "No" / "No." columns (often text or numeric but required)
-      // Regex to match "no", "no.", "num", "numero", "#" exactly or with simple variations
       if (/^(no\.?|num(ero|er|ber)?|#|consecutivo|orden)$/.test(lower)) {
         record[col] = 0;
       }
       // Numeric
-      else if (['monto', 'importe', 'total', 'presupuesto', 'costo', 'ejercido', 'modificado', 'pagado', 'cantidad', 'precio', 'iva', 'subtotal', 'percent', 'porcentaje', 'estimado', 'adjudicado', 'suficiencia', 'año', 'year', 'mes', 'month', 'dia', 'day', 'trimestre', 'semestre', 'prioridad', 'orden', 'consecutivo', 'num'].some(t => lower.includes(t))) {
+      else if (['monto', 'importe', 'total', 'presupuesto', 'costo', 'ejercido', 'modificado', 'pagado', 'cantidad', 'precio', 'iva', 'subtotal', 'percent', 'porcentaje', 'estimado', 'adjudicado', 'año', 'year', 'mes', 'month', 'dia', 'day', 'trimestre', 'semestre', 'prioridad', 'orden', 'consecutivo', 'num'].some(t => lower.includes(t))) {
         record[col] = 0;
       } 
-      // Date
-      else if (['fecha', 'date', 'inicio', 'fin', 'termino', 'vigencia', 'firma', 'apertura', 'fallo', 'publicacion', 'visita', 'junta', 'revision'].some(t => lower.includes(t))) {
+      // Date — match known date prefixes/suffixes (conservative)
+      else if (['fecha', 'date', 'vigencia', 'firma', 'apertura', 'fallo', 'publicacion', 'visita', 'junta', 'revision', 'termino', 'inicio', 'fin'].some(t => lower.includes(t))) {
         record[col] = null; 
       } 
-      // Boolean
-      else if (['activo', 'active', 'enabled', 'visible', 'check', 'valid', 'is_', 'has_', 'es_', 'tiene_', 'requiere', 'aplica', 'cumple', 'cumplimiento', 'garantia', 'garantia de calidad', 'entregado', 'autorizado', 'cerrado', 'finalizado', 'convenio', 'desierta', 'evaluacion', 'poliza', 'lista', 'diferimiento', 'investigacion', 'suficiencia', 'procedimiento', 'publicacion', 'visita', 'junta', 'apertura', 'documentacion'].some(t => lower.includes(t))) {
+      // Boolean — only clearly boolean snake_case patterns (avoid accented columns)
+      else if (/^(activo|active|enabled|visible|is_|has_|es_|requiere_|aplica_)/.test(lower)
+        || ['investigacion_mercado', 'suficiencia_presupuestal', 'procedimiento_contratacion',
+            'documentacion_soporte', 'convenio_modificatorio', 'garantia_cumplimiento',
+            'garantia_calidad', 'poliza_responsabilidad', 'desierta', 'evaluacion_tecnica'].some(t => lower === t || lower.startsWith(t))
+        || (lower.endsWith('_cumplimiento') || lower.endsWith('_calidad') || lower.endsWith('_modificatorio'))) {
         record[col] = false;
       }
       // Text (Explicit)
-      else if (['nombre', 'descripcion', 'concepto', 'proveedor', 'observaciones', 'comentarios', 'nota', 'justificacion', 'area', 'gerencia', 'subdireccion', 'fase', 'tipo', 'modalidad', 'categoria', 'clave', 'contrato', 'oficio', 'contacto', 'responsable', 'empresa', 'dependencia', 'unidad', 'titulo'].some(t => lower.includes(t))) {
+      else if (['nombre', 'descripcion', 'concepto', 'proveedor', 'observaciones', 'comentarios', 'nota', 'justificacion', 'gerencia', 'subdireccion', 'fase', 'tipo', 'modalidad', 'categoria', 'clave', 'contrato', 'oficio', 'contacto', 'responsable', 'empresa', 'dependencia', 'unidad', 'titulo'].some(t => lower.includes(t))) {
         record[col] = '';
       }
-      // Fallback - omit the column so DB defaults apply (avoids null violating NOT NULL constraints)
-      // Do not add to record; let DB handle it.
+      // Fallback - omit: let DB defaults apply
     });
     console.log('Safe record generated:', record);
+    return record;
+  };
+
+  /**
+   * Data-driven initial record: determines column types from existing row data rather than
+   * column names. Much safer than keyword matching — avoids sending wrong types (e.g., false
+   * to a date column) when column names are ambiguous.
+   */
+  const createInitialRecordFromData = (
+    columns: string[],
+    sampleRows: Record<string, any>[]
+  ): Record<string, any> => {
+    const record: Record<string, any> = {};
+    for (const col of columns) {
+      if (!col || col === '__actions' || col.startsWith('__')) continue;
+      const norm = col.toLowerCase().trim().replace(/['"]/g, '');
+      if (['id', 'created_at', 'updated_at', 'inserted_at'].includes(norm)) continue;
+
+      // Find a non-null sample value to detect the type
+      const nonNullValues = sampleRows
+        .map(r => r?.[col])
+        .filter(v => v !== null && v !== undefined);
+
+      if (nonNullValues.length === 0) {
+        // All nulls in sample data → column is nullable or has DB default → omit
+        continue;
+      }
+
+      const firstVal = nonNullValues[0];
+      if (typeof firstVal === 'boolean') {
+        record[col] = false;    // Boolean column → default false
+      } else if (typeof firstVal === 'number') {
+        record[col] = 0;        // Numeric column → default 0
+      }
+      // string (text, dates) or object → omit; DB handles defaults or it's nullable
+    }
     return record;
   };
 
@@ -6132,11 +6170,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       
       if (error) {
         console.warn('Insert with defaults failed, trying with safe initial values...', error.message);
-        // Fallback: try with safe initial values for required columns
-        const safeRecord = createSafeInitialRecord(serviciosTableColumns);
-        
-        // Do NOT manually assign an id — let the DB SERIAL/sequence auto-generate it.
-        // createSafeInitialRecord already skips 'id' columns.
+        // Fallback: derive column types from existing data to avoid type mismatches
+        // (e.g. sending `false` to a DATE column when the name is ambiguous)
+        const safeRecord = createInitialRecordFromData(serviciosTableColumns, servicios2026Data);
 
         const retry = await supabase.from('estatus_servicios_2026').insert(safeRecord).select().single();
         data = retry.data;
@@ -6153,7 +6189,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       console.error('Error creating row in estatus_servicios_2026:', error);
       alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
     }
-  }, [serviciosTableColumns]);
+  }, [serviciosTableColumns, servicios2026Data]);
 
   const handleAddEstatus2026Row = useCallback(async () => {
     if (!estatus2026TableColumns.length || isAddingEstatus2026Row) return;
@@ -6162,7 +6198,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       // Build a full safe record and assign a consecutive ID that does not exist.
       // Exclude virtual computed columns that don't exist in the DB.
       const realColumns = estatus2026TableColumns.filter(c => !c.startsWith('__'));
-      const safeRecord = createSafeInitialRecord(realColumns);
+      // Use data-driven type detection so accented column names (e.g. 'Validación por el área')
+      // are never sent as boolean `false` when they are DATE columns in the DB.
+      const safeRecord = createInitialRecordFromData(realColumns, estatus2026Data);
 
       const localNumericIds = estatus2026Data
         .map((row) => Number(row?.id ?? row?.ID ?? row?.Id))
