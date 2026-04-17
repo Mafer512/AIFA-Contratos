@@ -2423,6 +2423,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const LOWERCASE_WORDS = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'o', 'para', 'por', 'en', 'al', 'con', 'sin']);
 
   const VIRTUAL_COLUMN_LABELS: Record<string, string> = {
+    '__row_num': '#',
     '__dias_remision_recepcion': 'Días rem. → recep.',
     '__dias_recepcion_validacion': 'Días recep. → valid.',
   };
@@ -3929,7 +3930,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
     }
     const dedupedColumns = new Set(seenNorm.values());
-    const sorted = Array.from(dedupedColumns).sort((a, b) => {
+    const sorted = Array.from(dedupedColumns)
+      .filter(c => normalizeAnnualKey(c) !== 'id') // hide DB id column — row numbers shown as virtual __row_num
+      .sort((a, b) => {
       const normalizedA = normalizeAnnualKey(a);
       const normalizedB = normalizeAnnualKey(b);
 
@@ -3955,11 +3958,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const validacionIdx = sorted.findIndex(c => normalizeAnnualKey(c).includes('validacion') && normalizeAnnualKey(c).includes('area'));
     if (validacionIdx !== -1) sorted.splice(validacionIdx + 1, 0, '__dias_recepcion_validacion');
 
+    // Prepend row-number virtual column
+    sorted.unshift('__row_num');
+
     return sorted;
   }, [estatus2026Data]);
 
   const estatus2026StickyDefinitions = [
-    { id: 'id', match: ['id', 'ID', 'Id', 'no.', 'numero'], width: 90 },
     { id: 'clave_cucop', match: ['clave_cucop', 'clave cucop', 'cucop'], width: 140 },
     { id: 'observacion_general', match: ['observacion_general_del_servicio', 'observación general del servicio', 'observacion general', 'observaciones'], width: 280 },
     { id: 'nombre_servicio', match: ['nombre_servicio', 'nombre del servicio', 'servicio', 'descripcion'], width: 320 }
@@ -4017,7 +4022,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const norm = normalizeAnnualKey(column);
 
         // Virtual day-counter columns
-        if (column === '__dias_remision_recepcion' || column === '__dias_recepcion_validacion') {
+        if (column === '__dias_remision_recepcion' || column === '__dias_recepcion_validacion' || column === '__row_num') {
             meta.set(column, { isBoolean: false, isDate: false, isHighlighted: false, isObservations: false, isLastSticky: false });
             return;
         }
@@ -9020,7 +9025,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                  <tr key={rowKey} className={`transition-colors group ${hasObs ? 'hover:bg-amber-100' : 'hover:bg-slate-50'}`} style={rowStyle}>
                                     {estatus2026TableColumns.map((column) => {
                                         // Virtual day-counter columns
-                                        if (column === '__dias_remision_recepcion' || column === '__dias_recepcion_validacion') {
+                                        if (column === '__dias_remision_recepcion' || column === '__dias_recepcion_validacion' || column === '__row_num') {
+                                          if (column === '__row_num') {
+                                            const _rowDeleteKey = `estatus_2026:id:${String(row?.id ?? row?.ID ?? row?.Id ?? rowKey)}`;
+                                            const _isDeletingThisRow = isDeletingRecord && deletingRecordKey === _rowDeleteKey;
+                                            const _showDelete = canManageRecords && isEstatus2026Editing;
+                                            return (
+                                              <td key={column} className={`px-3 border-b border-slate-50 text-center font-mono text-slate-500 text-xs ${isEstatus2026Compact ? 'py-1' : 'py-3'} min-w-[48px] w-[48px]`}>
+                                                <div className={_showDelete ? 'flex flex-col items-center gap-1' : undefined}>
+                                                  <span>{idx + 1}</span>
+                                                  {_showDelete && (
+                                                    _isDeletingThisRow ? (
+                                                      <span className="text-[10px] text-rose-400 animate-pulse">Eliminando...</span>
+                                                    ) : (
+                                                      <button
+                                                        type="button"
+                                                        title="Eliminar fila"
+                                                        aria-label="Eliminar fila"
+                                                        className="text-rose-400 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteRecord('estatus_2026', row, _rowDeleteKey); }}
+                                                      >
+                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0H7m4-4h2a1 1 0 011 1v1H8V4a1 1 0 011-1h2z" /></svg>
+                                                      </button>
+                                                    )
+                                                  )}
+                                                </div>
+                                              </td>
+                                            );
+                                          }
                                           const remisionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('remision') && normalizeAnnualKey(c).includes('investigacion'));
                                           const recepcionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('recepcion') && normalizeAnnualKey(c).includes('investigacion'));
                                           const validacionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('validacion') && normalizeAnnualKey(c).includes('area'));
@@ -9152,7 +9184,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         const finalCellClasses = `${cellClasses} ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-slate-100' : ''} ${isObservations ? 'border-l-2 border-l-violet-300 min-w-[260px]' : ''}`;
                                         
                                         const isChecked = isBoolean ? getBooleanChecked(rawValue) : false;
-                                        const showInlineDelete = canManageRecords && column === estatus2026TableColumns[0];
+                                        const showInlineDelete = false; // delete button moved to __row_num column
                                         const rowDeleteKey = `estatus_2026:id:${String(row?.id ?? row?.ID ?? row?.Id ?? rowKey)}`;
                                         const isDeletingThisRow = isDeletingRecord && deletingRecordKey === rowDeleteKey;
 
