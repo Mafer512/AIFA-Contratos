@@ -1061,6 +1061,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const shouldSkipColumnForForm = (key: string) => {
     const normalized = normalizeAnnualKey(key);
+    if (key.startsWith('__')) return true; // virtual computed columns
     return ['created_at', 'updated_at', 'inserted_at', 'deleted_at'].includes(normalized);
   };
 
@@ -6158,7 +6159,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setIsAddingEstatus2026Row(true);
     try {
       // Build a full safe record and assign a consecutive ID that does not exist.
-      const safeRecord = createSafeInitialRecord(estatus2026TableColumns);
+      // Exclude virtual computed columns that don't exist in the DB.
+      const realColumns = estatus2026TableColumns.filter(c => !c.startsWith('__'));
+      const safeRecord = createSafeInitialRecord(realColumns);
 
       const localNumericIds = estatus2026Data
         .map((row) => Number(row?.id ?? row?.ID ?? row?.Id))
