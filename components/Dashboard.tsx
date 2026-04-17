@@ -933,17 +933,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         record[col] = null; 
       } 
       // Boolean
-      else if (['activo', 'active', 'enabled', 'visible', 'check', 'valid', 'is_', 'has_', 'es_', 'tiene_', 'requiere', 'aplica', 'cumple', 'cumplimiento', 'garantia', 'garantia de calidad', 'entregado', 'autorizado', 'cerrado', 'finalizado'].some(t => lower.includes(t))) {
+      else if (['activo', 'active', 'enabled', 'visible', 'check', 'valid', 'is_', 'has_', 'es_', 'tiene_', 'requiere', 'aplica', 'cumple', 'cumplimiento', 'garantia', 'garantia de calidad', 'entregado', 'autorizado', 'cerrado', 'finalizado', 'convenio', 'desierta', 'evaluacion', 'poliza', 'lista', 'diferimiento', 'investigacion', 'suficiencia', 'procedimiento', 'publicacion', 'visita', 'junta', 'apertura', 'documentacion'].some(t => lower.includes(t))) {
         record[col] = false;
       }
       // Text (Explicit)
       else if (['nombre', 'descripcion', 'concepto', 'proveedor', 'observaciones', 'comentarios', 'nota', 'justificacion', 'area', 'gerencia', 'subdireccion', 'fase', 'tipo', 'modalidad', 'categoria', 'clave', 'contrato', 'oficio', 'contacto', 'responsable', 'empresa', 'dependencia', 'unidad', 'titulo'].some(t => lower.includes(t))) {
         record[col] = '';
       }
-      // Fallback - use null instead of '' to avoid syntax errors on non-text types
-      else {
-        record[col] = null; 
-      }
+      // Fallback - omit the column so DB defaults apply (avoids null violating NOT NULL constraints)
+      // Do not add to record; let DB handle it.
     });
     console.log('Safe record generated:', record);
     return record;
@@ -6137,10 +6135,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         // Fallback: try with safe initial values for required columns
         const safeRecord = createSafeInitialRecord(serviciosTableColumns);
         
-        // Force ID generation if missing (fixes "null value in column id" error)
-        if (!safeRecord['id']) {
-          safeRecord['id'] = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000);
-        }
+        // Do NOT manually assign an id — let the DB SERIAL/sequence auto-generate it.
+        // createSafeInitialRecord already skips 'id' columns.
 
         const retry = await supabase.from('estatus_servicios_2026').insert(safeRecord).select().single();
         data = retry.data;
@@ -6177,12 +6173,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       // Try to anchor from DB max(id) so consecutive ID is based on the latest persisted value.
       const { data: maxIdRows, error: maxIdError } = await supabase
         .from('estatus_2026')
-        .select('id')
-        .order('id', { ascending: false })
+        .select('ID')
+        .order('ID', { ascending: false })
         .limit(1);
 
       if (!maxIdError && Array.isArray(maxIdRows) && maxIdRows.length > 0) {
-        const dbMax = Number(maxIdRows[0]?.id);
+        const dbMax = Number(maxIdRows[0]?.ID ?? maxIdRows[0]?.id);
         if (Number.isFinite(dbMax)) {
           nextId = Math.max(nextId, dbMax + 1);
         }
@@ -6193,14 +6189,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const { count, error: countError } = await supabase
           .from('estatus_2026')
           .select('*', { count: 'exact', head: true })
-          .eq('id', nextId);
+          .eq('ID', nextId);
 
         if (countError) throw countError;
         if ((count ?? 0) === 0) break;
         nextId += 1;
       }
 
-      safeRecord.id = nextId;
+      safeRecord['ID'] = nextId;
 
       const { error } = await supabase.from('estatus_2026').insert(safeRecord);
       if (error) throw error;
