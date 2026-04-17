@@ -9027,7 +9027,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         // Virtual day-counter columns
                                         if (column === '__dias_remision_recepcion' || column === '__dias_recepcion_validacion' || column === '__row_num') {
                                           if (column === '__row_num') {
-                                            const _rowDeleteKey = `estatus_2026:id:${String(row?.id ?? row?.ID ?? row?.Id ?? rowKey)}`;
+                                            const _rowDeleteKey = `estatus_2026:ID:${String(row?.ID ?? row?.id ?? row?.Id ?? rowKey)}`;
                                             const _isDeletingThisRow = isDeletingRecord && deletingRecordKey === _rowDeleteKey;
                                             const _showDelete = canManageRecords && isEstatus2026Editing;
                                             return (
@@ -9043,7 +9043,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                         title="Eliminar fila"
                                                         aria-label="Eliminar fila"
                                                         className="text-rose-400 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
-                                                        onClick={(e) => { e.stopPropagation(); handleDeleteRecord('estatus_2026', row, _rowDeleteKey); }}
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteGenericRecord('estatus_2026', row, 'Estatus 2026'); }}
                                                       >
                                                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0H7m4-4h2a1 1 0 011 1v1H8V4a1 1 0 011-1h2z" /></svg>
                                                       </button>
