@@ -5075,7 +5075,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   ), [serviciosTableColumns]);
 
   const displayedServicios2026Rows = useMemo(() => {
-    const visibleRows = filteredServicios2026Data.filter((row) => !isEmptyStatusLikeRow(row));
+    // In edit mode, keep all rows (including newly inserted empty ones)
+    const visibleRows = isServiciosEditing
+      ? filteredServicios2026Data
+      : filteredServicios2026Data.filter((row) => !isEmptyStatusLikeRow(row));
     if (!serviciosServiceNameField) {
       return visibleRows.map((row) => ({ row, groupKey: '', isPrimary: true, turnNumber: 1 }));
     }
@@ -5110,7 +5113,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
 
     return result;
-  }, [expandedServiciosConvenio, filteredServicios2026Data, serviciosClaveField, serviciosServiceNameField]);
+  }, [expandedServiciosConvenio, filteredServicios2026Data, serviciosClaveField, serviciosServiceNameField, isServiciosEditing]);
 
   const serviciosSubdireccionField = useMemo(() => (
     findColumnByFragments(serviciosTableColumns, ['subdireccion', 'subdirección'])
@@ -6161,8 +6164,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const handleAddServicioRow = useCallback(async () => {
     if (!serviciosTableColumns.length) return;
-
-    const template = generateTemplateFromColumns(serviciosTableColumns);
     
     try {
       // First try with empty object to use DB defaults
@@ -6180,11 +6181,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
 
       if (error) throw error;
-      if (data) {
-        const newRow = { ...template, ...data };
-        setServicios2026Data((prev) => [...prev, newRow]);
-        setIsServiciosEditing(true);
-      }
+      // Always refetch from DB so order is preserved and the new row appears last
+      await fetchServicios2026Data();
+      setIsServiciosEditing(true);
     } catch (error: any) {
       console.error('Error creating row in estatus_servicios_2026:', error);
       alert(`Error al crear la fila: ${error.message || 'Error desconocido'}. Detalles: ${error.details || ''}`);
