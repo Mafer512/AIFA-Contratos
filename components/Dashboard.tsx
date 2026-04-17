@@ -2421,7 +2421,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const LOWERCASE_WORDS = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'o', 'para', 'por', 'en', 'al', 'con', 'sin']);
 
+  const VIRTUAL_COLUMN_LABELS: Record<string, string> = {
+    '__dias_remision_recepcion': 'Días rem. → recep.',
+    '__dias_recepcion_validacion': 'Días recep. → valid.',
+  };
+
   const humanizeKey = (rawKey: string) => {
+    if (VIRTUAL_COLUMN_LABELS[rawKey]) return VIRTUAL_COLUMN_LABELS[rawKey];
     const cleaned = rawKey.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (!cleaned) return '';
 
@@ -3750,7 +3756,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     ['fecha_remision_investigacion_mercado', 'fecha de remisión de investigación de mercado', 'remisión im'],
     ['tiempo_en_oic', 'tiempo en oic'],
     ['fecha_recepcion_investigacion_mercado', 'fecha de recepción de investigación de mercado', 'recepción im'],
+    ['__dias_remision_recepcion'],
     ['Validación por el área', 'validacion por el area', 'validación por el área', 'validacion por area'],
+    ['__dias_recepcion_validacion'],
     ['monto_maximo_2025', 'monto máximo 2025', 'monto 2025'],
     ['monto_suficiencia_presupuestal', 'monto de suficiencia presupuestal'],
     ['monto_maximo_2026', 'monto máximo 2026', 'monto 2026'],
@@ -3920,7 +3928,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
     }
     const dedupedColumns = new Set(seenNorm.values());
-    return Array.from(dedupedColumns).sort((a, b) => {
+    const sorted = Array.from(dedupedColumns).sort((a, b) => {
       const normalizedA = normalizeAnnualKey(a);
       const normalizedB = normalizeAnnualKey(b);
 
@@ -3939,6 +3947,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       if (priorityB !== undefined && priorityA === undefined) return 1;
       return normalizedA.localeCompare(normalizedB, 'es');
     });
+
+    // Inject virtual day-counter columns at the correct positions
+    const recepcionIdx = sorted.findIndex(c => normalizeAnnualKey(c).includes('recepcion') && normalizeAnnualKey(c).includes('investigacion'));
+    if (recepcionIdx !== -1) sorted.splice(recepcionIdx + 1, 0, '__dias_remision_recepcion');
+    const validacionIdx = sorted.findIndex(c => normalizeAnnualKey(c).includes('validacion') && normalizeAnnualKey(c).includes('area'));
+    if (validacionIdx !== -1) sorted.splice(validacionIdx + 1, 0, '__dias_recepcion_validacion');
+
+    return sorted;
   }, [estatus2026Data]);
 
   const estatus2026StickyDefinitions = [
@@ -3998,6 +4014,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     estatus2026TableColumns.forEach(column => {
         const norm = normalizeAnnualKey(column);
+
+        // Virtual day-counter columns
+        if (column === '__dias_remision_recepcion' || column === '__dias_recepcion_validacion') {
+            meta.set(column, { isBoolean: false, isDate: false, isHighlighted: false, isObservations: false, isLastSticky: false });
+            return;
+        }
 
         // Boolean Detection
         let isBoolean = false;
@@ -8949,16 +8971,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <div className="flex items-center justify-center gap-1">
                                         {isObsCol && <span className="text-purple-200 mr-1">📝</span>}
                                         <span className="truncate font-bold">{humanizeKey(key)}</span>
-                                        {renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data)}
+                                        {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data)}
                                     </div>
-                                    <input 
+                                    {!VIRTUAL_COLUMN_LABELS[key] && <input 
                                         type="text" 
                                         placeholder="Buscar..." 
                                         className="w-full px-2 py-1 text-xs text-slate-800 rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-normal"
                                         value={estatus2026ColumnSearch[key] || ''}
                                         onChange={(e) => setEstatus2026ColumnSearch(prev => ({...prev, [key]: e.target.value}))}
                                         onClick={(e) => e.stopPropagation()}
-                                    />
+                                    />}
                                  </div>
                                </th>
                              )})
@@ -8994,6 +9016,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                return (
                                  <tr key={rowKey} className={`transition-colors group ${hasObs ? 'hover:bg-amber-100' : 'hover:bg-slate-50'}`} style={rowStyle}>
                                     {estatus2026TableColumns.map((column) => {
+                                        // Virtual day-counter columns
+                                        if (column === '__dias_remision_recepcion' || column === '__dias_recepcion_validacion') {
+                                          const remisionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('remision') && normalizeAnnualKey(c).includes('investigacion'));
+                                          const recepcionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('recepcion') && normalizeAnnualKey(c).includes('investigacion'));
+                                          const validacionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('validacion') && normalizeAnnualKey(c).includes('area'));
+                                          let fromDate: Date | null = null;
+                                          let toDate: Date | null = null;
+                                          if (column === '__dias_remision_recepcion') {
+                                            fromDate = remisionCol ? parsePotentialDate(row[remisionCol]) : null;
+                                            toDate = recepcionCol ? parsePotentialDate(row[recepcionCol]) : null;
+                                          } else {
+                                            fromDate = recepcionCol ? parsePotentialDate(row[recepcionCol]) : null;
+                                            toDate = validacionCol ? parsePotentialDate(row[validacionCol]) : null;
+                                          }
+                                          let dias: number | null = null;
+                                          if (fromDate && toDate) {
+                                            dias = Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
+                                          }
+                                          const badgeColor = dias === null ? 'bg-slate-100 text-slate-400' : dias <= 5 ? 'bg-green-100 text-green-700' : dias <= 15 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
+                                          return (
+                                            <td key={column} className={`px-3 border-b border-slate-50 text-center ${isEstatus2026Compact ? 'py-1' : 'py-3'} min-w-[90px]`}>
+                                              {dias !== null ? (
+                                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${badgeColor}`}>
+                                                  {dias === 0 ? 'Mismo día' : `${dias} día${Math.abs(dias) !== 1 ? 's' : ''}`}
+                                                </span>
+                                              ) : (
+                                                <span className="text-slate-300 text-xs">—</span>
+                                              )}
+                                            </td>
+                                          );
+                                        }
+
                                         const rawValue = row[column];
                                         const columnMeta = estatus2026ColumnMeta.get(column)!;
                                         
