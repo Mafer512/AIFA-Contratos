@@ -4795,8 +4795,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const serviciosColumnsToRender = useMemo(() => {
     if (!serviciosTableColumns.length) return [] as string[];
-    return canManageRecords ? [...serviciosTableColumns, '__actions'] : [...serviciosTableColumns];
-  }, [serviciosTableColumns, canManageRecords]);
+    // The servicios table renders action buttons in a separate {canManageRecords && <td>} block,
+    // NOT inside the column map. Adding '__actions' here would create a ghost empty column.
+    return [...serviciosTableColumns];
+  }, [serviciosTableColumns]);
 
   const serviciosColumnCount = Math.max(serviciosColumnsToRender.length || serviciosTableColumns.length || 1, 1);
 
@@ -7837,9 +7839,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {loadingData ? (
-                            <tr><td colSpan={serviciosTableColumns.length + 1} className="text-center py-10 text-slate-500">Cargando...</td></tr>
+                            <tr><td colSpan={serviciosTableColumns.length + (canManageRecords ? 1 : 0)} className="text-center py-10 text-slate-500">Cargando...</td></tr>
                           ) : !displayedServicios2026Rows.length ? (
-                            <tr><td colSpan={serviciosTableColumns.length + 1} className="text-center py-10 text-slate-500">No hay datos.</td></tr>
+                            <tr><td colSpan={serviciosTableColumns.length + (canManageRecords ? 1 : 0)} className="text-center py-10 text-slate-500">No hay datos.</td></tr>
                           ) : (
                             displayedServicios2026Rows.map(({ row, isPrimary, turnNumber }, rowIndex) => {
                               const rowKey = row.id ?? `servicio-row-${rowIndex}`;
