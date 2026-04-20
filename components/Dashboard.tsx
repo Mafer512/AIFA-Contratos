@@ -9688,7 +9688,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             const rawValue = row[column];
                                             const columnMeta = pagos2026ColumnMeta.get(column)!;
                                             const { isBoolean, isDate, isMonthRelated, isNotaCredito, stickyConfig, isLastSticky } = columnMeta;
-                                            const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
+                                            const isIdColumn = ['id', 'ID', 'Id'].includes(column) || column.toLowerCase() === 'id' || column.toLowerCase() === 'no.' || column.toLowerCase() === 'numero';
+                                            const numeric = !isBoolean && !isDate && !isIdColumn && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
                                             
                                             // Month cells mirror the 2025 table: green tinted background
                                             const monthBgClass = isMonthRelated ? 'bg-emerald-50/30' : '';
@@ -9705,7 +9706,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                     const p = parsePotentialDate(rawValue);
                                                     editingValue = p ? formatDateToDDMMYYYY(p) : rawValue;
                                                 } else if (typeof rawValue === 'number') {
-                                                    const isIdColumn = ['id', 'ID', 'Id', 'no.', 'numero'].includes(column) || column.toLowerCase().includes('id');
                                                     if (isIdColumn) {
                                                         editingValue = String(rawValue);
                                                     } else {
