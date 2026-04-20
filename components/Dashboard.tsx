@@ -4609,9 +4609,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         isBoolean: boolean;
         isDate: boolean;
         isHighlighted: boolean;
+        isMonthRelated: boolean;
+        isNotaCredito: boolean;
         stickyConfig?: { left: number; width: number };
         isLastSticky: boolean;
     }>();
+
+    const monthTokens = ['ene', 'enero', 'feb', 'febrero', 'mar', 'marzo', 'abr', 'abril', 'may', 'mayo', 'jun', 'junio', 'jul', 'julio', 'ago', 'agosto', 'sep', 'sept', 'septiembre', 'oct', 'octubre', 'nov', 'noviembre', 'dic', 'diciembre'];
 
     pagos2026TableColumns.forEach(column => {
         const norm = normalizeAnnualKey(column);
@@ -4635,17 +4639,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         // Date Detection
         let isDate = false;
         if (!isBoolean) {
-            // Do NOT include 'pago' here — it would misclassify "Observación de pago Enero" as a date column.
             const dateKeywords = ['fecha', 'vigencia', 'emision', 'vencimiento'];
              if (dateKeywords.some(k => norm.includes(k))) isDate = true;
         }
 
-        const isHighlighted = false;
+        // Month-related: month totals, preventivos, correctivos, nota de crédito
+        const isMonthRelated = !isBoolean && !isDate && (
+            monthTokens.some(t => norm === t || norm === `${t}.` || norm.startsWith(`${t} `) || norm.startsWith(`${t}.`)) ||
+            norm.includes('preventivo') ||
+            norm.includes('correctivo') ||
+            (norm.includes('nota') && (norm.includes('credito') || norm.includes('crédito')))
+        );
+
+        // Nota de Crédito → rojo como la tabla 2025
+        const isNotaCredito = norm.includes('nota') && (norm.includes('credito') || norm.includes('crédito'));
 
         meta.set(column, {
             isBoolean,
             isDate,
-            isHighlighted,
+            isHighlighted: false,
+            isMonthRelated,
+            isNotaCredito,
             stickyConfig: pagos2026StickyInfo.meta.get(column),
             isLastSticky: pagos2026LastStickyKey === column
         });
@@ -9582,65 +9596,59 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                      <div className="relative h-[calc(100vh-280px)] overflow-auto shadow-inner rounded-xl border border-slate-200">
                         <table className="min-w-full text-center border-collapse">
                           <thead className="sticky top-0 z-[60] shadow-sm">
-                            <tr className="bg-[#0F4C3A] border-b border-[#0F4C3A] text-xs uppercase tracking-wider text-white font-semibold">
+                            <tr className="text-xs uppercase tracking-wider text-white font-semibold">
                               {pagos2026TableColumns.length > 0 ? (
                                  pagos2026TableColumns.map((key) => {
+                                    const colMeta = pagos2026ColumnMeta.get(key);
+                                    const keyIsMonthRelated = colMeta?.isMonthRelated ?? false;
                                     const stickyConfig = pagos2026StickyInfo.meta.get(key);
                                     const isSticky = !!stickyConfig;
                                     const isLastSticky = pagos2026LastStickyKey === key;
+                                    const headerBg = isSticky ? '#1B4D3E' : keyIsMonthRelated ? '#2D6A4F' : '#1B4D3E';
                                     const stickyStyle: React.CSSProperties = isSticky ? {
                                       position: 'sticky',
                                       left: stickyConfig.left,
                                       top: 0,
                                       zIndex: 70,
-                                      backgroundColor: '#0F4C3A',
+                                      backgroundColor: headerBg,
                                     } : {
                                       position: 'sticky',
                                       top: 0,
                                       zIndex: 60,
-                                      backgroundColor: '#0F4C3A',
+                                      backgroundColor: headerBg,
                                     };
 
                                     const isExpandableMonth = ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sept.', 'Sep.', 'Oct.', 'Nov.', 'Dic.'].includes(key);
                                     const isExpanded = pagos2026ExpandedMonths.has(key);
+                                    const colLabel = humanizeKey(key);
                                      
                                     return (
-                                   <th key={key} className={`px-2 py-3 whitespace-nowrap text-center border-b border-white/20 text-white ${isPagos2026Compact ? 'py-2' : ''} ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-white/20' : ''}`} style={stickyStyle}>
-                                     <div className="flex flex-col items-stretch gap-2 group text-white">
-                                        <div className="flex items-center justify-center gap-1">
-                                            {isExpandableMonth && (
-                                              <button 
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setPagos2026ExpandedMonths(prev => {
-                                                        const newSet = new Set(prev);
-                                                        if (newSet.has(key)) newSet.delete(key);
-                                                        else newSet.add(key);
-                                                        return newSet;
-                                                    });
-                                                }}
-                                                className="mr-1 hover:text-emerald-200 transition-colors p-1"
-                                                title={isExpanded ? "Ocultar desglose" : "Mostrar desglose"}
-                                              >
-                                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />} 
-                                              </button>
-                                            )}
-                                            <span className="truncate font-bold">{humanizeKey(key)}</span>
-                                            {renderColumnFilterControl('pagos2026', key, humanizeKey(key), pagos2026Data)}
-                                        </div>
-                                        <input 
-                                            type="text" 
-                                            placeholder="Buscar..." 
-                                            className="w-full px-2 py-1 text-xs text-slate-800 rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-normal"
-                                            value={pagos2026ColumnSearch[key] || ''}
-                                            onChange={(e) => setPagos2026ColumnSearch(prev => ({...prev, [key]: e.target.value}))}
-                                            onClick={(e) => e.stopPropagation()}
-                                        />
+                                   <th key={key} className={`px-3 ${isPagos2026Compact ? 'py-2' : 'py-3'} whitespace-nowrap text-center border-b border-white/20 text-white ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-white/20' : ''}`} style={stickyStyle}>
+                                     <div className="flex items-center justify-center gap-1 text-white">
+                                         {isExpandableMonth && (
+                                           <button 
+                                             onClick={(e) => {
+                                                 e.stopPropagation();
+                                                 setPagos2026ExpandedMonths(prev => {
+                                                     const newSet = new Set(prev);
+                                                     if (newSet.has(key)) newSet.delete(key);
+                                                     else newSet.add(key);
+                                                     return newSet;
+                                                 });
+                                             }}
+                                             className="mr-1 hover:text-emerald-200 transition-colors p-1"
+                                             title={isExpanded ? "Ocultar desglose" : "Mostrar desglose"}
+                                           >
+                                             {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />} 
+                                           </button>
+                                         )}
+                                         <span className="truncate font-bold">{colLabel}</span>
+                                         {renderColumnFilterControl('pagos2026', key, colLabel, pagos2026Data)}
                                      </div>
                                    </th>
                                  )})
                               ) : (
-                                 <th className="px-4 py-3 text-center text-white">Registros</th>
+                                 <th className="px-4 py-3 text-center text-white" style={{ backgroundColor: '#1B4D3E' }}>Registros</th>
                               )}
                               {pagos2026TableColumns.length > 0 && (
                                 <th 
@@ -9679,10 +9687,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         {pagos2026TableColumns.map((column) => {
                                             const rawValue = row[column];
                                             const columnMeta = pagos2026ColumnMeta.get(column)!;
-                                            const { isBoolean, isDate, stickyConfig, isLastSticky } = columnMeta;
+                                            const { isBoolean, isDate, isMonthRelated, isNotaCredito, stickyConfig, isLastSticky } = columnMeta;
                                             const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
                                             
-                                            const baseClasses = `px-4 border-b border-slate-50 min-w-[120px] whitespace-pre-wrap break-words ${isPagos2026Compact ? 'py-1' : 'py-3'} ${numeric ? "text-right font-mono" : "text-center"}`;
+                                            // Month cells mirror the 2025 table: green tinted background
+                                            const monthBgClass = isMonthRelated ? 'bg-emerald-50/30' : '';
+                                            // Nota de crédito values are shown in red like 2025 table
+                                            const notaColorClass = isNotaCredito ? 'text-red-400' : '';
+
+                                            const baseClasses = `px-4 border-b border-slate-50 min-w-[120px] whitespace-pre-wrap break-words ${isPagos2026Compact ? 'py-1' : 'py-3'} ${numeric ? 'text-center font-mono' : 'text-center'} ${monthBgClass} ${notaColorClass}`;
                                             const cellClasses = isCellEditable ? `${baseClasses} cursor-text` : baseClasses;
                                             
                                             let editingValue = '';
@@ -9692,12 +9705,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                     const p = parsePotentialDate(rawValue);
                                                     editingValue = p ? formatDateToDDMMYYYY(p) : rawValue;
                                                 } else if (typeof rawValue === 'number') {
-                                                      const isIdColumn = ['id', 'ID', 'Id', 'no.', 'numero'].includes(column) || column.toLowerCase().includes('id');
-                                                      if (isIdColumn) {
-                                                         editingValue = String(rawValue); // ID as integer/string without decimals
-                                                      } else {
-                                                         editingValue = numeric ? rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(rawValue);
-                                                      }
+                                                    const isIdColumn = ['id', 'ID', 'Id', 'no.', 'numero'].includes(column) || column.toLowerCase().includes('id');
+                                                    if (isIdColumn) {
+                                                        editingValue = String(rawValue);
+                                                    } else {
+                                                        editingValue = numeric ? rawValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(rawValue);
+                                                    }
                                                 } else {
                                                     editingValue = String(rawValue);
                                                 }
@@ -9780,6 +9793,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                               )}
                                                           </div>
                                                       </div>
+                                                  ) : numeric ? (
+                                                      // Show formatted currency with $ sign — same as 2025 table
+                                                      formatCurrency(typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue ?? '').replace(/,/g, '')) || null)
                                                   ) : (
                                                       editingValue
                                                   )
