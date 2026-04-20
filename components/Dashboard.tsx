@@ -6265,7 +6265,66 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   }, [estatus2026TableColumns, isAddingEstatus2026Row, estatus2026Data]);
 
-  const handlePagos2026CellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('pagos_2026', row, col, val, setPagos2026Data, pagos2026Data);
+  const handlePagos2026CellEdit = async (row: Record<string, any>, col: string, val: any) => {
+    // Save the edited column
+    await handleGenericCellEdit('pagos_2026', row, col, val, setPagos2026Data, pagos2026Data);
+
+    // Auto-compute the parent month total when a sub-column is edited
+    const colNormL = col.toLowerCase();
+    const isPreventivos = colNormL.includes('preventivo');
+    const isCorrectivos = colNormL.includes('correctivo');
+    const isNotaCreditoCol = colNormL.includes('nota') && (colNormL.includes('credito') || colNormL.includes('crédito'));
+    if (!isPreventivos && !isCorrectivos && !isNotaCreditoCol) return;
+
+    // Map each month abbreviation to fragments used to detect its columns
+    const monthMap: Array<{ key: string; fragments: string[] }> = [
+      { key: 'Ene.', fragments: ['ene.', 'enero'] },
+      { key: 'Feb.', fragments: ['feb.', 'febrero'] },
+      { key: 'Mar.', fragments: ['mar.', 'marzo'] },
+      { key: 'Abr.', fragments: ['abr.', 'abril'] },
+      { key: 'May.', fragments: ['may.', 'mayo'] },
+      { key: 'Jun.', fragments: ['jun.', 'junio'] },
+      { key: 'Jul.', fragments: ['jul.', 'julio'] },
+      { key: 'Ago.', fragments: ['ago.', 'agosto'] },
+      { key: 'Sept.', fragments: ['sept.', 'sep.', 'septiembre'] },
+      { key: 'Oct.', fragments: ['oct.', 'octubre'] },
+      { key: 'Nov.', fragments: ['nov.', 'noviembre'] },
+      { key: 'Dic.', fragments: ['dic.', 'diciembre'] },
+    ];
+
+    const monthEntry = monthMap.find(({ fragments }) => fragments.some(f => colNormL.includes(f)));
+    if (!monthEntry) return;
+
+    // Verify the parent month total column actually exists in the table
+    const parentMonthKey = pagos2026TableColumns.find(c => c === monthEntry.key);
+    if (!parentMonthKey) return;
+
+    // Find sibling sub-columns for this month
+    const isThisMonth = (c: string) => monthEntry.fragments.some(f => c.toLowerCase().includes(f));
+    const prevColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('preventivo'));
+    const corrColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('correctivo'));
+    const notaColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('nota'));
+
+    const parseNum = (v: any): number => {
+      if (v === null || v === undefined || v === '') return 0;
+      if (typeof v === 'number') return isNaN(v) ? 0 : v;
+      const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+
+    // Build row with the newly edited value applied so totals are correct
+    const parsedNewVal = parseNum(val);
+    const updatedRow = { ...row, [col]: parsedNewVal };
+
+    const prevVal = parseNum(prevColKey ? updatedRow[prevColKey] : 0);
+    const corrVal = parseNum(corrColKey ? updatedRow[corrColKey] : 0);
+    const notaVal = parseNum(notaColKey ? updatedRow[notaColKey] : 0);
+
+    const monthTotal = prevVal + corrVal - notaVal;
+
+    // Save the computed total to the parent month column
+    await handleGenericCellEdit('pagos_2026', updatedRow, parentMonthKey, monthTotal, setPagos2026Data, pagos2026Data);
+  };
 
   const handleAddPagos2026Row = useCallback(async () => {
     // If no columns detected yet, we try to insert empty object and rely on DB defaults/returning *
