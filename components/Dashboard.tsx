@@ -8,7 +8,7 @@ import {
   DollarSign, PieChart as PieChartIcon,
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
   CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
-  Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, 
+  Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, RefreshCw,
   Users, Plane, Activity
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
@@ -6266,7 +6266,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [estatus2026TableColumns, isAddingEstatus2026Row, estatus2026Data]);
 
   const handlePagos2026CellEdit = async (row: Record<string, any>, col: string, val: any) => {
-    // Save the edited column
+    // Save the edited column first
     await handleGenericCellEdit('pagos_2026', row, col, val, setPagos2026Data, pagos2026Data);
 
     // Auto-compute the parent month total when a sub-column is edited
@@ -6325,6 +6325,64 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     // Save the computed total to the parent month column
     await handleGenericCellEdit('pagos_2026', updatedRow, parentMonthKey, monthTotal, setPagos2026Data, pagos2026Data);
   };
+
+  const handleRecalcPagos2026AllTotals = useCallback(async () => {
+    if (!requireManagePermission()) return;
+    const monthMap: Array<{ key: string; fragments: string[] }> = [
+      { key: 'Ene.', fragments: ['ene.', 'enero'] },
+      { key: 'Feb.', fragments: ['feb.', 'febrero'] },
+      { key: 'Mar.', fragments: ['mar.', 'marzo'] },
+      { key: 'Abr.', fragments: ['abr.', 'abril'] },
+      { key: 'May.', fragments: ['may.', 'mayo'] },
+      { key: 'Jun.', fragments: ['jun.', 'junio'] },
+      { key: 'Jul.', fragments: ['jul.', 'julio'] },
+      { key: 'Ago.', fragments: ['ago.', 'agosto'] },
+      { key: 'Sept.', fragments: ['sept.', 'sep.', 'septiembre'] },
+      { key: 'Oct.', fragments: ['oct.', 'octubre'] },
+      { key: 'Nov.', fragments: ['nov.', 'noviembre'] },
+      { key: 'Dic.', fragments: ['dic.', 'diciembre'] },
+    ];
+    const parseNum = (v: any): number => {
+      if (v === null || v === undefined || v === '') return 0;
+      if (typeof v === 'number') return isNaN(v) ? 0 : v;
+      const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+    const pk = 'id';
+    const updates: Array<{ rowId: any; col: string; val: number }> = [];
+    for (const row of pagos2026Data) {
+      for (const monthEntry of monthMap) {
+        const parentKey = pagos2026TableColumns.find(c => c === monthEntry.key);
+        if (!parentKey) continue;
+        const isThisMonth = (c: string) => monthEntry.fragments.some(f => c.toLowerCase().includes(f));
+        const prevCol = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('preventivo'));
+        const corrCol = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('correctivo'));
+        const notaCol = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('nota'));
+        const total = parseNum(prevCol ? row[prevCol] : 0) + parseNum(corrCol ? row[corrCol] : 0) - parseNum(notaCol ? row[notaCol] : 0);
+        if (parseNum(row[parentKey]) !== total) {
+          updates.push({ rowId: row[pk], col: parentKey, val: total });
+        }
+      }
+    }
+    if (!updates.length) { alert('Todos los totales ya están al día.'); return; }
+    try {
+      await Promise.all(
+        updates.map(({ rowId, col, val }) =>
+          supabase.from('pagos_2026').update({ [col]: val }).eq(pk, rowId)
+        )
+      );
+      // Update local state
+      setPagos2026Data(prev => prev.map(row => {
+        const rowUpdates = updates.filter(u => u.rowId === row[pk]);
+        if (!rowUpdates.length) return row;
+        return rowUpdates.reduce((acc, u) => ({ ...acc, [u.col]: u.val }), { ...row });
+      }));
+      alert(`Se actualizaron ${updates.length} totales de meses.`);
+    } catch (err: any) {
+      console.error('Error al recalcular totales:', err);
+      alert('Error al guardar los totales. Revisa la consola.');
+    }
+  }, [pagos2026Data, pagos2026TableColumns, requireManagePermission]);
 
   const handleAddPagos2026Row = useCallback(async () => {
     // If no columns detected yet, we try to insert empty object and rely on DB defaults/returning *
@@ -9611,6 +9669,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           >
                              <Pencil className="h-4 w-4" />
                              {isPagos2026Editing ? 'Salir de edición' : 'Editar'}
+                          </button>
+                        )}
+                        {canManageRecords && (
+                          <button
+                            type="button"
+                            onClick={handleRecalcPagos2026AllTotals}
+                            className="btn-primary flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-medium"
+                            title="Recalcular totales de meses: Preventivos + Correctivos − Nota de Crédito"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                            Recalcular totales
                           </button>
                         )}
                          {canManageRecords && (
