@@ -8109,11 +8109,46 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     ) : null;
 
                                     const isChecked = isBooleanCol ? getBooleanChecked(rawValue) : false;
+                                    const isTipoServicioCol = column === 'Tipo_de_servicio';
+                                    const tipoBase = isTipoServicioCol ? (String(rawValue ?? '').startsWith('Ordinario') ? 'Ordinario' : String(rawValue ?? '') === 'Normativo' ? 'Normativo' : '') : '';
+                                    const tipoPriority = (isTipoServicioCol && tipoBase === 'Ordinario') ? (String(rawValue ?? '').includes('Alta') ? 'Alta' : String(rawValue ?? '').includes('Media') ? 'Media' : 'Baja') : '';
 
                                     return (
                                       <td key={column} className={cellClasses}>
                                         {isCellEditable ? (
-                                          isBooleanCol ? (
+                                          isTipoServicioCol ? (
+                                            <div className="flex flex-col gap-1 items-stretch min-w-[130px]" onClick={(e) => e.stopPropagation()}>
+                                              <select
+                                                aria-label="Tipo de servicio"
+                                                title="Tipo de servicio"
+                                                value={tipoBase}
+                                                onChange={(e) => {
+                                                  const newTipo = e.target.value;
+                                                  if (newTipo === 'Normativo') handleServiciosCellEdit(row, column, 'Normativo');
+                                                  else if (newTipo === 'Ordinario') handleServiciosCellEdit(row, column, `Ordinario - ${tipoPriority || 'Alta'}`);
+                                                  else handleServiciosCellEdit(row, column, '');
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
+                                              >
+                                                <option value="">— Seleccionar —</option>
+                                                <option value="Normativo">Normativo</option>
+                                                <option value="Ordinario">Ordinario</option>
+                                              </select>
+                                              {tipoBase === 'Ordinario' && (
+                                                <select
+                                                  aria-label="Prioridad"
+                                                  title="Prioridad del servicio"
+                                                  value={tipoPriority}
+                                                  onChange={(e) => handleServiciosCellEdit(row, column, `Ordinario - ${e.target.value}`)}
+                                                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
+                                                >
+                                                  <option value="Alta">Alta</option>
+                                                  <option value="Media">Media</option>
+                                                  <option value="Baja">Baja</option>
+                                                </select>
+                                              )}
+                                            </div>
+                                          ) : isBooleanCol ? (
                                               <div className="flex items-center justify-center h-full min-h-[1.5em]" onClick={(e) => e.stopPropagation()}>
                                                     <input 
                                                       type="checkbox"
@@ -8204,7 +8239,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           )
                                           )
                                         ) : (
-                                          isBooleanCol ? (
+                                          isTipoServicioCol ? (
+                                            <div className="flex items-center justify-center gap-1.5">
+                                              {rawValue ? (
+                                                <>
+                                                  <span className={`inline-block w-3 h-3 rounded-full shrink-0 ${tipoPriority === 'Alta' ? 'bg-red-500' : tipoPriority === 'Media' ? 'bg-yellow-400' : tipoPriority === 'Baja' ? 'bg-green-500' : 'bg-slate-400'}`} />
+                                                  <span className="text-xs font-medium text-slate-700">{String(rawValue)}</span>
+                                                </>
+                                              ) : (
+                                                <span className="text-xs text-slate-400 italic">—</span>
+                                              )}
+                                            </div>
+                                          ) : isBooleanCol ? (
                                               <div className="flex items-center justify-center h-full min-h-[1.5em]">
                                                   <div className={`w-5 h-5 rounded flex items-center justify-center border ${isChecked ? 'bg-[#2d3e50] border-[#2d3e50]' : 'bg-transparent border-slate-300'}`}>
                                                       {isChecked && (
