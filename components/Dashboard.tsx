@@ -4654,12 +4654,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         // Nota de Crédito → rojo como la tabla 2025
         const isNotaCredito = norm.includes('nota') && (norm.includes('credito') || norm.includes('crédito'));
 
+        // Determine which parent month this sub-column belongs to (null for parent months and non-month columns)
+        const parentMonthKeys = ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sept.', 'Oct.', 'Nov.', 'Dic.'];
+        const parentMonthFragments: Record<string, string[]> = {
+          'Ene.': ['ene.', 'enero'], 'Feb.': ['feb.', 'febrero'], 'Mar.': ['mar.', 'marzo'],
+          'Abr.': ['abr.', 'abril'], 'May.': ['may.', 'mayo'], 'Jun.': ['jun.', 'junio'],
+          'Jul.': ['jul.', 'julio'], 'Ago.': ['ago.', 'agosto'], 'Sept.': ['sept.', 'sep.', 'septiembre'],
+          'Oct.': ['oct.', 'octubre'], 'Nov.': ['nov.', 'noviembre'], 'Dic.': ['dic.', 'diciembre'],
+        };
+        let parentMonth: string | null = null;
+        if (!parentMonthKeys.includes(column)) {
+          for (const [pk, frags] of Object.entries(parentMonthFragments)) {
+            if (frags.some(f => norm.includes(f))) { parentMonth = pk; break; }
+          }
+        }
+
         meta.set(column, {
             isBoolean,
             isDate,
             isHighlighted: false,
             isMonthRelated,
             isNotaCredito,
+            parentMonth,
             stickyConfig: pagos2026StickyInfo.meta.get(column),
             isLastSticky: pagos2026LastStickyKey === column
         });
@@ -9729,10 +9745,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                  pagos2026TableColumns.map((key) => {
                                     const colMeta = pagos2026ColumnMeta.get(key);
                                     const keyIsMonthRelated = colMeta?.isMonthRelated ?? false;
+                                    const colParentMonth = colMeta?.parentMonth ?? null;
+                                    // Per-month accent palette for expanded sub-columns
+                                    const monthAccentPalette: Record<string, { header: string; cell: string }> = {
+                                      'Ene.': { header: '#1e40af', cell: '#dbeafe' },
+                                      'Feb.': { header: '#6d28d9', cell: '#ede9fe' },
+                                      'Mar.': { header: '#0e7490', cell: '#cffafe' },
+                                      'Abr.': { header: '#b45309', cell: '#fef3c7' },
+                                      'May.': { header: '#be185d', cell: '#fce7f3' },
+                                      'Jun.': { header: '#1d4ed8', cell: '#e0e7ff' },
+                                      'Jul.': { header: '#c2410c', cell: '#ffedd5' },
+                                      'Ago.': { header: '#0f766e', cell: '#ccfbf1' },
+                                      'Sept.': { header: '#7e22ce', cell: '#f3e8ff' },
+                                      'Oct.': { header: '#0369a1', cell: '#e0f2fe' },
+                                      'Nov.': { header: '#4d7c0f', cell: '#ecfccb' },
+                                      'Dic.': { header: '#991b1b', cell: '#ffe4e6' },
+                                    };
+                                    const isExpandedSubCol = colParentMonth !== null && pagos2026ExpandedMonths.has(colParentMonth);
+                                    const accentColor = isExpandedSubCol ? (monthAccentPalette[colParentMonth!] ?? null) : null;
                                     const stickyConfig = pagos2026StickyInfo.meta.get(key);
                                     const isSticky = !!stickyConfig;
                                     const isLastSticky = pagos2026LastStickyKey === key;
-                                    const headerBg = isSticky ? '#1B4D3E' : keyIsMonthRelated ? '#2D6A4F' : '#1B4D3E';
+                                    const headerBg = isSticky ? '#1B4D3E' : accentColor ? accentColor.header : keyIsMonthRelated ? '#2D6A4F' : '#1B4D3E';
                                     const stickyStyle: React.CSSProperties = isSticky ? {
                                       position: 'sticky',
                                       left: stickyConfig.left,
@@ -9815,14 +9849,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         {pagos2026TableColumns.map((column) => {
                                             const rawValue = row[column];
                                             const columnMeta = pagos2026ColumnMeta.get(column)!;
-                                            const { isBoolean, isDate, isMonthRelated, isNotaCredito, stickyConfig, isLastSticky } = columnMeta;
+                                            const { isBoolean, isDate, isMonthRelated, isNotaCredito, parentMonth: colParentMonthCell, stickyConfig, isLastSticky } = columnMeta;
                                             const isIdColumn = ['id', 'ID', 'Id'].includes(column) || column.toLowerCase() === 'id' || column.toLowerCase() === 'no.' || column.toLowerCase() === 'numero';
                                             const numeric = !isBoolean && !isDate && !isIdColumn && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
-                                            
-                                            // Month cells mirror the 2025 table: green tinted background
-                                            const monthBgClass = isMonthRelated ? 'bg-emerald-50/30' : '';
+
+                                            // Per-month accent palette (same as header)
+                                            const cellMonthPalette: Record<string, string> = {
+                                              'Ene.': '#dbeafe', 'Feb.': '#ede9fe', 'Mar.': '#cffafe',
+                                              'Abr.': '#fef3c7', 'May.': '#fce7f3', 'Jun.': '#e0e7ff',
+                                              'Jul.': '#ffedd5', 'Ago.': '#ccfbf1', 'Sept.': '#f3e8ff',
+                                              'Oct.': '#e0f2fe', 'Nov.': '#ecfccb', 'Dic.': '#ffe4e6',
+                                            };
+                                            const isExpandedSubColCell = colParentMonthCell !== null && pagos2026ExpandedMonths.has(colParentMonthCell);
                                             // Nota de crédito values are shown in red like 2025 table
                                             const notaColorClass = isNotaCredito ? 'text-red-400' : '';
+                                            // Month cells: use accent color when expanded, otherwise default green tint
+                                            const monthBgClass = isExpandedSubColCell ? '' : isMonthRelated ? 'bg-emerald-50/30' : '';
+                                            const cellAccentStyle: React.CSSProperties = isExpandedSubColCell && colParentMonthCell
+                                              ? { backgroundColor: cellMonthPalette[colParentMonthCell] ?? undefined }
+                                              : {};
 
                                             const baseClasses = `px-4 border-b border-slate-50 min-w-[120px] whitespace-pre-wrap break-words ${isPagos2026Compact ? 'py-1' : 'py-3'} ${numeric ? 'text-center font-mono' : 'text-center'} ${monthBgClass} ${notaColorClass}`;
                                             const cellClasses = isCellEditable ? `${baseClasses} cursor-text` : baseClasses;
@@ -9860,7 +9905,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                               position: 'sticky', left: stickyConfig.left, zIndex: 10,
                                               backgroundColor: zebraBackground, width: stickyConfig.width,
                                               minWidth: stickyConfig.width, maxWidth: stickyConfig.width,
-                                            } : {};
+                                            } : cellAccentStyle;
 
                                             const finalCellClasses = `${cellClasses} ${isLastSticky ? 'shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] border-r border-slate-100' : ''}`;
 
