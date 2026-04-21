@@ -394,7 +394,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-[#B38E5D] focus:ring-2 focus:ring-[#B38E5D]/20 outline-none transition-all"
+                    className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-[#B38E5D] focus:ring-2 focus:ring-[#B38E5D]/20 outline-none transition-all [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
                     placeholder="••••••••"
                     required
                     minLength={6}
