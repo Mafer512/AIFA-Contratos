@@ -4748,16 +4748,60 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       monthly: Array<{ month: string; value: number }>;
     }>;
 
+    // For each month, find sub-columns (preventivos, correctivos, nota) and parent total column
+    const monthDefs = [
+      { label: 'Enero',      fragments: ['ene.', 'enero'],       parentKey: 'Ene.'  },
+      { label: 'Febrero',    fragments: ['feb.', 'febrero'],     parentKey: 'Feb.'  },
+      { label: 'Marzo',      fragments: ['mar.', 'marzo'],       parentKey: 'Mar.'  },
+      { label: 'Abril',      fragments: ['abr.', 'abril'],       parentKey: 'Abr.'  },
+      { label: 'Mayo',       fragments: ['may.', 'mayo'],        parentKey: 'May.'  },
+      { label: 'Junio',      fragments: ['jun.', 'junio'],       parentKey: 'Jun.'  },
+      { label: 'Julio',      fragments: ['jul.', 'julio'],       parentKey: 'Jul.'  },
+      { label: 'Agosto',     fragments: ['ago.', 'agosto'],      parentKey: 'Ago.'  },
+      { label: 'Septiembre', fragments: ['sept.', 'sep.', 'septiembre'], parentKey: 'Sept.' },
+      { label: 'Octubre',    fragments: ['oct.', 'octubre'],     parentKey: 'Oct.'  },
+      { label: 'Noviembre',  fragments: ['nov.', 'noviembre'],   parentKey: 'Nov.'  },
+      { label: 'Diciembre',  fragments: ['dic.', 'diciembre'],   parentKey: 'Dic.'  },
+    ];
+
+    // Pre-compute column keys for each month's sub-columns (use toLowerCase to preserve dots)
+    const resolvedMonths = monthDefs.map(({ label, fragments, parentKey }) => {
+      const colL = (col: string) => col.toLowerCase();
+      const isThisMonth = (col: string) => fragments.some(f => colL(col).includes(f));
+      const prevCol   = pagos2026TableColumns.find(c => isThisMonth(c) && colL(c).includes('preventivo')) ?? null;
+      const corrCol   = pagos2026TableColumns.find(c => isThisMonth(c) && colL(c).includes('correctivo')) ?? null;
+      const notaCol   = pagos2026TableColumns.find(c => isThisMonth(c) && (colL(c).includes('nota') || colL(c).includes('crédito') || colL(c).includes('credito'))) ?? null;
+      const parentCol = pagos2026TableColumns.find(c => c === parentKey) ?? null;
+      return { label, prevCol, corrCol, notaCol, parentCol };
+    });
+
+    const parseNum = (v: any): number => {
+      if (v === null || v === undefined || v === '') return 0;
+      if (typeof v === 'number') return isNaN(v) ? 0 : v;
+      const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+
     return pagos2026Data.map((row, index) => {
       const serviceValue = pagos2026ServiceFieldSummary ? row[pagos2026ServiceFieldSummary] : null;
       const contractRef = String(row['No. Contrato'] ?? row['No contrato'] ?? row['No. de contrato'] ?? '').trim();
       const service = String(serviceValue ?? '').trim() || (contractRef ? `Contrato ${contractRef}` : `Servicio ${index + 1}`);
 
       const total = parseNumericValue(pagos2026MontoMaxFieldSummary ? row[pagos2026MontoMaxFieldSummary] : null);
-      const monthly = pagos2026MonthColumns.map((monthDef) => ({
-        month: monthDef.label,
-        value: monthDef.column ? parseNumericValue(row[monthDef.column]) : 0,
-      }));
+
+      // For each month: prefer sub-column sum (most accurate); fall back to parent total if sub-columns absent
+      const monthly = resolvedMonths.map(({ label, prevCol, corrCol, notaCol, parentCol }) => {
+        const prev = parseNum(prevCol ? row[prevCol] : 0);
+        const corr = parseNum(corrCol ? row[corrCol] : 0);
+        const nota = parseNum(notaCol ? row[notaCol] : 0);
+        const subTotal = prev + corr - nota;
+        // If at least one sub-column has data, use the computed sub-total; otherwise use parent total
+        const hasSubData = prev !== 0 || corr !== 0 || nota !== 0;
+        const parentVal = parseNum(parentCol ? row[parentCol] : 0);
+        const value = hasSubData ? subTotal : parentVal;
+        return { month: label, value: Math.max(0, value) };
+      });
+
       const paid = monthly.reduce((acc, item) => acc + (Number.isFinite(item.value) ? item.value : 0), 0);
 
       const pctRaw = total > 0 ? (paid / total) * 100 : 0;
@@ -4775,7 +4819,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         monthly,
       };
     }).sort((a, b) => b.paid - a.paid);
-  }, [pagos2026Data, pagos2026ServiceFieldSummary, pagos2026MontoMaxFieldSummary, pagos2026MonthColumns]);
+  }, [pagos2026Data, pagos2026ServiceFieldSummary, pagos2026MontoMaxFieldSummary, pagos2026TableColumns]);
 
   const pagos2026ProgressTotals = useMemo(() => {
     const totalToPay = pagos2026ServicePaymentProgress.reduce((acc, row) => acc + row.total, 0);
@@ -10076,12 +10120,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         </td>
                                         <td className="px-4 py-3 text-right font-mono text-slate-700">{formatCurrency(item.paid)}</td>
                                         <td className="px-4 py-3 text-right">
-                                          <div className="inline-flex flex-col items-end">
-                                            <span className="font-mono text-amber-700 font-semibold">{formatCurrency(Math.max(0, item.total - item.paid))}</span>
-                                            {item.total > 0 && (
+                                          {item.total <= 0 ? (
+                                            <span className="font-mono text-slate-400 text-xs">Sin monto máximo</span>
+                                          ) : (
+                                            <div className="inline-flex flex-col items-end">
+                                              <span className={`font-mono font-semibold ${item.paid >= item.total ? 'text-emerald-600' : 'text-amber-700'}`}>
+                                                {formatCurrency(Math.max(0, item.total - item.paid))}
+                                              </span>
                                               <span className="text-[11px] text-slate-400 mt-0.5">{Math.max(0, 100 - item.pctRaw).toFixed(1)}%</span>
-                                            )}
-                                          </div>
+                                            </div>
+                                          )}
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                           <button
