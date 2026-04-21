@@ -8109,7 +8109,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     ) : null;
 
                                     const isChecked = isBooleanCol ? getBooleanChecked(rawValue) : false;
-                                    const isTipoServicioCol = column === 'Tipo_de_servicio';
+                                    const isTipoServicioCol = column.toLowerCase() === 'tipo_de_servicio';
                                     const tipoBase = isTipoServicioCol ? (String(rawValue ?? '').startsWith('Ordinario') ? 'Ordinario' : String(rawValue ?? '') === 'Normativo' ? 'Normativo' : '') : '';
                                     const tipoPriority = (isTipoServicioCol && tipoBase === 'Ordinario') ? (String(rawValue ?? '').includes('Alta') ? 'Alta' : String(rawValue ?? '').includes('Media') ? 'Media' : 'Baja') : '';
 
