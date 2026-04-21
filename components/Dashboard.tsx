@@ -2787,7 +2787,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const findColumnByFragments = (columns: string[], fragments: string[]) => {
     if (!columns.length) return null;
-    const normalizedFragments = fragments.map(fragment => fragment.toLowerCase());
+    // Normalize fragments the same way columns are normalized so dots/dashes match correctly
+    const normalizedFragments = fragments.map(fragment => normalizeAnnualKey(fragment));
     for (const column of columns) {
       const normalized = normalizeAnnualKey(column);
       if (normalizedFragments.some(fragment => normalized.includes(fragment))) {
@@ -4690,7 +4691,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   ), [pagos2026TableColumns]);
 
   const pagos2026MontoMaxFieldSummary = useMemo(() => (
-    findColumnByFragments(pagos2026TableColumns, ['monto maximo contrato', 'mont. max.', 'monto maximo', 'monto maximo 2026', 'monto maximo 2025', 'monto maximo 2024'])
+    findColumnByFragments(pagos2026TableColumns, ['Mont. Max.', 'monto maximo contrato', 'mont. max.', 'monto maximo', 'monto max', 'monto maximo 2026', 'monto maximo 2025', 'monto maximo 2024'])
   ), [pagos2026TableColumns]);
 
   const pagos2026MonthColumns = useMemo(() => {
