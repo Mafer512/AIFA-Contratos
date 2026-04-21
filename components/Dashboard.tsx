@@ -4656,16 +4656,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
         // Determine which parent month this sub-column belongs to (null for parent months and non-month columns)
         const parentMonthKeys = ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sept.', 'Oct.', 'Nov.', 'Dic.'];
-        const parentMonthFragments: Record<string, string[]> = {
-          'Ene.': ['ene.', 'enero'], 'Feb.': ['feb.', 'febrero'], 'Mar.': ['mar.', 'marzo'],
-          'Abr.': ['abr.', 'abril'], 'May.': ['may.', 'mayo'], 'Jun.': ['jun.', 'junio'],
-          'Jul.': ['jul.', 'julio'], 'Ago.': ['ago.', 'agosto'], 'Sept.': ['sept.', 'sep.', 'septiembre'],
-          'Oct.': ['oct.', 'octubre'], 'Nov.': ['nov.', 'noviembre'], 'Dic.': ['dic.', 'diciembre'],
-        };
+        // Use column.toLowerCase() (NOT normalizeAnnualKey) so dots are preserved in fragment matching
+        const colLower = column.toLowerCase();
+        const parentMonthFragments: Array<[string, string[]]> = [
+          ['Ene.', ['ene.', 'enero']],   ['Feb.', ['feb.', 'febrero']],  ['Mar.', ['mar.', 'marzo']],
+          ['Abr.', ['abr.', 'abril']],   ['May.', ['may.', 'mayo']],     ['Jun.', ['jun.', 'junio']],
+          ['Jul.', ['jul.', 'julio']],   ['Ago.', ['ago.', 'agosto']],   ['Sept.', ['sept.', 'sep.', 'septiembre']],
+          ['Oct.', ['oct.', 'octubre']], ['Nov.', ['nov.', 'noviembre']], ['Dic.', ['dic.', 'diciembre']],
+        ];
         let parentMonth: string | null = null;
         if (!parentMonthKeys.includes(column)) {
-          for (const [pk, frags] of Object.entries(parentMonthFragments)) {
-            if (frags.some(f => norm.includes(f))) { parentMonth = pk; break; }
+          for (const [pk, frags] of parentMonthFragments) {
+            if (frags.some(f => colLower.includes(f))) { parentMonth = pk; break; }
           }
         }
 
