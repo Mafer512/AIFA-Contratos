@@ -444,6 +444,187 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
 });
 ColumnFilterControl.displayName = 'ColumnFilterControl';
 
+interface TipoServicioPickerProps {
+  value: string;
+  onChange: (nextValue: string) => void;
+}
+
+const getTipoColorClass = (label: string) => {
+  if (!label) return 'bg-slate-100 text-slate-400 border-slate-200';
+  const labelLower = label.toLowerCase();
+  if (labelLower.includes('alta')) return 'bg-red-100 text-red-800 border-red-200';
+  if (labelLower.includes('media')) return 'bg-amber-100 text-amber-800 border-amber-200';
+  if (labelLower.includes('baja')) return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+  if (labelLower.includes('normativo')) return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+  return 'bg-slate-100 text-slate-700 border-slate-200';
+};
+
+const TipoServicioPicker: React.FC<TipoServicioPickerProps> = ({ value, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  const normalizedValue = String(value ?? '').trim();
+  const currentBase = normalizedValue.startsWith('Ordinario')
+    ? 'Ordinario'
+    : normalizedValue.toLowerCase() === 'normativo'
+      ? 'Normativo'
+      : '';
+  const currentPriority = currentBase === 'Ordinario'
+    ? (normalizedValue.includes('Alta') ? 'Alta' : normalizedValue.includes('Media') ? 'Media' : 'Baja')
+    : '';
+  const displayLabel = currentBase === 'Ordinario'
+    ? `Ordinario - ${currentPriority || 'Alta'}`
+    : currentBase || '— Seleccionar —';
+
+  const updatePopoverPosition = useCallback(() => {
+    if (!isOpen) return;
+    if (typeof window === 'undefined') return;
+    const buttonEl = buttonRef.current;
+    if (!buttonEl) return;
+    const rect = buttonEl.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const scrollY = window.scrollY ?? window.pageYOffset ?? 0;
+    const scrollX = window.scrollX ?? window.pageXOffset ?? 0;
+    const popoverWidth = 260;
+    let left = rect.left + scrollX;
+    const maxLeft = scrollX + viewportWidth - popoverWidth - 8;
+    const minLeft = scrollX + 8;
+    if (left < minLeft) left = minLeft;
+    if (left > maxLeft) left = maxLeft;
+    const top = rect.bottom + 8 + scrollY;
+    setPopoverPosition({ top, left });
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (popoverRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      setIsOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePopoverPosition();
+    if (typeof window === 'undefined') return;
+    const handleReposition = () => updatePopoverPosition();
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [isOpen, updatePopoverPosition]);
+
+  const portalTarget = typeof document !== 'undefined' ? document.body : null;
+
+  const optionGroups = [
+    {
+      label: 'Normativo',
+      value: 'Normativo',
+      description: 'Servicio sujeto a catálogo normativo.',
+    },
+    {
+      label: 'Ordinario - Alta',
+      value: 'Ordinario - Alta',
+      description: 'Servicio ordinario con prioridad alta.',
+    },
+    {
+      label: 'Ordinario - Media',
+      value: 'Ordinario - Media',
+      description: 'Servicio ordinario con prioridad media.',
+    },
+    {
+      label: 'Ordinario - Baja',
+      value: 'Ordinario - Baja',
+      description: 'Servicio ordinario con prioridad baja.',
+    },
+  ];
+
+  return (
+    <div className="relative w-full" onClick={(event) => event.stopPropagation()}>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label="Tipo de servicio"
+        title="Tipo de servicio"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={`w-full rounded-md border px-2 py-1 text-[11px] font-semibold text-left focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer ${getTipoColorClass(String(value ?? ''))}`}
+      >
+        <span className="block truncate">{displayLabel}</span>
+      </button>
+      {isOpen && portalTarget && createPortal(
+        <div
+          ref={popoverRef}
+          className="z-[2000] rounded-lg border border-slate-200 bg-white p-3 text-left shadow-xl"
+          style={{ position: 'absolute', top: popoverPosition.top, left: popoverPosition.left, width: 260 }}
+        >
+          <p className="mb-2 text-[11px] font-semibold text-slate-500">Selecciona un tipo de servicio</p>
+          <div className="flex flex-col gap-2">
+            {optionGroups.map((option) => {
+              const isActive = displayLabel === option.label;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(option.value);
+                    setIsOpen(false);
+                  }}
+                  className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                    isActive
+                      ? 'border-[#0F4C3A] bg-emerald-50 text-[#0F4C3A]'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="block text-[12px] font-semibold">{option.label}</span>
+                  <span className="block text-[11px] text-slate-500">{option.description}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-end gap-2 text-[11px] font-semibold">
+            <button
+              type="button"
+              onClick={() => {
+                onChange('');
+                setIsOpen(false);
+              }}
+              className="px-2 py-1 rounded-md text-slate-500 hover:text-slate-700"
+            >
+              Limpiar
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="px-2 py-1 rounded-md text-slate-500 hover:text-slate-700"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>,
+        portalTarget
+      )}
+    </div>
+  );
+};
+
 // === DATOS MOCK DE RESPALDO (FALLBACK) ===
 const MOCK_CONTRACTS: Contract[] = [
   { id: 'm1', provider_name: 'Limpieza Integral S.A.', service_concept: 'Limpieza Terminal Pasajeros', contract_number: 'C-2024-001', start_date: '2024-01-01', end_date: '2024-12-31', amount_mxn: 12500000, status: 'ACTIVO', area: 'Terminal 1' },
@@ -3787,6 +3968,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     ['nombre_servicio', 'nombre del servicio.', 'nombre del servicio', 'servicio'],
     ['subdireccion', 'subdirección', 'área'],
     ['gerencia'],
+    ['tipo_de_servicio', 'tipo de servicio'],
     ['monto_solicitado_anteproyecto_2026', 'monto solicitado anteproyecto 2026', 'solicitado 2026'],
     ['monto_maximo_2024', 'monto máximo 2024', 'monto 2024'],
     ['fase'],
@@ -8111,44 +8293,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     const isChecked = isBooleanCol ? getBooleanChecked(rawValue) : false;
                                     const _colNorm = column.toLowerCase().replace(/[\s_]+/g, '_');
                                     const isTipoServicioCol = _colNorm === 'tipo_de_servicio' || (_colNorm.includes('tipo') && _colNorm.includes('servicio'));
-                                    const tipoBase = isTipoServicioCol ? (String(rawValue ?? '').startsWith('Ordinario') ? 'Ordinario' : String(rawValue ?? '').toLowerCase() === 'normativo' ? 'Normativo' : '') : '';
-                                    const tipoPriority = (isTipoServicioCol && tipoBase === 'Ordinario') ? (String(rawValue ?? '').includes('Alta') ? 'Alta' : String(rawValue ?? '').includes('Media') ? 'Media' : 'Baja') : '';
 
                                     return (
                                       <td key={column} className={cellClasses}>
                                         {isCellEditable ? (
                                           isTipoServicioCol ? (
-                                            <div className="flex flex-col gap-1 items-stretch min-w-[130px]" onClick={(e) => e.stopPropagation()}>
-                                              <select
-                                                aria-label="Tipo de servicio"
-                                                title="Tipo de servicio"
-                                                value={tipoBase}
-                                                onChange={(e) => {
-                                                  const newTipo = e.target.value;
-                                                  if (newTipo === 'Normativo') handleServiciosCellEdit(row, column, 'Normativo');
-                                                  else if (newTipo === 'Ordinario') handleServiciosCellEdit(row, column, `Ordinario - ${tipoPriority || 'Alta'}`);
-                                                  else handleServiciosCellEdit(row, column, '');
-                                                }}
-                                                className="w-full bg-white border border-slate-200 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
-                                              >
-                                                <option value="">— Seleccionar —</option>
-                                                <option value="Normativo">Normativo</option>
-                                                <option value="Ordinario">Ordinario</option>
-                                              </select>
-                                              {tipoBase === 'Ordinario' && (
-                                                <select
-                                                  aria-label="Prioridad"
-                                                  title="Prioridad del servicio"
-                                                  value={tipoPriority}
-                                                  onChange={(e) => handleServiciosCellEdit(row, column, `Ordinario - ${e.target.value}`)}
-                                                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
-                                                >
-                                                  <option value="Alta">Alta</option>
-                                                  <option value="Media">Media</option>
-                                                  <option value="Baja">Baja</option>
-                                                </select>
-                                              )}
-                                            </div>
+                                            <TipoServicioPicker
+                                              value={rawValue ? String(rawValue) : ''}
+                                              onChange={(nextValue) => handleServiciosCellEdit(row, column, nextValue)}
+                                            />
                                           ) : isBooleanCol ? (
                                               <div className="flex items-center justify-center h-full min-h-[1.5em]" onClick={(e) => e.stopPropagation()}>
                                                     <input 
@@ -8241,12 +8394,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           )
                                         ) : (
                                           isTipoServicioCol ? (
-                                            <div className="flex items-center justify-center gap-1.5">
+                                            <div className="flex items-center justify-center">
                                               {rawValue ? (
-                                                <>
-                                                  <span className={`inline-block w-3 h-3 rounded-full shrink-0 ${tipoPriority === 'Alta' ? 'bg-red-500' : tipoPriority === 'Media' ? 'bg-yellow-400' : tipoPriority === 'Baja' ? 'bg-green-500' : 'bg-slate-400'}`} />
-                                                  <span className="text-xs font-medium text-slate-700">{String(rawValue)}</span>
-                                                </>
+                                                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${getTipoColorClass(String(rawValue))}`}>
+                                                    {String(rawValue)}
+                                                  </span>
                                               ) : (
                                                 <span className="text-xs text-slate-400 italic">—</span>
                                               )}
@@ -9464,11 +9616,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         const rowDeleteKey = `estatus_2026:id:${String(row?.id ?? row?.ID ?? row?.Id ?? rowKey)}`;
                                         const isDeletingThisRow = isDeletingRecord && deletingRecordKey === rowDeleteKey;
 
+                                        const _colNorm = column.toLowerCase().replace(/[\s_]+/g, '_');
+                                        const isTipoServicioCol = _colNorm === 'tipo_de_servicio' || (_colNorm.includes('tipo') && _colNorm.includes('servicio'));
+
                                        return (
                                        <td key={column} className={finalCellClasses} title={String(editingValue || isChecked)} style={stickyCellStyle}>
                                           <div className={showInlineDelete ? 'flex flex-col items-center gap-1' : undefined}>
                                           {isCellEditable ? (
-                                              isBoolean ? (
+                                              isTipoServicioCol ? (
+                                                  <TipoServicioPicker
+                                                    value={rawValue ? String(rawValue) : ''}
+                                                    onChange={(nextValue) => handleEstatus2026CellEdit(row, column, nextValue)}
+                                                  />
+                                              ) : isBoolean ? (
                                                 <div className="flex items-center justify-center h-full min-h-[1.5em]" onClick={(e) => e.stopPropagation()}>
                                                     <input 
                                                         type="checkbox"
@@ -9611,7 +9771,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 )
                                               )
                                           ) : (
-                                              isBoolean ? (
+                                              isTipoServicioCol ? (
+                                                  <div className="flex items-center justify-center">
+                                                    {rawValue ? (
+                                                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${getTipoColorClass(String(rawValue))}`}>
+                                                        {String(rawValue)}
+                                                      </span>
+                                                    ) : (
+                                                      <span className="text-xs text-slate-400 italic">—</span>
+                                                    )}
+                                                  </div>
+                                              ) : isBoolean ? (
                                                   <div className="flex items-center justify-center h-full min-h-[1.5em]">
                                                       <div className={`w-5 h-5 rounded flex items-center justify-center border ${isChecked ? 'bg-[#2d3e50] border-[#2d3e50]' : 'bg-transparent border-slate-300'}`}>
                                                           {isChecked && (
