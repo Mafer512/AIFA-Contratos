@@ -496,6 +496,73 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
 });
 ColumnFilterControl.displayName = 'ColumnFilterControl';
 
+// ---------------------------------------------------------------------------
+// EstatusStatusPicker — dropdown for the "Estatus" column in estatus_2026
+// ---------------------------------------------------------------------------
+const ESTATUS_2026_OPTIONS = [
+  'Cancelado',
+  'Pausado',
+  'Elaboración de anexo técnico, administrativo y apéndices',
+  'En proceso de publicación',
+  'En investigación de mercado',
+  'En revisión de Defensa',
+  'Adjudicado',
+] as const;
+
+// Hex colors for each canonical status — used in the pie chart and legend
+const ESTATUS_2026_COLOR_MAP: Record<string, string> = {
+  'Cancelado':                                                          '#EF4444', // red-500
+  'Pausado':                                                            '#F59E0B', // amber-500
+  'Elaboración de anexo técnico, administrativo y apéndices':           '#06B6D4', // cyan-500
+  'En proceso de publicación':                                          '#3B82F6', // blue-500
+  'En investigación de mercado':                                        '#6366F1', // indigo-500
+  'En revisión de Defensa':                                             '#8B5CF6', // violet-500
+  'Adjudicado':                                                         '#10B981', // emerald-500
+  'Sin estatus':                                                        '#94A3B8', // slate-400
+};
+
+const getEstatusColorClass = (label: string) => {
+  if (!label) return 'bg-slate-100 text-slate-400 border-slate-200';
+  const l = label.toLowerCase();
+  if (l.includes('cancelado')) return 'bg-red-100 text-red-800 border-red-200';
+  if (l.includes('pausado')) return 'bg-amber-100 text-amber-800 border-amber-200';
+  if (l.includes('adjudicado')) return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+  if (l.includes('publicaci')) return 'bg-blue-100 text-blue-800 border-blue-200';
+  if (l.includes('investigaci')) return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+  if (l.includes('defensa')) return 'bg-purple-100 text-purple-800 border-purple-200';
+  if (l.includes('elaboraci')) return 'bg-cyan-100 text-cyan-800 border-cyan-200';
+  return 'bg-slate-100 text-slate-700 border-slate-200';
+};
+
+interface EstatusStatusPickerProps {
+  value: string;
+  onChange: (nextValue: string) => void;
+}
+
+const EstatusStatusPicker: React.FC<EstatusStatusPickerProps> = ({ value, onChange }) => {
+  const currentValue = ESTATUS_2026_OPTIONS.includes(value as any) ? value : '';
+  return (
+    <div className="flex flex-col items-center gap-1 min-w-[200px]" onClick={(e) => e.stopPropagation()}>
+      {currentValue && (
+        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border ${getEstatusColorClass(currentValue)}`}>
+          {currentValue}
+        </span>
+      )}
+      <select
+        className="w-full text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
+        value={currentValue}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Estatus"
+      >
+        <option value="">— Seleccionar —</option>
+        {ESTATUS_2026_OPTIONS.map((opt) => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+      </select>
+    </div>
+  );
+};
+
 interface TipoServicioPickerProps {
   value: string;
   onChange: (nextValue: string) => void;
@@ -4085,7 +4152,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     ['proveedor'],
     ['no_contrato', 'no. de contrato'],
     ['vigencia_inicio', 'vigencia de inicio'],
-    ['vigencia_termino', 'vigencia de término']
+    ['vigencia_termino', 'vigencia de término'],
+    ['garantia_cumplimiento', 'garantia de cumplimiento', 'garantía de cumplimiento', 'garantia cumplimiento'],
+    ['poliza_responsabilidad_civil', 'poliza de responsabilidad civil', 'póliza de responsabilidad civil', 'responsabilidad civil'],
+    ['garantia_calidad', 'garantia de calidad', 'garantía de calidad', 'garantía calidad']
   ];
 
   const pagos2026PreferredOrderHints: [string, ...string[]][] = [
@@ -4595,24 +4665,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return null;
   }, [estatus2026TableColumns]);
 
+  // Normalize a raw status value to one of the 7 canonical options (or 'Sin estatus')
+  const normalizeEstatus2026Value = (raw: any): string => {
+    if (raw === null || raw === undefined || String(raw).trim() === '') return 'Sin estatus';
+    const val = String(raw).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (val.includes('cancelad') || val.includes('cancelar')) return 'Cancelado';
+    if (val.includes('pausad') || val.includes('pausa')) return 'Pausado';
+    if (val.includes('adjudicad') || val.includes('contratad')) return 'Adjudicado';
+    if (val.includes('publicaci') || val.includes('compras mx') || val.includes('publicada')) return 'En proceso de publicación';
+    if (val.includes('investigaci') || val.includes('investigacion')) return 'En investigación de mercado';
+    if (val.includes('defensa') || val.includes('revision')) return 'En revisión de Defensa';
+    if (val.includes('elaboraci') || val.includes('anexo') || val.includes('apendice') || val.includes('tecnico') || val.includes('ficha')) return 'Elaboración de anexo técnico, administrativo y apéndices';
+    return 'Sin estatus';
+  };
+
   const estatus2026EstatusDistribution = useMemo(() => {
     if (!estatus2026Data.length || !estatus2026EstatusColumnField) return [] as { name: string; value: number }[];
     const counts: Record<string, number> = {};
+    // Pre-seed all canonical options at 0 so they always appear
+    ESTATUS_2026_OPTIONS.forEach((opt) => { counts[opt] = 0; });
+    counts['Sin estatus'] = 0;
     estatus2026Data.forEach((row) => {
       const raw = row[estatus2026EstatusColumnField];
-      if (raw === null || raw === undefined || String(raw).trim() === '') {
-        counts['Sin estatus'] = (counts['Sin estatus'] ?? 0) + 1;
-        return;
-      }
-      const label = String(raw).trim();
-      let displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
-      // Merge all "Investigación de mercado" variants (with or without date) into one label
-      if (displayLabel.toLowerCase().startsWith('investigaci')) {
-        displayLabel = 'Investigación de mercado';
-      }
-      counts[displayLabel] = (counts[displayLabel] ?? 0) + 1;
+      const label = normalizeEstatus2026Value(raw);
+      counts[label] = (counts[label] ?? 0) + 1;
     });
     return Object.entries(counts)
+      .filter(([, v]) => v > 0)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
   }, [estatus2026Data, estatus2026EstatusColumnField]);
@@ -8927,7 +9006,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       <text
                                         x={x}
                                         y={y}
-                                        fill={chartPalette[index % chartPalette.length]}
+                                        fill={ESTATUS_2026_COLOR_MAP[name] ?? chartPalette[index % chartPalette.length]}
                                         textAnchor={x > cx ? 'start' : 'end'}
                                         dominantBaseline="central"
                                         className="text-[11px] font-bold"
@@ -8939,7 +9018,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                                 >
                                   {estatus2026EstatusDistribution.map((entry, index) => (
-                                    <Cell key={`cell-estatus2-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                                    <Cell key={`cell-estatus2-${index}`} fill={ESTATUS_2026_COLOR_MAP[entry.name] ?? chartPalette[index % chartPalette.length]} />
                                   ))}
                                 </Pie>
                                 <Tooltip
@@ -8970,7 +9049,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <h4 className="text-sm font-semibold text-slate-600">Desglose por estatus</h4>
                             {estatus2026EstatusDistribution.map((item, index) => {
                               const pct = estatus2026Data.length > 0 ? Math.round((item.value / estatus2026Data.length) * 100) : 0;
-                              const color = chartPalette[index % chartPalette.length];
+                              const color = ESTATUS_2026_COLOR_MAP[item.name] ?? chartPalette[index % chartPalette.length];
                               return (
                                 <button key={item.name} className="w-full text-left group" onClick={() => setSelectedEstatus2026Estatus(item.name)}>
                                   <div className="flex items-center justify-between mb-1">
@@ -9716,6 +9795,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                                         const _colNorm = column.toLowerCase().replace(/[\s_]+/g, '_');
                                         const isTipoServicioCol = _colNorm === 'tipo_de_servicio' || (_colNorm.includes('tipo') && _colNorm.includes('servicio'));
+                                        const _colNormFull = normalizeAnnualKey(column);
+                                        const isEstatusStatusCol = _colNormFull === 'estatus' || _colNormFull === 'status';
 
                                        return (
                                        <td key={column} className={finalCellClasses} title={String(editingValue || isChecked)} style={stickyCellStyle}>
@@ -9723,6 +9804,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           {isCellEditable ? (
                                               isTipoServicioCol ? (
                                                   <TipoServicioPicker
+                                                    value={rawValue ? String(rawValue) : ''}
+                                                    onChange={(nextValue) => handleEstatus2026CellEdit(row, column, nextValue)}
+                                                  />
+                                              ) : isEstatusStatusCol ? (
+                                                  <EstatusStatusPicker
                                                     value={rawValue ? String(rawValue) : ''}
                                                     onChange={(nextValue) => handleEstatus2026CellEdit(row, column, nextValue)}
                                                   />
@@ -9873,6 +9959,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                   <div className="flex items-center justify-center">
                                                     {rawValue ? (
                                                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${getTipoColorClass(String(rawValue))}`}>
+                                                        {String(rawValue)}
+                                                      </span>
+                                                    ) : (
+                                                      <span className="text-xs text-slate-400 italic">—</span>
+                                                    )}
+                                                  </div>
+                                              ) : isEstatusStatusCol ? (
+                                                  <div className="flex items-center justify-center">
+                                                    {rawValue ? (
+                                                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border ${getEstatusColorClass(String(rawValue))}`}>
                                                         {String(rawValue)}
                                                       </span>
                                                     ) : (
