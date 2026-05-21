@@ -965,6 +965,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeReportesView, setActiveReportesView] = useState<'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas'>('gastoEfectuado');
   const [isReportesExpanded, setIsReportesExpanded] = useState(true);
   const [selectedHistoricoYear, setSelectedHistoricoYear] = useState<number>(2026);
+  const [showGastoCharts, setShowGastoCharts] = useState(false);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
   
@@ -10784,6 +10785,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </h1>
                       <p className="text-slate-500 text-sm mt-1">Avance financiero mensual y acumulado por contrato, basado en la tabla de pagos.</p>
                     </div>
+                    <button
+                      onClick={() => setShowGastoCharts(v => !v)}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                        showGastoCharts
+                          ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
+                          : 'bg-white text-slate-600 border-slate-300 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'
+                      }`}
+                    >
+                      <BarChart2 className="h-4 w-4" />
+                      {showGastoCharts ? 'Ocultar gráficas' : 'Ver gráficas'}
+                    </button>
                   </div>
 
                   {/* Summary Cards */}
@@ -10811,6 +10823,113 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <p className="text-2xl font-bold text-emerald-700">{pctGlobal.toFixed(1)}%</p>
                           <div className="mt-2 h-2 rounded-full bg-emerald-200 overflow-hidden">
                             <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, pctGlobal)}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Charts (toggleable) */}
+                  {showGastoCharts && (() => {
+                    const GCOLS = ['#0F4C3A','#1a7a5e','#2da875','#B38E5D','#d4a96a','#f0c27a','#4A90D9','#74b2e8','#8B5CF6','#EC4899','#F97316','#EAB308'];
+                    const monthlyTotals = REPORTE_MONTH_DEFS.map(({ label }, mi) => ({
+                      mes: label,
+                      total: gastoEfectuado2026Data.reduce((a, r) => a + (r.monthly[mi]?.amount ?? 0), 0),
+                    }));
+                    const contractProgress = [...gastoEfectuado2026Data]
+                      .sort((a, b) => b.pctTotal - a.pctTotal)
+                      .map(r => ({
+                        name: r.objeto.length > 38 ? r.objeto.slice(0, 38) + '…' : r.objeto,
+                        pct: parseFloat(r.pctTotal.toFixed(1)),
+                      }));
+                    const pieData = gastoEfectuado2026Data
+                      .filter(r => r.totalPagado > 0)
+                      .sort((a, b) => b.totalPagado - a.totalPagado)
+                      .map(r => ({
+                        name: r.objeto.length > 24 ? r.objeto.slice(0, 24) + '…' : r.objeto,
+                        value: r.totalPagado,
+                      }));
+                    const barH = Math.min(Math.max(contractProgress.length * 34, 220), 540);
+                    return (
+                      <div className="mb-6 space-y-4">
+                        {/* Row 1: Monthly bar + Pie */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                          <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <p className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+                              <BarChart2 className="h-4 w-4 text-[#0F4C3A]" />
+                              Gasto mensual acumulado
+                            </p>
+                            <ResponsiveContainer width="100%" height={210}>
+                              <BarChart data={monthlyTotals} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                                <YAxis tickFormatter={(v: number) => `$${(v / 1_000_000).toFixed(1)}M`} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={54} />
+                                <Tooltip
+                                  formatter={(v: any) => [formatCurrency(v as number), 'Monto pagado']}
+                                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                                  labelStyle={{ fontWeight: 700, color: '#0f172a' }}
+                                />
+                                <Bar dataKey="total" fill="#0F4C3A" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col">
+                            <p className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                              <PieChartIcon className="h-4 w-4 text-[#B38E5D]" />
+                              Distribución del gasto
+                            </p>
+                            <div className="flex-1 flex items-center justify-center">
+                              <ResponsiveContainer width="100%" height={195}>
+                                <PieChart>
+                                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={46} outerRadius={82}
+                                    dataKey="value" nameKey="name" paddingAngle={2}>
+                                    {pieData.map((_, i) => <Cell key={i} fill={GCOLS[i % GCOLS.length]} />)}
+                                  </Pie>
+                                  <Tooltip
+                                    formatter={(v: any) => formatCurrency(v as number)}
+                                    contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                            <p className="text-[10px] text-slate-400 text-center mt-1">Contratos con gasto ({pieData.length})</p>
+                          </div>
+                        </div>
+                        {/* Row 2: Contract progress horizontal bar */}
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                          <p className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+                            <TrendingUp className="h-4 w-4 text-[#B38E5D]" />
+                            Avance por contrato (% del monto máximo ejecutado)
+                          </p>
+                          <ResponsiveContainer width="100%" height={barH}>
+                            <BarChart data={contractProgress} layout="vertical"
+                              margin={{ top: 0, right: 44, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                              <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`}
+                                tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                              <YAxis type="category" dataKey="name" width={240}
+                                tick={{ fontSize: 10, fill: '#475569' }} axisLine={false} tickLine={false} />
+                              <Tooltip
+                                formatter={(v: any) => [`${v}%`, 'Avance']}
+                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                                labelStyle={{ fontWeight: 700 }}
+                              />
+                              <Bar dataKey="pct" radius={[0, 4, 4, 0]}>
+                                {contractProgress.map((entry, i) => (
+                                  <Cell key={i} fill={
+                                    entry.pct >= 80 ? '#16a34a' :
+                                    entry.pct >= 50 ? '#0F4C3A' :
+                                    entry.pct >= 25 ? '#B38E5D' : '#f87171'
+                                  } />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                          <div className="flex items-center gap-5 mt-3 text-[10px] text-slate-500 flex-wrap">
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#16a34a] inline-block" />≥ 80%</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#0F4C3A] inline-block" />50–79%</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#B38E5D] inline-block" />25–49%</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#f87171] inline-block" />&lt; 25%</span>
                           </div>
                         </div>
                       </div>
@@ -10849,10 +10968,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           {gastoEfectuado2026Data.map((row, rowIdx) => (
                             <tr
                               key={row.key}
-                              className={`hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}
+                              className={`group hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}
                             >
                               {/* Fixed columns */}
-                              <td className="px-3 py-2.5 text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 min-w-[260px] max-w-[260px] leading-snug">
+                              <td className={`px-3 py-2.5 text-slate-700 sticky left-0 z-10 border-r border-slate-200 min-w-[260px] max-w-[260px] leading-snug transition-colors group-hover:bg-amber-50/40 ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
                                 {row.objeto || '—'}
                               </td>
                               <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 whitespace-nowrap">
@@ -11056,8 +11175,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {rows.map((row, rowIdx) => (
-                              <tr key={row.key} className={`hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}>
-                                <td className="px-3 py-2.5 text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 min-w-[260px] max-w-[260px] leading-snug">{row.objeto || '—'}</td>
+                              <tr key={row.key} className={`group hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
+                                <td className={`px-3 py-2.5 text-slate-700 sticky left-0 z-10 border-r border-slate-200 min-w-[260px] max-w-[260px] leading-snug transition-colors group-hover:bg-amber-50/40 ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>{row.objeto || '—'}</td>
                                 <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 whitespace-nowrap">{row.noContrato || '—'}</td>
                                 <td className="px-3 py-2.5 text-slate-600 max-w-[160px] leading-snug">{row.proveedor || '—'}</td>
                                 <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">{formatDateOnly(row.fechaInicio) || '—'}</td>
