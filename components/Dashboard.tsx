@@ -10852,14 +10852,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               className={`hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}
                             >
                               {/* Fixed columns */}
-                              <td className="px-3 py-2.5 text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 min-w-[260px] max-w-[260px]">
-                                <span className="block truncate" title={row.objeto}>{row.objeto || '—'}</span>
+                              <td className="px-3 py-2.5 text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 min-w-[260px] max-w-[260px] leading-snug">
+                                {row.objeto || '—'}
                               </td>
                               <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 whitespace-nowrap">
                                 {row.noContrato || '—'}
                               </td>
-                              <td className="px-3 py-2.5 text-slate-600 max-w-[160px]">
-                                <span className="block truncate" title={row.proveedor}>{row.proveedor || '—'}</span>
+                              <td className="px-3 py-2.5 text-slate-600 max-w-[160px] leading-snug">
+                                {row.proveedor || '—'}
                               </td>
                               <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">
                                 {formatDateOnly(row.fechaInicio) || '—'}
@@ -11057,9 +11057,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <tbody className="divide-y divide-slate-100">
                             {rows.map((row, rowIdx) => (
                               <tr key={row.key} className={`hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}>
-                                <td className="px-3 py-2.5 text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 min-w-[260px] max-w-[260px]"><span className="block truncate" title={row.objeto}>{row.objeto || '—'}</span></td>
+                                <td className="px-3 py-2.5 text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 min-w-[260px] max-w-[260px] leading-snug">{row.objeto || '—'}</td>
                                 <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 whitespace-nowrap">{row.noContrato || '—'}</td>
-                                <td className="px-3 py-2.5 text-slate-600 max-w-[160px]"><span className="block truncate" title={row.proveedor}>{row.proveedor || '—'}</span></td>
+                                <td className="px-3 py-2.5 text-slate-600 max-w-[160px] leading-snug">{row.proveedor || '—'}</td>
                                 <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">{formatDateOnly(row.fechaInicio) || '—'}</td>
                                 <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">{formatDateOnly(row.fechaTermino) || '—'}</td>
                                 <td className="px-3 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap border-r border-slate-200">{formatCurrency(row.montMax)}</td>
