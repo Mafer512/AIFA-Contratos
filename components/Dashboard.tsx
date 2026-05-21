@@ -1205,7 +1205,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     'año_2026': 'id',
     'estatus_servicios_2026': 'id',
     'estatus_2026': 'id',
-    'pagos_2026': 'id',
+    'pagos': 'id',
     'balance_paas_2026': 'id',
     'paas': 'id',
     'control_pagos': 'id',
@@ -1631,7 +1631,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       case 'estatus_2026':
         await fetchEstatus2026Data();
         break;
-      case 'pagos_2026':
+      case 'pagos':
         await fetchPagos2026Data();
         break;
       case 'balance_paas_2026':
@@ -2056,12 +2056,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const fetchPagos2026Data = async () => {
       try {
           const { data, error } = await supabase
-          .from('pagos_2026')
+          .from('pagos')
           .select('*')
-          .order('id', { ascending: true }); // Assuming 'id' exists and is sortable
+          .eq('anio', 2026)
+          .order('id', { ascending: true });
 
           if (error) {
-              console.error('Error fetching pagos_2026:', error);
+              console.error('Error fetching pagos (anio=2026):', error);
               return;
           }
 
@@ -2084,7 +2085,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               setPagos2026Data(sortedData);
           }
       } catch (err) {
-          console.error("Exception fetching pagos_2026:", err);
+          console.error("Exception fetching pagos (anio=2026):", err);
       }
   };
 
@@ -6782,7 +6783,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const handlePagos2026CellEdit = async (row: Record<string, any>, col: string, val: any) => {
     // Save the edited column first
-    await handleGenericCellEdit('pagos_2026', row, col, val, setPagos2026Data, pagos2026Data);
+    await handleGenericCellEdit('pagos', row, col, val, setPagos2026Data, pagos2026Data);
 
     // Auto-compute the parent month total when a sub-column is edited
     const colNormL = col.toLowerCase();
@@ -6838,7 +6839,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const monthTotal = prevVal + corrVal - notaVal;
 
     // Save the computed total to the parent month column
-    await handleGenericCellEdit('pagos_2026', updatedRow, parentMonthKey, monthTotal, setPagos2026Data, pagos2026Data);
+    await handleGenericCellEdit('pagos', updatedRow, parentMonthKey, monthTotal, setPagos2026Data, pagos2026Data);
   };
 
   const handleRecalcPagos2026AllTotals = useCallback(async () => {
@@ -6883,7 +6884,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     try {
       await Promise.all(
         updates.map(({ rowId, col, val }) =>
-          supabase.from('pagos_2026').update({ [col]: val }).eq(pk, rowId)
+          supabase.from('pagos').update({ [col]: val }).eq(pk, rowId)
         )
       );
       // Update local state
@@ -6905,7 +6906,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     const template = pagos2026TableColumns.length ? generateTemplateFromColumns(pagos2026TableColumns) : {};
     try {
-      let { data, error } = await supabase.from('pagos_2026').insert({}).select().single();
+      let { data, error } = await supabase.from('pagos').insert({ anio: 2026 }).select().single();
       if (error) {
          const safeRecord = createSafeInitialRecord(pagos2026TableColumns);
          // If we are here, defaults failed.
@@ -6915,7 +6916,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             delete safeRecord['id'];
          }
 
-         const retry = await supabase.from('pagos_2026').insert(safeRecord).select().single();
+         const retry = await supabase.from('pagos').insert({ ...safeRecord, anio: 2026 }).select().single();
          data = retry.data;
          error = retry.error;
       }
@@ -6926,7 +6927,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         setIsPagos2026Editing(true);
       }
     } catch (error: any) {
-         console.error('Error adding row to pagos_2026:', error);
+         console.error('Error adding row to pagos:', error);
          alert("No se pudo agregar la fila: " + error.message);
     }
   }, [pagos2026TableColumns]);
@@ -10609,7 +10610,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                               <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleDeleteGenericRecord('pagos_2026', row as Record<string, any>, 'Pago 2026');
+                                                    handleDeleteGenericRecord('pagos', row as Record<string, any>, 'Pago 2026');
                                                 }}
                                                 className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                                                 title="Eliminar"
