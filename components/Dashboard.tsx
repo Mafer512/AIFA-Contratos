@@ -964,6 +964,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [expandedPagos2026SummaryKey, setExpandedPagos2026SummaryKey] = useState<string | null>(null);
   const [activeReportesView, setActiveReportesView] = useState<'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas'>('gastoEfectuado');
   const [isReportesExpanded, setIsReportesExpanded] = useState(true);
+  const [selectedHistoricoYear, setSelectedHistoricoYear] = useState<number>(2026);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
   
@@ -10956,17 +10957,194 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </div>
               )}
 
-              {/* ── Placeholder subsections ──────────────────────────────── */}
-              {activeReportesView !== 'gastoEfectuado' && (
+              {/* ── Histórico de Servicios ──────────────────────────────── */}
+              {activeReportesView === 'historicoServicios' && (() => {
+                // Available years — add more entries here when new pagos_XXXX tables are incorporated
+                const availableYears: number[] = [2026];
+                // Map each year to the already-computed data (no new fetches, no data duplication)
+                const yearDataMap: Record<number, typeof gastoEfectuado2026Data> = {
+                  2026: gastoEfectuado2026Data,
+                };
+                const rows = yearDataMap[selectedHistoricoYear] ?? [];
+                const totalMax    = rows.reduce((a, r) => a + r.montMax, 0);
+                const totalPagado = rows.reduce((a, r) => a + r.totalPagado, 0);
+                const pctGlobal   = totalMax > 0 ? (totalPagado / totalMax) * 100 : 0;
+                const saldoRest   = Math.max(0, totalMax - totalPagado);
+                return (
+                  <div>
+                    {/* Header */}
+                    <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                          <TrendingUp className="h-6 w-6 text-[#B38E5D]" />
+                          Histórico de Servicios
+                        </h1>
+                        <p className="text-slate-500 text-sm mt-1">Vista histórica del avance financiero por año. Los datos provienen de las tablas de pagos existentes.</p>
+                      </div>
+                    </div>
+
+                    {/* Year selector */}
+                    <div className="flex items-center gap-3 mb-5 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-600">Año:</span>
+                      {availableYears.map(year => (
+                        <button
+                          key={year}
+                          onClick={() => setSelectedHistoricoYear(year)}
+                          className={`px-4 py-1.5 rounded-full text-sm font-bold border transition-colors ${
+                            selectedHistoricoYear === year
+                              ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
+                              : 'bg-white text-slate-600 border-slate-300 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'
+                          }`}
+                        >
+                          {year}
+                        </button>
+                      ))}
+                      <span className="text-[11px] text-slate-400 italic ml-1">Cuando se incorpore la tabla de pagos de otro año, aparecerá aquí automáticamente.</span>
+                    </div>
+
+                    {/* Summary cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <p className="text-xs text-slate-500 mb-1">Mont. Max. Total</p>
+                        <p className="text-lg font-bold text-slate-800">{formatCurrency(totalMax)}</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <p className="text-xs text-slate-500 mb-1">Total Pagado</p>
+                        <p className="text-lg font-bold text-emerald-700">{formatCurrency(totalPagado)}</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <p className="text-xs text-slate-500 mb-1">Saldo Restante</p>
+                        <p className="text-lg font-bold text-amber-700">{formatCurrency(saldoRest)}</p>
+                      </div>
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+                        <p className="text-xs text-emerald-700 mb-1 font-medium">Avance Global {selectedHistoricoYear}</p>
+                        <p className="text-2xl font-bold text-emerald-700">{pctGlobal.toFixed(1)}%</p>
+                        <div className="mt-2 h-2 rounded-full bg-emerald-200 overflow-hidden">
+                          <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, pctGlobal)}%` }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Table */}
+                    {loadingData ? (
+                      <div className="flex items-center justify-center py-16 text-slate-400">
+                        <Loader2 className="h-8 w-8 animate-spin mr-3" />
+                        Cargando datos...
+                      </div>
+                    ) : rows.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                        <FileSpreadsheet className="h-12 w-12 mb-3 opacity-30" />
+                        <p>No hay datos de pagos disponibles para {selectedHistoricoYear}.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                        <table className="min-w-full text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-[#0F4C3A] text-white text-[11px] uppercase tracking-wide">
+                              <th className="px-3 py-3 text-left font-bold sticky left-0 z-20 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[120px]">No. Contrato</th>
+                              <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[220px]">Objeto del Contrato</th>
+                              <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[160px]">Proveedor</th>
+                              <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Inicio</th>
+                              <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Término</th>
+                              <th className="px-3 py-3 text-right font-bold whitespace-nowrap border-r border-white/20">Mont. Max.</th>
+                              {REPORTE_MONTH_DEFS.map(({ label }) => (
+                                <th key={label} className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[100px] border-l border-white/10">{label}</th>
+                              ))}
+                              <th className="px-3 py-3 text-right font-bold whitespace-nowrap border-l border-white/30 bg-[#0c3b2d] min-w-[120px]">Total / %</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {rows.map((row, rowIdx) => (
+                              <tr key={row.key} className={`hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}>
+                                <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 whitespace-nowrap">{row.noContrato || '—'}</td>
+                                <td className="px-3 py-2.5 text-slate-700 max-w-[220px]"><span className="block truncate" title={row.objeto}>{row.objeto || '—'}</span></td>
+                                <td className="px-3 py-2.5 text-slate-600 max-w-[160px]"><span className="block truncate" title={row.proveedor}>{row.proveedor || '—'}</span></td>
+                                <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">{formatDateOnly(row.fechaInicio) || '—'}</td>
+                                <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">{formatDateOnly(row.fechaTermino) || '—'}</td>
+                                <td className="px-3 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap border-r border-slate-200">{formatCurrency(row.montMax)}</td>
+                                {row.monthly.map(({ label, amount, pctMensual, pctAcum }) => (
+                                  <td key={label} className="px-2 py-2 text-center border-l border-slate-100 align-top min-w-[100px]">
+                                    {amount > 0 ? (
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="text-slate-700 font-semibold tabular-nums whitespace-nowrap">{formatCurrency(amount)}</span>
+                                        <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden my-0.5">
+                                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, pctMensual)}%` }} />
+                                        </div>
+                                        <span className="text-[10px] font-bold text-emerald-700 tabular-nums">{pctMensual.toFixed(1)}%</span>
+                                        <span className="text-[10px] text-blue-600 tabular-nums">Acum: {pctAcum.toFixed(1)}%</span>
+                                      </div>
+                                    ) : <span className="text-slate-200 text-base">—</span>}
+                                  </td>
+                                ))}
+                                <td className="px-3 py-2.5 text-right border-l border-slate-200 bg-slate-50/80 align-top">
+                                  <div className="flex flex-col items-end gap-0.5">
+                                    <span className="font-semibold text-slate-700 tabular-nums whitespace-nowrap">{formatCurrency(row.totalPagado)}</span>
+                                    <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden my-0.5">
+                                      <div className={`h-full rounded-full ${row.pctTotal >= 90 ? 'bg-emerald-500' : row.pctTotal >= 60 ? 'bg-blue-500' : row.pctTotal >= 30 ? 'bg-amber-500' : 'bg-red-400'}`} style={{ width: `${Math.min(100, row.pctTotal)}%` }} />
+                                    </div>
+                                    <span className={`text-[11px] font-bold tabular-nums ${row.pctTotal >= 90 ? 'text-emerald-600' : row.pctTotal >= 60 ? 'text-blue-600' : row.pctTotal >= 30 ? 'text-amber-600' : 'text-red-500'}`}>{row.pctTotal.toFixed(1)}%</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                            {/* Footer totals */}
+                            {(() => {
+                              const totMontMax  = rows.reduce((a, r) => a + r.montMax, 0);
+                              const totPagado   = rows.reduce((a, r) => a + r.totalPagado, 0);
+                              const totPct      = totMontMax > 0 ? (totPagado / totMontMax) * 100 : 0;
+                              const monthTotals = REPORTE_MONTH_DEFS.map(({ label }, mi) => ({
+                                label,
+                                amount: rows.reduce((a, r) => a + (r.monthly[mi]?.amount ?? 0), 0),
+                              }));
+                              let acumSum = 0;
+                              return (
+                                <tr className="bg-[#0F4C3A]/10 font-bold text-xs border-t-2 border-[#0F4C3A]/30">
+                                  <td className="px-3 py-3 text-[#0F4C3A] sticky left-0 bg-[#f0f7f4] border-r border-[#0F4C3A]/20 whitespace-nowrap z-10">TOTALES</td>
+                                  <td colSpan={4} className="px-3 py-3 text-slate-500 text-center text-[10px]">{rows.length} contratos</td>
+                                  <td className="px-3 py-3 text-right text-[#0F4C3A] whitespace-nowrap border-r border-[#0F4C3A]/20">{formatCurrency(totMontMax)}</td>
+                                  {monthTotals.map(({ label, amount }, mi) => {
+                                    acumSum += amount;
+                                    const pctM = totMontMax > 0 ? (amount / totMontMax) * 100 : 0;
+                                    const pctA = totMontMax > 0 ? (acumSum / totMontMax) * 100 : 0;
+                                    return (
+                                      <td key={label} className="px-2 py-3 text-center border-l border-[#0F4C3A]/20 min-w-[100px]">
+                                        {amount > 0 ? (
+                                          <div className="flex flex-col items-center gap-0.5">
+                                            <span className="text-slate-700 tabular-nums whitespace-nowrap">{formatCurrency(amount)}</span>
+                                            <span className="text-[10px] font-bold text-emerald-700">{pctM.toFixed(1)}%</span>
+                                            <span className="text-[10px] text-blue-600">Acum: {pctA.toFixed(1)}%</span>
+                                          </div>
+                                        ) : <span className="text-slate-300">—</span>}
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="px-3 py-3 text-right border-l border-[#0F4C3A]/20 bg-emerald-50">
+                                    <div className="flex flex-col items-end gap-0.5">
+                                      <span className="text-slate-700 tabular-nums whitespace-nowrap">{formatCurrency(totPagado)}</span>
+                                      <span className="text-[11px] font-bold text-emerald-700">{totPct.toFixed(1)}%</span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Remaining placeholders (Anteproyecto, PAAAS, Deductivas) ── */}
+              {(activeReportesView === 'anteproyecto' || activeReportesView === 'paaas' || activeReportesView === 'deductivas') && (
                 <div className="flex flex-col items-center justify-center py-28 text-center">
                   <div className="rounded-full bg-slate-100 p-6 mb-5">
                     <FileSpreadsheet className="h-12 w-12 text-slate-300" />
                   </div>
                   <h2 className="text-xl font-bold text-slate-700 mb-2">
-                    {activeReportesView === 'historicoServicios' && 'Histórico de Servicios'}
-                    {activeReportesView === 'anteproyecto'       && 'Anteproyecto'}
-                    {activeReportesView === 'paaas'              && 'PAAAS'}
-                    {activeReportesView === 'deductivas'         && 'Deductivas'}
+                    {activeReportesView === 'anteproyecto' && 'Anteproyecto'}
+                    {activeReportesView === 'paaas'        && 'PAAAS'}
+                    {activeReportesView === 'deductivas'   && 'Deductivas'}
                   </h2>
                   <p className="text-slate-400 text-sm">Esta sección está en construcción.</p>
                 </div>
