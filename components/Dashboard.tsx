@@ -10833,8 +10833,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <table className="min-w-full text-xs border-collapse">
                         <thead>
                           <tr className="bg-[#0F4C3A] text-white text-[11px] uppercase tracking-wide">
-                            <th className="px-3 py-3 text-left font-bold sticky left-0 z-20 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[120px]">No. Contrato</th>
-                            <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[220px]">Objeto del Contrato</th>
+                            <th className="px-3 py-3 text-left font-bold sticky left-0 z-20 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[260px]">Objeto del Contrato</th>
+                            <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[130px]">No. Contrato</th>
                             <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[160px]">Proveedor</th>
                             <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Inicio</th>
                             <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Término</th>
@@ -10852,11 +10852,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               className={`hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}
                             >
                               {/* Fixed columns */}
-                              <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 whitespace-nowrap">
-                                {row.noContrato || '—'}
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-700 max-w-[220px]">
+                              <td className="px-3 py-2.5 text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 min-w-[260px] max-w-[260px]">
                                 <span className="block truncate" title={row.objeto}>{row.objeto || '—'}</span>
+                              </td>
+                              <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 whitespace-nowrap">
+                                {row.noContrato || '—'}
                               </td>
                               <td className="px-3 py-2.5 text-slate-600 max-w-[160px]">
                                 <span className="block truncate" title={row.proveedor}>{row.proveedor || '—'}</span>
@@ -11042,8 +11042,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <table className="min-w-full text-xs border-collapse">
                           <thead>
                             <tr className="bg-[#0F4C3A] text-white text-[11px] uppercase tracking-wide">
-                              <th className="px-3 py-3 text-left font-bold sticky left-0 z-20 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[120px]">No. Contrato</th>
-                              <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[220px]">Objeto del Contrato</th>
+                              <th className="px-3 py-3 text-left font-bold sticky left-0 z-20 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[260px]">Objeto del Contrato</th>
+                              <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[130px]">No. Contrato</th>
                               <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[160px]">Proveedor</th>
                               <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Inicio</th>
                               <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Término</th>
@@ -11057,8 +11057,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <tbody className="divide-y divide-slate-100">
                             {rows.map((row, rowIdx) => (
                               <tr key={row.key} className={`hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}>
-                                <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 whitespace-nowrap">{row.noContrato || '—'}</td>
-                                <td className="px-3 py-2.5 text-slate-700 max-w-[220px]"><span className="block truncate" title={row.objeto}>{row.objeto || '—'}</span></td>
+                                <td className="px-3 py-2.5 text-slate-700 sticky left-0 z-10 bg-inherit border-r border-slate-200 min-w-[260px] max-w-[260px]"><span className="block truncate" title={row.objeto}>{row.objeto || '—'}</span></td>
+                                <td className="px-3 py-2.5 font-mono font-semibold text-slate-700 whitespace-nowrap">{row.noContrato || '—'}</td>
                                 <td className="px-3 py-2.5 text-slate-600 max-w-[160px]"><span className="block truncate" title={row.proveedor}>{row.proveedor || '—'}</span></td>
                                 <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">{formatDateOnly(row.fechaInicio) || '—'}</td>
                                 <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">{formatDateOnly(row.fechaTermino) || '—'}</td>
