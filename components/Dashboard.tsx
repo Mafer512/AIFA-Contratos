@@ -10839,17 +10839,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     const contractProgress = [...gastoEfectuado2026Data]
                       .sort((a, b) => b.pctTotal - a.pctTotal)
                       .map(r => ({
-                        name: r.objeto.length > 38 ? r.objeto.slice(0, 38) + '…' : r.objeto,
+                        name: r.objeto,
                         pct: parseFloat(r.pctTotal.toFixed(1)),
                       }));
                     const pieData = gastoEfectuado2026Data
                       .filter(r => r.totalPagado > 0)
                       .sort((a, b) => b.totalPagado - a.totalPagado)
                       .map(r => ({
-                        name: r.objeto.length > 24 ? r.objeto.slice(0, 24) + '…' : r.objeto,
+                        name: r.objeto,
                         value: r.totalPagado,
                       }));
-                    const barH = Math.min(Math.max(contractProgress.length * 34, 220), 540);
+                    const pieTotal = pieData.reduce((s, d) => s + d.value, 0);
+                    const barH = Math.min(Math.max(contractProgress.length * 40, 220), 700);
                     return (
                       <div className="mb-6 space-y-4">
                         {/* Row 1: Monthly bar + Pie */}
@@ -10879,15 +10880,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               Distribución del gasto
                             </p>
                             <div className="flex-1 flex items-center justify-center">
-                              <ResponsiveContainer width="100%" height={195}>
+                              <ResponsiveContainer width="100%" height={230}>
                                 <PieChart>
-                                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={46} outerRadius={82}
-                                    dataKey="value" nameKey="name" paddingAngle={2}>
+                                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={85}
+                                    dataKey="value" nameKey="name" paddingAngle={2}
+                                    label={({ percent }) => percent > 0.04 ? `${(percent * 100).toFixed(1)}%` : ''}
+                                    labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}>
                                     {pieData.map((_, i) => <Cell key={i} fill={GCOLS[i % GCOLS.length]} />)}
                                   </Pie>
                                   <Tooltip
-                                    formatter={(v: any) => formatCurrency(v as number)}
-                                    contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                                    formatter={(v: any, _name: any, props: any) => [
+                                      `${formatCurrency(v as number)} (${pieTotal > 0 ? ((v as number) / pieTotal * 100).toFixed(1) : 0}%)`,
+                                      props.payload.name
+                                    ]}
+                                    contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0', maxWidth: 320 }}
                                   />
                                 </PieChart>
                               </ResponsiveContainer>
@@ -10907,8 +10913,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                               <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`}
                                 tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                              <YAxis type="category" dataKey="name" width={240}
-                                tick={{ fontSize: 10, fill: '#475569' }} axisLine={false} tickLine={false} />
+                              <YAxis type="category" dataKey="name" width={320}
+                                tick={{ fontSize: 10, fill: '#475569', width: 310 }} axisLine={false} tickLine={false} />
                               <Tooltip
                                 formatter={(v: any) => [`${v}%`, 'Avance']}
                                 contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
