@@ -10850,7 +10850,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         value: r.totalPagado,
                       }));
                     const pieTotal = pieData.reduce((s, d) => s + d.value, 0);
-                    const barH = Math.min(Math.max(contractProgress.length * 40, 220), 700);
+                    const barH = Math.max(contractProgress.length * 68, 260);
                     return (
                       <div className="mb-6 space-y-4">
                         {/* Row 1: Monthly bar + Pie */}
@@ -10874,17 +10874,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               </BarChart>
                             </ResponsiveContainer>
                           </div>
-                          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col">
+                          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col overflow-visible">
                             <p className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
                               <PieChartIcon className="h-4 w-4 text-[#B38E5D]" />
                               Distribución del gasto
                             </p>
-                            <div className="flex-1 flex items-center justify-center">
+                            <div className="flex-1 flex items-center justify-center overflow-visible">
                               <ResponsiveContainer width="100%" height={230}>
                                 <PieChart>
                                   <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={85}
                                     dataKey="value" nameKey="name" paddingAngle={2}
-                                    label={({ percent }) => percent > 0.04 ? `${(percent * 100).toFixed(1)}%` : ''}
+                                    label={({ percent = 0 }) => percent > 0.04 ? `${(percent * 100).toFixed(1)}%` : ''}
                                     labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}>
                                     {pieData.map((_, i) => <Cell key={i} fill={GCOLS[i % GCOLS.length]} />)}
                                   </Pie>
@@ -10893,7 +10893,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       `${formatCurrency(v as number)} (${pieTotal > 0 ? ((v as number) / pieTotal * 100).toFixed(1) : 0}%)`,
                                       props.payload.name
                                     ]}
-                                    contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0', maxWidth: 320 }}
+                                    contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0', maxWidth: 280, whiteSpace: 'normal', wordBreak: 'break-word' }}
+                                    wrapperStyle={{ overflow: 'visible', zIndex: 9999 }}
                                   />
                                 </PieChart>
                               </ResponsiveContainer>
@@ -10909,16 +10910,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </p>
                           <ResponsiveContainer width="100%" height={barH}>
                             <BarChart data={contractProgress} layout="vertical"
-                              margin={{ top: 0, right: 44, left: 0, bottom: 0 }}>
+                              margin={{ top: 4, right: 50, left: 0, bottom: 4 }}
+                              barSize={18}>
                               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                               <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`}
                                 tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                              <YAxis type="category" dataKey="name" width={320}
-                                tick={{ fontSize: 10, fill: '#475569', width: 310 }} axisLine={false} tickLine={false} />
+                              <YAxis type="category" dataKey="name" width={330}
+                                tick={{ fontSize: 10, fill: '#475569', width: 320 }} axisLine={false} tickLine={false} />
                               <Tooltip
                                 formatter={(v: any) => [`${v}%`, 'Avance']}
-                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                                labelStyle={{ fontWeight: 700 }}
+                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0', maxWidth: 320, whiteSpace: 'normal', wordBreak: 'break-word' }}
+                                labelStyle={{ fontWeight: 700, whiteSpace: 'normal' }}
+                                wrapperStyle={{ overflow: 'visible', zIndex: 9999 }}
                               />
                               <Bar dataKey="pct" radius={[0, 4, 4, 0]}>
                                 {contractProgress.map((entry, i) => (
