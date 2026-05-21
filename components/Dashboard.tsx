@@ -233,6 +233,7 @@ interface ColumnFilterControlProps {
   rows: unknown[];
   selectedValues?: string[] | null;
   onChange: (tableKey: TableFilterKey, columnKey: string, values: string[] | null) => void;
+  fixedOptions?: readonly string[];
 }
 
 const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
@@ -242,6 +243,7 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
   rows,
   selectedValues,
   onChange,
+  fixedOptions,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -320,6 +322,18 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
   }, [isOpen, updatePopoverPosition]);
 
   const options = useMemo(() => {
+    if (fixedOptions) {
+      const countMap = new Map<string, number>();
+      (rows as Array<Record<string, any>>).forEach((row) => {
+        const token = normalizeColumnFilterToken(row?.[columnKey]);
+        countMap.set(token, (countMap.get(token) ?? 0) + 1);
+      });
+      return fixedOptions.map((opt) => ({
+        token: normalizeColumnFilterToken(opt),
+        label: opt,
+        count: countMap.get(normalizeColumnFilterToken(opt)) ?? 0,
+      }));
+    }
     const optionMap = new Map<string, { token: string; label: string; count: number }>();
     (rows as Array<Record<string, any>>).forEach((row) => {
       const value = row?.[columnKey];
@@ -333,7 +347,7 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
       }
     });
     return Array.from(optionMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
-  }, [rows, columnKey]);
+  }, [rows, columnKey, fixedOptions]);
 
   const filteredOptions = useMemo(() => {
     if (!searchTerm.trim()) return options;
@@ -1031,7 +1045,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     tableKey: TableFilterKey,
     columnKey: string,
     label: string,
-    rowsSource: unknown[]
+    rowsSource: unknown[],
+    fixedOptions?: readonly string[]
   ) => {
     // Calculate available options based on OTHER active filters to ensure precision
     const query = tableFilters[tableKey]?.trim() ?? '';
@@ -1061,6 +1076,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         rows={relevantRows}
         selectedValues={columnFilters[tableKey]?.[columnKey]}
         onChange={updateColumnFilter}
+        fixedOptions={fixedOptions}
       />
     );
   }, [columnFilters, tableFilters, updateColumnFilter]);
@@ -9584,7 +9600,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             <ColumnInfoTooltip label={humanizeKey(key)} tooltip={colTooltip} />
                                           ) : null;
                                         })()}
-                                        {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data)}
+                                        {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data, key === estatus2026StatusFieldSummary ? ESTATUS_2026_OPTIONS : undefined)}
                                     </div>
                                     {!VIRTUAL_COLUMN_LABELS[key] && <input 
                                         type="text" 
