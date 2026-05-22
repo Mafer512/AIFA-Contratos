@@ -11530,11 +11530,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <p>No hay datos de pagos disponibles.</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[72vh] rounded-xl border border-slate-200 shadow-sm">
                       <table className="min-w-full text-xs border-collapse">
-                        <thead>
+                        <thead className="sticky top-0 z-30">
                           <tr className="bg-[#0F4C3A] text-white text-[11px] uppercase tracking-wide">
-                            <th className="px-3 py-3 text-left font-bold sticky left-0 z-20 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[260px]">Objeto del Contrato</th>
+                            <th className="px-3 py-3 text-left font-bold sticky left-0 z-40 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[260px]">Objeto del Contrato</th>
                             <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[130px]">No. Contrato</th>
                             <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[160px]">Proveedor</th>
                             <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Inicio</th>
@@ -11739,11 +11739,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <p>No hay datos de pagos disponibles para {selectedHistoricoYear}.</p>
                       </div>
                     ) : (
-                      <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                      <div className="overflow-x-auto overflow-y-auto max-h-[72vh] rounded-xl border border-slate-200 shadow-sm">
                         <table className="min-w-full text-xs border-collapse">
-                          <thead>
+                          <thead className="sticky top-0 z-30">
                             <tr className="bg-[#0F4C3A] text-white text-[11px] uppercase tracking-wide">
-                              <th className="px-3 py-3 text-left font-bold sticky left-0 z-20 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[260px]">Objeto del Contrato</th>
+                              <th className="px-3 py-3 text-left font-bold sticky left-0 z-40 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[260px]">Objeto del Contrato</th>
                               <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[130px]">No. Contrato</th>
                               <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[160px]">Proveedor</th>
                               <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Inicio</th>
