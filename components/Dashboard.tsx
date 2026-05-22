@@ -7863,31 +7863,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             <>
               {!selectedServicePhase ? (
                 <>
-                  <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Resumen ejecutivo</h1>
-                <p className="text-slate-500 mt-1">
-                  Datos consolidados de contratos, presupuestos PAAS, control de pagos, facturas y observaciones recientes.
-                </p>
-              </div>
+                  <div className="rounded-2xl bg-gradient-to-br from-[#0D2B1E] via-[#0F4C3A] to-[#1B3A5E] px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                      <h1 className="text-2xl font-black text-white">Resumen ejecutivo</h1>
+                      <p className="text-white/55 text-sm mt-0.5">Datos consolidados de contratos, PAAS, pagos, facturas y observaciones.</p>
+                    </div>
+                    <div className="hidden sm:block text-right">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-white/35">
+                        {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
 
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-slate-800">Hallazgos clave</h3>
-                  <span className="text-xs text-slate-400">Lectura automática del tablero</span>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">Hallazgos clave</h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Lectura automática del tablero</p>
+                  </div>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100">
+                    <Sparkles className="h-3.5 w-3.5 text-slate-400" />
+                  </span>
                 </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {executiveInsights.map((insight) => {
                     const toneClass = insightToneClasses[insight.tone] ?? insightToneClasses.neutral;
                     const iconClass = insightIconClasses[insight.tone] ?? insightIconClasses.neutral;
                     return (
                       <div key={insight.id} className={`rounded-xl border p-4 ${toneClass}`}>
                         <div className="flex items-start gap-3">
-                          <span className={`inline-flex h-9 w-9 items-center justify-center rounded-full border ${iconClass}`}>
-                            <insight.icon className="h-5 w-5" />
+                          <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border flex-shrink-0 ${iconClass}`}>
+                            <insight.icon className="h-4 w-4" />
                           </span>
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold leading-snug">{insight.title}</p>
-                            <p className="text-xs leading-relaxed opacity-90">{insight.detail}</p>
+                          <div className="space-y-1 min-w-0">
+                            <p className="text-sm font-bold leading-snug">{insight.title}</p>
+                            <p className="text-xs leading-relaxed opacity-80">{insight.detail}</p>
                           </div>
                         </div>
                       </div>
@@ -7896,98 +7906,89 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                 {executiveHighlights.map((card) => (
                   <div
                     key={card.id}
-                    className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow"
+                    className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex flex-col gap-3"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{card.label}</p>
-                        <p className="text-2xl font-bold text-slate-900 mt-2">{card.value}</p>
-                        <p className="text-xs text-slate-500 mt-2 leading-snug">{card.helper}</p>
-                      </div>
-                      <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/60 shadow-sm ${card.accentBg} ${card.accentText}`}>
-                        <card.icon className="h-5 w-5" />
+                    <div className="flex items-start justify-between gap-2">
+                      <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl flex-shrink-0 ${card.accentBg} ${card.accentText}`}>
+                        <card.icon className="h-4 w-4" />
                       </span>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-right leading-tight">{card.label}</p>
+                    </div>
+                    <div>
+                      <p className="text-[1.6rem] font-black text-slate-900 leading-none truncate" title={card.value}>{card.value}</p>
+                      <p className="text-xs text-slate-500 mt-1.5 leading-snug">{card.helper}</p>
                     </div>
                   </div>
                 ))}
               </div>
 
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                        <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Fase</h3>
-                        <p className="text-xs text-slate-500 mt-1">
-                            Visualización de la carga de trabajo según la etapa del proceso.
-                        </p>
-                    </div>
-                    <span className="text-xs text-slate-400">{servicios2026Data.length} servicios</span>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                <div className="flex items-start justify-between mb-5 gap-3 flex-wrap">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Fase</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Visualización de la carga de trabajo según la etapa del proceso. Haz clic para filtrar.</p>
                   </div>
-                  <div className="h-[450px] w-full">
-                      {loadingData ? (
-                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
-                      ) : serviciosStatusDistribution.length > 0 ? (
+                  <span className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-3 py-1 flex-shrink-0">
+                    {servicios2026Data.length} servicios
+                  </span>
+                </div>
+                {loadingData ? (
+                  <div className="h-64 flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
+                ) : serviciosStatusDistribution.length > 0 ? (() => {
+                  const totalPhase = serviciosStatusDistribution.reduce((s, e) => s + e.value, 0);
+                  return (
+                    <div className="flex flex-col xl:flex-row items-center xl:items-start gap-6">
+                      {/* Donut */}
+                      <div className="h-[260px] w-full xl:w-[280px] flex-shrink-0">
                         <ResponsiveContainer width="100%" height="100%">
-                          <PieChart margin={{ top: 40, bottom: 40, left: 40, right: 40 }}>
-                            <Pie 
-                                data={serviciosStatusDistribution} 
-                                dataKey="value" 
-                                nameKey="name" 
-                                cx="50%" 
-                                cy="50%" 
-                                outerRadius={100} 
-                                onClick={(data: any) => setSelectedServicePhase(data.name)}
-                                className="cursor-pointer"
-                                label={({ cx, cy, midAngle = 0, innerRadius, outerRadius, percent = 0, index, name = '' }: any) => {
-                                    const RADIAN = Math.PI / 180;
-                                    let radius = outerRadius + 50;
-
-                                    // Ajuste específico para evitar superposición
-                                    if (name && name.includes('Procedimiento de Contratación')) {
-                                        radius += 25;
-                                    }
-
-                                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                                    
-                                    return (
-                                      <text 
-                                        x={x} 
-                                        y={y} 
-                                        fill={chartPalette[index % chartPalette.length]} 
-                                        textAnchor={x > cx ? 'start' : 'end'} 
-                                        dominantBaseline="central" 
-                                        className="text-[11px] font-bold"
-                                      >
-                                        {`${name} (${(percent * 100).toFixed(0)}%)`}
-                                      </text>
-                                    );
-                                }}
-                                labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
+                          <PieChart>
+                            <Pie
+                              data={serviciosStatusDistribution}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={70}
+                              outerRadius={115}
+                              paddingAngle={3}
+                              onClick={(data: any) => setSelectedServicePhase(data.name)}
+                              className="cursor-pointer"
                             >
                               {serviciosStatusDistribution.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={chartPalette[index % chartPalette.length]} />
+                                <Cell key={`cell-${index}`} fill={chartPalette[index % chartPalette.length]} />
                               ))}
                             </Pie>
                             <Tooltip formatter={(value: number) => `${value} servicio${value === 1 ? '' : 's'}`} />
-                            <Legend 
-                                verticalAlign="bottom" 
-                                height={36} 
-                                iconType="circle" 
-                                wrapperStyle={{ fontSize: '12px', paddingTop: '20px', cursor: 'pointer' }} 
-                                onClick={(data) => setSelectedServicePhase(data.value || null)}
-                            />
                           </PieChart>
                         </ResponsiveContainer>
-                      ) : (
-                        <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
-                          No hay datos suficientes para generar la gráfica.
-                        </div>
-                      )}
+                      </div>
+                      {/* Legend list — nombres completos, sin cortes */}
+                      <div className="flex-1 w-full space-y-1">
+                        {serviciosStatusDistribution.map((entry, index) => {
+                          const c = chartPalette[index % chartPalette.length];
+                          const pct = totalPhase > 0 ? Math.round((entry.value / totalPhase) * 100) : 0;
+                          return (
+                            <button key={entry.name} onClick={() => setSelectedServicePhase(entry.name)}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left group transition-colors">
+                              <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
+                              <span className="flex-1 text-sm text-slate-700 group-hover:text-slate-900 leading-snug min-w-0">{entry.name}</span>
+                              <span className="text-xs font-black text-slate-800 flex-shrink-0">{pct}%</span>
+                              <span className="text-[11px] text-slate-400 flex-shrink-0 w-14 text-right">{entry.value} svc.</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <div className="h-64 flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                    No hay datos suficientes para generar la gráfica.
                   </div>
+                )}
               </div>
 
               {/* ── Servicios 2025: Gerencia + Subdirección ─────────────────────────── */}
