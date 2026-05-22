@@ -950,6 +950,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [isPendingOctCompact, setIsPendingOctCompact] = useState(false);
   const [isEstatus2026Editing, setIsEstatus2026Editing] = useState(false);
   const [isEstatus2026Compact, setIsEstatus2026Compact] = useState(false);
+  const [estatus2026Tab, setEstatus2026Tab] = useState<'tabla' | 'calendar'>('tabla');
+  const [estatus2026CalendarView, setEstatus2026CalendarView] = useState<View>('month');
+  const [estatus2026CalendarDate, setEstatus2026CalendarDate] = useState(new Date());
+  const [showEstatus2026CalendarInfo, setShowEstatus2026CalendarInfo] = useState(false);
   const [isAddingEstatus2026Row, setIsAddingEstatus2026Row] = useState(false);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
   const [deletingRecordKey, setDeletingRecordKey] = useState<string | null>(null);
@@ -5914,6 +5918,67 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return upcoming[0] ?? null;
   }, [calendarEvents]);
 
+  // ── CALENDAR EVENTS FOR ESTATUS_2026 ──────────────────────────────────────
+  const calendarEvents2026 = useMemo(() => {
+    const events: any[] = [];
+    if (!estatus2026Data.length) return events;
+
+    const dateColDefs: { fragments: string[]; label: string; color: string }[] = [
+      { fragments: ['fallo'], label: 'Fallo', color: '#EF4444' },
+      { fragments: ['apertura'], label: 'Apertura de Proposiciones', color: '#EC4899' },
+      { fragments: ['visita'], label: 'Visita a Instalaciones', color: '#F59E0B' },
+      { fragments: ['junta'], label: 'Junta de Aclaraciones', color: '#F97316' },
+      { fragments: ['convocatoria'], label: 'Publicación Convocatoria', color: '#10B981' },
+      { fragments: ['formalizacion'], label: 'Formalización', color: '#6366F1' },
+      { fragments: ['inicio'], label: 'Fecha de Inicio', color: '#3B82F6' },
+      { fragments: ['termino'], label: 'Fecha de Término', color: '#8B5CF6' },
+      { fragments: ['validacion'], label: 'Validación por Área', color: '#14B8A6' },
+      { fragments: ['programacion'], label: 'Programación', color: '#64748B' },
+      { fragments: ['diferimiento'], label: 'Diferimiento', color: '#D97706' },
+      { fragments: ['vigencia'], label: 'Vigencia', color: '#7C3AED' },
+    ];
+
+    const firstRow = estatus2026Data[0] ?? {};
+    const allCols = Object.keys(firstRow);
+    const dateKeywords = ['fecha', 'vigencia', 'fallo', 'apertura', 'inicio', 'termino', 'visita', 'revision', 'diferimiento', 'junta', 'programacion', 'formalizacion', 'convocatoria', 'validacion'];
+
+    const dateColumns: { col: string; label: string; color: string }[] = [];
+    allCols.forEach((col) => {
+      if (col.startsWith('__')) return;
+      const norm = normalizeAnnualKey(col);
+      const isDateCol = dateKeywords.some(k => norm.includes(k));
+      if (!isDateCol) return;
+      const match = dateColDefs.find(({ fragments }) => fragments.some(f => norm.includes(f)));
+      dateColumns.push({ col, label: match?.label ?? col, color: match?.color ?? '#3B82F6' });
+    });
+
+    estatus2026Data.forEach((row) => {
+      const serviceName = estatus2026ServiceNameFieldSummary
+        ? String(row[estatus2026ServiceNameFieldSummary] ?? 'Servicio sin nombre')
+        : 'Servicio sin nombre';
+      dateColumns.forEach(({ col, label, color }) => {
+        const dateVal = row[col];
+        if (!dateVal) return;
+        let date = parsePotentialDate(dateVal);
+        if (!date || isNaN(date.getTime())) return;
+        if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateVal.trim())) {
+          const offset = date.getTimezoneOffset();
+          date = new Date(date.getTime() + offset * 60000);
+        }
+        events.push({
+          title: `${label}: ${serviceName}`,
+          start: date,
+          end: date,
+          allDay: true,
+          resource: { color, serviceName, type: label },
+        });
+      });
+    });
+
+    return events;
+  }, [estatus2026Data, estatus2026ServiceNameFieldSummary]);
+  // ── END CALENDAR EVENTS ESTATUS_2026 ──────────────────────────────────────
+
   const sortedProceduresData = useMemo(() => {
     if (!filteredProceduresData.length) return [] as ProcedureRecord[];
 
@@ -9597,12 +9662,153 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               <>
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold text-slate-900">Tabla de Estatus de Servicios</h1>
+                  <h1 className="text-2xl font-bold text-slate-900">Estatus de Servicios 2026</h1>
                   <p className="text-slate-500 text-sm mt-1">
-                    Consulta y edita los registros de estatus.
+                    Seguimiento visual de fechas clave y registro de estatus por servicio.
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
+                  <div className="flex bg-slate-100 p-1 rounded-lg">
+                    <button
+                      onClick={() => setEstatus2026Tab('tabla')}
+                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                        estatus2026Tab === 'tabla'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Tabla
+                    </button>
+                    <button
+                      onClick={() => setEstatus2026Tab('calendar')}
+                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                        estatus2026Tab === 'calendar'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Seguimiento
+                    </button>
+                  </div>
+                  <span className="inline-flex items-center justify-center rounded-full bg-[#0F4C3A]/10 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-[#0F4C3A]">
+                    {formatResultLabel(filteredEstatus2026Data.length)}
+                  </span>
+                </div>
+              </div>
+
+              {estatus2026Tab === 'calendar' && (
+                <div className="space-y-4">
+                  {/* Info button + panel */}
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-slate-500">
+                      Visualiza las fechas clave de cada servicio en el calendario.
+                      {calendarEvents2026.length === 0 && (
+                        <span className="ml-2 text-amber-600 font-medium">— No se detectaron fechas en los registros actuales.</span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowEstatus2026CalendarInfo(v => !v)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A] transition-colors shadow-sm"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                      ¿Cómo funciona?
+                    </button>
+                  </div>
+
+                  {showEstatus2026CalendarInfo && (
+                    <div className="rounded-2xl border border-[#0F4C3A]/20 bg-[#0F4C3A]/5 p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-bold text-[#0F4C3A]">¿Cómo funciona el calendario?</h4>
+                          <p className="text-sm text-slate-700">
+                            El calendario lee automáticamente todas las columnas de tipo <strong>fecha</strong> que existan en la tabla <code className="px-1 rounded bg-white border border-slate-200 text-xs">estatus_2026</code> y las despliega como eventos, agrupados por servicio.
+                          </p>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">Rubros que detecta:</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {[
+                                { label: 'Fallo', color: '#EF4444' },
+                                { label: 'Apertura de Proposiciones', color: '#EC4899' },
+                                { label: 'Visita a Instalaciones', color: '#F59E0B' },
+                                { label: 'Junta de Aclaraciones', color: '#F97316' },
+                                { label: 'Publicación Convocatoria', color: '#10B981' },
+                                { label: 'Formalización', color: '#6366F1' },
+                                { label: 'Fecha de Inicio', color: '#3B82F6' },
+                                { label: 'Fecha de Término', color: '#8B5CF6' },
+                                { label: 'Validación por Área', color: '#14B8A6' },
+                                { label: 'Programación', color: '#64748B' },
+                                { label: 'Diferimiento', color: '#D97706' },
+                                { label: 'Vigencia', color: '#7C3AED' },
+                              ].map(({ label, color }) => (
+                                <div key={label} className="flex items-center gap-2 text-xs text-slate-700">
+                                  <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                                  {label}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            Si una columna no aparece, verifica que su nombre contenga alguna de las palabras clave anteriores. Cada evento muestra el tipo de fecha y el nombre del servicio al pasar el cursor.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setShowEstatus2026CalendarInfo(false)}
+                          className="flex-shrink-0 text-slate-400 hover:text-slate-600 text-lg leading-none"
+                        >✕</button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 h-[800px]">
+                    <BigCalendar
+                      localizer={localizer}
+                      events={calendarEvents2026}
+                      startAccessor="start"
+                      endAccessor="end"
+                      culture="es"
+                      style={{ height: '100%' }}
+                      view={estatus2026CalendarView}
+                      onView={(view) => setEstatus2026CalendarView(view)}
+                      date={estatus2026CalendarDate}
+                      onNavigate={(date) => setEstatus2026CalendarDate(date)}
+                      messages={{
+                        next: "Siguiente",
+                        previous: "Anterior",
+                        today: "Hoy",
+                        month: "Mes",
+                        week: "Semana",
+                        day: "Día",
+                        agenda: "Agenda",
+                        date: "Fecha",
+                        time: "Hora",
+                        event: "Evento",
+                        noEventsInRange: "No hay eventos en este rango",
+                      }}
+                      eventPropGetter={(event) => ({
+                        style: {
+                          backgroundColor: event.resource?.color || '#3B82F6',
+                          fontSize: '0.85rem',
+                          borderRadius: '4px',
+                          border: 'none',
+                        }
+                      })}
+                      components={{
+                        event: ({ event }) => (
+                          <div title={event.title} className="flex flex-col">
+                            <span className="font-semibold text-[10px] leading-tight">{event.resource?.type}</span>
+                            <span className="text-[10px] truncate opacity-90">{event.resource?.serviceName}</span>
+                          </div>
+                        )
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {estatus2026Tab === 'tabla' && (
+              <>
+                <div className="flex items-center justify-end gap-3">
                      <button
                         onClick={() => setIsEstatus2026Compact(!isEstatus2026Compact)}
                         className={`p-2 rounded-md transition-colors ${isEstatus2026Compact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
@@ -9633,7 +9839,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </button>
                     )}
                 </div>
-              </div>
 
                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                  {/* Removed in-flow alert to prevent layout shift */}
@@ -10254,6 +10459,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </table>
                  </div>
                </div>
+              </>
+              )}
               </>
               )}
 
