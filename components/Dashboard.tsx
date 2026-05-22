@@ -9761,6 +9761,53 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   )}
 
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 h-[800px]">
+                    {/* ── Próximos 2 días ── */}
+                    {(() => {
+                      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+                      const tomorrowStart = new Date(todayStart.getTime() + 86400000);
+                      const dayAfterStart = new Date(tomorrowStart.getTime() + 86400000);
+                      const todayEvts = calendarEvents2026.filter(e => e.start >= todayStart && e.start < tomorrowStart);
+                      const tomorrowEvts = calendarEvents2026.filter(e => e.start >= tomorrowStart && e.start < dayAfterStart);
+                      const DAY = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+                      const MON = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                      const fmt = (d: Date) => `${DAY[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`;
+                      const Chips = ({ evts }: { evts: any[] }) => evts.length === 0
+                        ? <span className="text-xs text-slate-400 italic">Sin eventos</span>
+                        : <div className="flex items-center gap-1.5 flex-wrap">
+                            {evts.slice(0, 3).map((ev, i) => (
+                              <span key={i} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium truncate max-w-[180px]"
+                                style={{ borderColor: (ev.resource?.color ?? '#3B82F6') + '55', backgroundColor: (ev.resource?.color ?? '#3B82F6') + '18', color: ev.resource?.color ?? '#3B82F6' }}>
+                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: ev.resource?.color ?? '#3B82F6' }} />
+                                {ev.resource?.type}
+                              </span>
+                            ))}
+                            {evts.length > 3 && <span className="text-xs text-slate-500 font-medium">+{evts.length - 3} más</span>}
+                          </div>;
+                      return (
+                        <div className="flex items-stretch rounded-xl border border-slate-200 overflow-hidden mb-4 text-sm bg-slate-50">
+                          <div className="flex items-center gap-3 px-4 py-2.5 flex-1 min-w-0">
+                            <span className="inline-flex items-center rounded-full bg-[#0F4C3A] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white flex-shrink-0">HOY</span>
+                            <span className="text-xs font-semibold text-slate-500 flex-shrink-0">{fmt(todayStart)}</span>
+                            <Chips evts={todayEvts} />
+                          </div>
+                          <div className="w-px bg-slate-200 flex-shrink-0" />
+                          <div className="flex items-center gap-3 px-4 py-2.5 flex-1 min-w-0">
+                            <span className="inline-flex items-center rounded-full bg-slate-200 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 flex-shrink-0">MAÑANA</span>
+                            <span className="text-xs font-semibold text-slate-500 flex-shrink-0">{fmt(tomorrowStart)}</span>
+                            <Chips evts={tomorrowEvts} />
+                          </div>
+                          <div className="w-px bg-slate-200 flex-shrink-0" />
+                          <button
+                            type="button"
+                            onClick={() => { setEstatus2026CalendarView('agenda'); setEstatus2026CalendarDate(new Date()); }}
+                            className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-[#0F4C3A] hover:bg-[#0F4C3A]/5 transition-colors flex-shrink-0"
+                          >
+                            <CalendarDays className="h-3.5 w-3.5" />
+                            Ver agenda
+                          </button>
+                        </div>
+                      );
+                    })()}
                     <BigCalendar
                       localizer={localizer}
                       events={calendarEvents2026}
