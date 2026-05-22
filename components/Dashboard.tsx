@@ -9856,57 +9856,186 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
                   )}
 
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 h-[800px]">
-                    <BigCalendar
-                      localizer={localizer}
-                      events={calendarEvents2026}
-                      startAccessor="start"
-                      endAccessor="end"
-                      culture="es"
-                      style={{ height: '100%' }}
-                      view={estatus2026CalendarView}
-                      onView={(view) => setEstatus2026CalendarView(view)}
-                      date={estatus2026CalendarDate}
-                      onNavigate={(date) => setEstatus2026CalendarDate(date)}
-                      messages={{
-                        next: "Siguiente",
-                        previous: "Anterior",
-                        today: "Hoy",
-                        month: "Mes",
-                        week: "Semana",
-                        day: "Día",
-                        agenda: "Agenda",
-                        date: "Fecha",
-                        time: "Hora",
-                        event: "Evento",
-                        noEventsInRange: "No hay eventos en este rango",
-                      }}
-                      eventPropGetter={(event) => {
-                        const c = event.resource?.color || '#3B82F6';
-                        return {
-                          style: {
-                            backgroundColor: c,
-                            backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(0,0,0,0.08) 100%)',
-                            borderRadius: '5px',
-                            border: 'none',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.12)',
-                          }
-                        };
-                      }}
-                      components={{
-                        event: ({ event }) => (
-                          <div title={event.title} className="flex flex-col w-full overflow-hidden py-px">
-                            <span className="text-[9px] font-black uppercase tracking-[0.07em] text-white/70 leading-none truncate">
-                              {event.resource?.type}
-                            </span>
-                            <span className="text-[10px] font-semibold text-white leading-tight truncate mt-0.5">
-                              {event.resource?.serviceName}
-                            </span>
+                  {/* ══════ Custom Professional Month Calendar ══════ */}
+                  {(() => {
+                    const navYear  = estatus2026CalendarDate.getFullYear();
+                    const navMonth = estatus2026CalendarDate.getMonth();
+                    const today_   = new Date(); today_.setHours(0,0,0,0);
+
+                    const sameDay_ = (a: Date, b: Date) =>
+                      a.getDate()     === b.getDate()  &&
+                      a.getMonth()    === b.getMonth() &&
+                      a.getFullYear() === b.getFullYear();
+
+                    // First/last visible cells (Monday-based grid)
+                    const monthFirst = new Date(navYear, navMonth, 1);
+                    const startOff   = (monthFirst.getDay() + 6) % 7;
+                    const gridStart  = new Date(monthFirst.getTime() - startOff * 86_400_000);
+
+                    const monthLast  = new Date(navYear, navMonth + 1, 0);
+                    const endOff     = (monthLast.getDay() + 6) % 7;
+                    const gridEnd    = new Date(monthLast.getTime() + (6 - endOff) * 86_400_000);
+
+                    // Build week rows
+                    const weeks: Date[][] = [];
+                    const cur = new Date(gridStart);
+                    while (cur <= gridEnd) {
+                      const week: Date[] = [];
+                      for (let i = 0; i < 7; i++) {
+                        week.push(new Date(cur));
+                        cur.setDate(cur.getDate() + 1);
+                      }
+                      weeks.push(week);
+                    }
+
+                    const getDayEvts = (d: Date) =>
+                      calendarEvents2026.filter(e => sameDay_(new Date(e.start), d));
+
+                    // Stats for current month
+                    const monthEvts  = calendarEvents2026.filter(e => {
+                      const d = new Date(e.start);
+                      return d.getMonth() === navMonth && d.getFullYear() === navYear;
+                    });
+                    const todayEvtsN = getDayEvts(today_);
+                    const multDays   = (() => {
+                      const cnt = new Map<string, number>();
+                      monthEvts.forEach(e => {
+                        const d = new Date(e.start);
+                        const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                        cnt.set(k, (cnt.get(k) ?? 0) + 1);
+                      });
+                      return Array.from(cnt.values()).filter(v => v > 1).length;
+                    })();
+
+                    const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+                    const DAYS_  = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+
+                    const prevMo_  = () => setEstatus2026CalendarDate(new Date(navYear, navMonth - 1, 1));
+                    const nextMo_  = () => setEstatus2026CalendarDate(new Date(navYear, navMonth + 1, 1));
+                    const goToday_ = () => { const t = new Date(); t.setHours(0,0,0,0); setEstatus2026CalendarDate(t); };
+
+                    return (
+                      <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-lg">
+
+                        {/* ── Dark gradient header ── */}
+                        <div className="bg-gradient-to-br from-[#0D2B1E] via-[#0F4C3A] to-[#1B3A5E] px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1">
+                              <button type="button" onClick={prevMo_}
+                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all hover:scale-105 active:scale-95">
+                                <ChevronRight className="h-4 w-4 rotate-180" />
+                              </button>
+                              <button type="button" onClick={nextMo_}
+                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all hover:scale-105 active:scale-95">
+                                <ChevronRight className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <div className="select-none">
+                              <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/50 leading-none">{navYear}</div>
+                              <div className="text-2xl font-black text-white leading-tight mt-0.5">{MONTHS[navMonth]}</div>
+                            </div>
+                            <button type="button" onClick={goToday_}
+                              className="hidden sm:block text-[11px] font-bold text-white/60 hover:text-white border border-white/20 hover:border-white/50 rounded-lg px-3 py-1.5 transition-all leading-none">
+                              Hoy
+                            </button>
                           </div>
-                        )
-                      }}
-                    />
-                  </div>
+
+                          {/* Stats */}
+                          <div className="flex items-center gap-2">
+                            <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl px-4 py-2.5 min-w-[64px]">
+                              <span className="text-xl font-black text-white leading-none">{monthEvts.length}</span>
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-white/50 mt-1 leading-none">Eventos</span>
+                            </div>
+                            <div className={`flex flex-col items-center justify-center rounded-xl px-4 py-2.5 min-w-[64px] transition-colors ${todayEvtsN.length > 0 ? 'bg-emerald-500/20 border border-emerald-400/30' : 'bg-white/10'}`}>
+                              <span className={`text-xl font-black leading-none ${todayEvtsN.length > 0 ? 'text-emerald-300' : 'text-white/40'}`}>{todayEvtsN.length}</span>
+                              <span className={`text-[9px] font-bold uppercase tracking-wider mt-1 leading-none ${todayEvtsN.length > 0 ? 'text-emerald-400/70' : 'text-white/40'}`}>Hoy</span>
+                            </div>
+                            {multDays > 0 && (
+                              <div className="flex flex-col items-center justify-center bg-amber-500/20 border border-amber-400/30 rounded-xl px-4 py-2.5 min-w-[64px]">
+                                <span className="text-xl font-black text-amber-300 leading-none">{multDays}</span>
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400/70 mt-1 leading-none">Días múlt.</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* ── Day-of-week headers ── */}
+                        <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200">
+                          {DAYS_.map((d, i) => (
+                            <div key={d} className={`py-3 text-center text-[11px] font-bold uppercase tracking-wider select-none ${i >= 5 ? 'text-blue-400/70' : 'text-slate-400'}`}>
+                              {d}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* ── Week rows ── */}
+                        <div className="bg-white divide-y divide-slate-100">
+                          {weeks.map((week, wi) => (
+                            <div key={wi} className="grid grid-cols-7 divide-x divide-slate-100">
+                              {week.map((day, di) => {
+                                const dayEvts   = getDayEvts(day);
+                                const inMonth   = day.getMonth() === navMonth && day.getFullYear() === navYear;
+                                const isToday_  = sameDay_(day, today_);
+                                const isWeekend = di >= 5;
+                                return (
+                                  <div key={di}
+                                    className={[
+                                      'min-h-[110px] p-2 flex flex-col gap-1 transition-colors',
+                                      !inMonth   ? 'bg-slate-50/70' : isWeekend ? 'bg-slate-50/30' : 'bg-white',
+                                      isToday_   ? 'ring-2 ring-inset ring-blue-400/60 bg-blue-50/30' : '',
+                                      'hover:bg-slate-50/70',
+                                    ].filter(Boolean).join(' ')}
+                                  >
+                                    {/* Day number row */}
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <span className={[
+                                        'flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold leading-none select-none',
+                                        isToday_  ? 'bg-blue-500 text-white shadow-sm' : '',
+                                        !isToday_ && inMonth  ? (isWeekend ? 'text-blue-400/80' : 'text-slate-700') : '',
+                                        !isToday_ && !inMonth ? 'text-slate-300' : '',
+                                      ].filter(Boolean).join(' ')}>
+                                        {day.getDate()}
+                                      </span>
+                                      {dayEvts.length > 1 && !isToday_ && inMonth && (
+                                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-[9px] font-bold text-slate-500 leading-none">
+                                          {dayEvts.length}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Event items */}
+                                    {dayEvts.slice(0, 3).map((ev, ei) => {
+                                      const c = ev.resource?.color ?? '#3B82F6';
+                                      return (
+                                        <div key={ei} title={ev.title}
+                                          className="flex items-center gap-1 rounded-[5px] overflow-hidden cursor-default"
+                                          style={{ backgroundColor: c + '12', borderLeft: `3px solid ${c}`, padding: '2px 5px 2px 4px' }}
+                                        >
+                                          <span className="flex-shrink-0 text-[9px] font-black uppercase leading-tight whitespace-nowrap truncate max-w-[48px]"
+                                            style={{ color: c }}>
+                                            {ev.resource?.type}
+                                          </span>
+                                          <span className={`text-[9px] truncate leading-tight font-medium ${inMonth ? 'text-slate-600' : 'text-slate-400'}`}>
+                                            {ev.resource?.serviceName}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                    {dayEvts.length > 3 && (
+                                      <span className="text-[9px] text-slate-400 font-semibold pl-1 leading-tight">
+                                        +{dayEvts.length - 3} más
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
