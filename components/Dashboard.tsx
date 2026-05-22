@@ -11474,33 +11474,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <TrendingUp className="h-4 w-4 text-[#B38E5D]" />
                             Avance por contrato (% del monto máximo ejecutado)
                           </p>
-                          <ResponsiveContainer width="100%" height={barH}>
-                            <BarChart data={contractProgress} layout="vertical"
-                              margin={{ top: 4, right: 50, left: 0, bottom: 4 }}
-                              barSize={18}>
-                              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                              <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`}
-                                tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                              <YAxis type="category" dataKey="name" width={330}
-                                tick={{ fontSize: 10, fill: '#475569', width: 320 }} axisLine={false} tickLine={false} />
-                              <Tooltip
-                                formatter={(v: any) => [`${v}%`, 'Avance']}
-                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0', maxWidth: 320, whiteSpace: 'normal', wordBreak: 'break-word' }}
-                                labelStyle={{ fontWeight: 700, whiteSpace: 'normal' }}
-                                wrapperStyle={{ overflow: 'visible', zIndex: 9999 }}
-                              />
-                              <Bar dataKey="pct" radius={[0, 4, 4, 0]}>
-                                {contractProgress.map((entry, i) => (
-                                  <Cell key={i} fill={
-                                    entry.pct >= 80 ? '#16a34a' :
-                                    entry.pct >= 50 ? '#0F4C3A' :
-                                    entry.pct >= 25 ? '#B38E5D' : '#f87171'
-                                  } />
-                                ))}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                          <div className="flex items-center gap-5 mt-3 text-[10px] text-slate-500 flex-wrap">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3.5">
+                            {contractProgress.map((entry, i) => {
+                              const barColor =
+                                entry.pct >= 80 ? '#16a34a' :
+                                entry.pct >= 50 ? '#0F4C3A' :
+                                entry.pct >= 25 ? '#B38E5D' : '#f87171';
+                              return (
+                                <div key={i} className="space-y-1">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <span className="text-xs text-slate-700 leading-snug">{entry.name}</span>
+                                    <span className="text-xs font-black flex-shrink-0 tabular-nums" style={{ color: barColor }}>{entry.pct}%</span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                    <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${entry.pct}%`, backgroundColor: barColor }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="flex items-center gap-5 mt-4 pt-3 border-t border-slate-100 text-[10px] text-slate-500 flex-wrap">
                             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#16a34a] inline-block" />≥ 80%</span>
                             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#0F4C3A] inline-block" />50–79%</span>
                             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#B38E5D] inline-block" />25–49%</span>
