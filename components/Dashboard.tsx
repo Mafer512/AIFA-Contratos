@@ -956,6 +956,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [showEstatus2026CalendarInfo, setShowEstatus2026CalendarInfo] = useState(false);
   const [calSelDay, setCalSelDay] = useState<Date | null>(null);
   const [calHovEvt, setCalHovEvt] = useState<{ ev: any; x: number; y: number } | null>(null);
+  const calDetailRef = useRef<HTMLDivElement>(null);
   const [isAddingEstatus2026Row, setIsAddingEstatus2026Row] = useState(false);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
   const [deletingRecordKey, setDeletingRecordKey] = useState<string | null>(null);
@@ -9975,7 +9976,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 const isWeekend = di >= 5;
                                 return (
                                   <div key={di}
-                                    onClick={() => { if (inMonth) setCalSelDay(isSel_ ? null : day); }}
+                                    onClick={() => { if (inMonth) { setCalSelDay(isSel_ ? null : day); if (!isSel_) setTimeout(() => calDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60); } }}
                                     className={[
                                       'min-h-[110px] p-2 flex flex-col gap-1 transition-all duration-150',
                                       inMonth ? 'cursor-pointer' : 'cursor-default',
@@ -10037,9 +10038,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           ))}
                         </div>
 
+                        {/* ── Click hint ── */}
+                        <div className="flex items-center justify-center gap-1.5 py-1.5 bg-slate-50/80 border-t border-slate-100 select-none">
+                          <svg className="h-3 w-3 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"/></svg>
+                          <span className="text-[10px] text-slate-400 font-medium tracking-wide">Toca cualquier día para ver sus eventos</span>
+                        </div>
+
                         {/* ── Day detail panel ── */}
                         {calSelDay && (
-                          <div className="border-t-2 border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-50">
+                          <div ref={calDetailRef} className="border-t-2 border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-50">
                             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                               <div className="flex items-center gap-3">
                                 <div className={`flex flex-col items-center justify-center rounded-xl w-12 h-12 shadow-sm select-none ${isSelToday ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white' : 'bg-white border-2 border-slate-200 text-slate-800'}`}>
