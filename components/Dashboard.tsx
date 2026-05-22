@@ -8550,19 +8550,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         event: "Evento",
                         noEventsInRange: "No hay eventos en este rango",
                       }}
-                      eventPropGetter={(event) => ({
-                        style: {
-                          backgroundColor: event.resource?.color || '#3B82F6',
-                          fontSize: '0.85rem',
-                          borderRadius: '4px',
-                          border: 'none',
-                        }
-                      })}
+                      eventPropGetter={(event) => {
+                        const c = event.resource?.color || '#3B82F6';
+                        return {
+                          style: {
+                            backgroundColor: c,
+                            backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(0,0,0,0.08) 100%)',
+                            borderRadius: '5px',
+                            border: 'none',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.12)',
+                          }
+                        };
+                      }}
                       components={{
                         event: ({ event }) => (
-                          <div title={event.title} className="flex flex-col">
-                            <span className="font-semibold text-[10px] leading-tight">{event.resource?.type}</span>
-                            <span className="text-[10px] truncate opacity-90">{event.resource?.serviceName}</span>
+                          <div title={event.title} className="flex flex-col w-full overflow-hidden py-px">
+                            <span className="text-[9px] font-black uppercase tracking-[0.07em] text-white/70 leading-none truncate">
+                              {event.resource?.type}
+                            </span>
+                            <span className="text-[10px] font-semibold text-white leading-tight truncate mt-0.5">
+                              {event.resource?.serviceName}
+                            </span>
                           </div>
                         )
                       }}
@@ -9873,19 +9881,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         event: "Evento",
                         noEventsInRange: "No hay eventos en este rango",
                       }}
-                      eventPropGetter={(event) => ({
-                        style: {
-                          backgroundColor: event.resource?.color || '#3B82F6',
-                          fontSize: '0.85rem',
-                          borderRadius: '4px',
-                          border: 'none',
-                        }
-                      })}
+                      eventPropGetter={(event) => {
+                        const c = event.resource?.color || '#3B82F6';
+                        return {
+                          style: {
+                            backgroundColor: c,
+                            backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(0,0,0,0.08) 100%)',
+                            borderRadius: '5px',
+                            border: 'none',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.12)',
+                          }
+                        };
+                      }}
                       components={{
                         event: ({ event }) => (
-                          <div title={event.title} className="flex flex-col">
-                            <span className="font-semibold text-[10px] leading-tight">{event.resource?.type}</span>
-                            <span className="text-[10px] truncate opacity-90">{event.resource?.serviceName}</span>
+                          <div title={event.title} className="flex flex-col w-full overflow-hidden py-px">
+                            <span className="text-[9px] font-black uppercase tracking-[0.07em] text-white/70 leading-none truncate">
+                              {event.resource?.type}
+                            </span>
+                            <span className="text-[10px] font-semibold text-white leading-tight truncate mt-0.5">
+                              {event.resource?.serviceName}
+                            </span>
                           </div>
                         )
                       }}
