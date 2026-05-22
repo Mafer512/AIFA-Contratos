@@ -8359,35 +8359,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
-                  <div className="flex bg-slate-100 p-1 rounded-lg">
+                  <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 gap-1">
                     <button
                       onClick={() => setStatusTab('dashboard')}
-                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                      className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${
                         statusTab === 'dashboard'
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
+                          ? 'bg-[#0F4C3A] text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                       }`}
                     >
+                      <LayoutDashboard className="h-3.5 w-3.5" />
                       Tablero
                     </button>
                     <button
                       onClick={() => setStatusTab('calendar')}
-                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                      className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${
                         statusTab === 'calendar'
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
+                          ? 'bg-[#0F4C3A] text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                       }`}
                     >
+                      <CalendarDays className="h-3.5 w-3.5" />
                       Seguimiento
                     </button>
                     <button
                       onClick={() => setStatusTab('table')}
-                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                      className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${
                         statusTab === 'table'
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
+                          ? 'bg-[#0F4C3A] text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                       }`}
                     >
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
                       Tabla
                     </button>
                   </div>
@@ -9783,25 +9786,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
-                  <div className="flex bg-slate-100 p-1 rounded-lg">
+                  <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 gap-1">
                     <button
                       onClick={() => setEstatus2026Tab('tabla')}
-                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                      className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${
                         estatus2026Tab === 'tabla'
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
+                          ? 'bg-[#0F4C3A] text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                       }`}
                     >
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
                       Tabla
                     </button>
                     <button
                       onClick={() => setEstatus2026Tab('calendar')}
-                      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                      className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${
                         estatus2026Tab === 'calendar'
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
+                          ? 'bg-[#0F4C3A] text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                       }`}
                     >
+                      <CalendarDays className="h-3.5 w-3.5" />
                       Seguimiento
                     </button>
                   </div>
@@ -10833,19 +10838,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
-                         <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-1">
+                         <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 gap-1">
                            <button
                              type="button"
                              onClick={() => setActivePagos2026View('tabla')}
-                             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${activePagos2026View === 'tabla' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${activePagos2026View === 'tabla' ? 'bg-[#0F4C3A] text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'}`}
                            >
+                             <FileSpreadsheet className="h-3.5 w-3.5" />
                              Tabla
                            </button>
                            <button
                              type="button"
                              onClick={() => setActivePagos2026View('resumen')}
-                             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${activePagos2026View === 'resumen' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${activePagos2026View === 'resumen' ? 'bg-[#0F4C3A] text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'}`}
                            >
+                             <BarChart2 className="h-3.5 w-3.5" />
                              Resumen pagos
                            </button>
                          </div>
