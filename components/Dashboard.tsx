@@ -7509,84 +7509,89 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex h-full w-64 flex-col bg-white border-r border-slate-200 shadow-lg transition-transform duration-300 md:shadow-none ${
-          isSidebarOpen ? 'translate-x-0 md:translate-x-0' : '-translate-x-full md:-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-30 flex h-full w-64 flex-col bg-gradient-to-b from-[#0D2B1E] via-[#0a2218] to-[#091a12] transition-transform duration-300 shadow-2xl ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="h-20 flex items-center px-6 border-b border-slate-100">
-           <AifaLogo className="h-10 w-auto mr-3" />
+        {/* ── Logo ── */}
+        <div className="h-20 flex items-center px-5 border-b border-white/8 flex-shrink-0">
+          <AifaLogo className="h-9 w-auto mr-3 brightness-200" />
           <div className="flex flex-col">
-            <span className="text-sm font-bold text-slate-900 leading-tight">AIFA</span>
-            <span className="text-xs font-bold text-[#B38E5D] tracking-wider">CONTRATOS</span>
+            <span className="text-sm font-black text-white leading-tight tracking-wide">AIFA</span>
+            <span className="text-[11px] font-bold tracking-[0.18em] uppercase" style={{ color: '#B38E5D' }}>CONTRATOS</span>
           </div>
         </div>
 
-        <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
-          {/* 2025 Group */}
-          <div>
+        {/* ── Nav ── */}
+        <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-0.5 scrollbar-thin">
+
+          {/* ─ 2025 Group (amber) ─ */}
+          <div className="mb-1">
             <button
               onClick={() => setIs2025Expanded(!is2025Expanded)}
-              className="w-full flex items-center justify-between px-3 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors"
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all group hover:bg-white/5"
             >
-              <div className="flex items-center">
-                 <CalendarIcon className="h-5 w-5 mr-3 text-slate-400" />
-                 2025
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/20">
+                  <CalendarIcon className="h-3.5 w-3.5 text-amber-400" />
+                </span>
+                <span className="text-[13px] font-bold text-white/80 group-hover:text-white tracking-wide">2025</span>
+                <span className="text-[9px] font-bold bg-amber-500/20 text-amber-400 rounded-full px-1.5 py-0.5 leading-none uppercase tracking-wider">Histórico</span>
               </div>
-              {is2025Expanded ? (
-                  <Minimize2 className="h-4 w-4 text-slate-400"/>
-              ) : (
-                  <Plus className="h-4 w-4 text-slate-400"/>
-              )}
+              <ChevronRight className={`h-3.5 w-3.5 text-white/30 transition-transform duration-200 ${is2025Expanded ? 'rotate-90' : ''}`} />
             </button>
-            
+
             {is2025Expanded && (
-                <div className="pl-4 mt-1 space-y-1">
-                   {[ 
-                    { id: 'overview', icon: LayoutDashboard, label: 'Resumen' },
-                    { id: 'serviciosStatus', icon: BarChart2, label: 'Estatus servicios' },
-                    { id: 'contracts', icon: FileText, label: 'Gestión Contratos' },
-                  ].map((item) => (
+              <div className="mt-0.5 ml-3 pl-3 border-l border-amber-500/20 space-y-0.5">
+                {[
+                  { id: 'overview',        icon: LayoutDashboard, label: 'Resumen' },
+                  { id: 'serviciosStatus', icon: BarChart2,        label: 'Estatus servicios' },
+                  { id: 'contracts',       icon: FileText,         label: 'Gestión Contratos' },
+                ].map((item) => {
+                  const isActive = activeTab === item.id;
+                  return (
                     <button
                       key={item.id}
                       onClick={() => handleSidebarSelection(item.id)}
-                      className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                        activeTab === item.id
-                          ? 'bg-slate-100 text-[#B38E5D]'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${
+                        isActive
+                          ? 'bg-amber-500/15 text-amber-300'
+                          : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                       }`}
                     >
-                      <item.icon className={`h-4 w-4 mr-3 ${activeTab === item.id ? 'text-[#B38E5D]' : 'text-slate-400'}`} />
-                      {item.label}
+                      <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-amber-400' : 'text-white/30'}`} />
+                      <span className="truncate">{item.label}</span>
+                      {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400 flex-shrink-0" />}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
+              </div>
             )}
           </div>
-        
-          {/* 2026 Group */}
-          <div>
+
+          {/* ─ 2026 Group (emerald) ─ */}
+          <div className="mb-1">
             <button
               onClick={() => setIs2026Expanded(!is2026Expanded)}
-              className="w-full flex items-center justify-between px-3 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors"
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all group hover:bg-white/5"
             >
-              <div className="flex items-center">
-                <CalendarDays className="h-5 w-5 mr-3 text-slate-400" />
-                2026
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-500/20">
+                  <CalendarDays className="h-3.5 w-3.5 text-emerald-400" />
+                </span>
+                <span className="text-[13px] font-bold text-white/80 group-hover:text-white tracking-wide">2026</span>
+                <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full px-1.5 py-0.5 leading-none uppercase tracking-wider">Activo</span>
               </div>
-              {is2026Expanded ? (
-                <Minimize2 className="h-4 w-4 text-slate-400" />
-              ) : (
-                <Plus className="h-4 w-4 text-slate-400" />
-              )}
+              <ChevronRight className={`h-3.5 w-3.5 text-white/30 transition-transform duration-200 ${is2026Expanded ? 'rotate-90' : ''}`} />
             </button>
 
             {is2026Expanded && (
-              <div className="pl-4 mt-1 space-y-1">
-                {[
+              <div className="mt-0.5 ml-3 pl-3 border-l border-emerald-500/20 space-y-0.5">
+                {([
                   { view: 'resumen' as const, icon: LayoutDashboard, label: 'Resumen' },
-                  { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
-                  { view: 'pagos' as const, icon: FileText, label: 'Pagos 2026' },
-                ].map((item) => {
+                  { view: 'estatus' as const, icon: BarChart2,        label: 'Estatus servicios' },
+                  { view: 'pagos'   as const, icon: DollarSign,       label: 'Pagos 2026' },
+                ]).map((item) => {
                   const isActive = activeTab === '2026' && active2026View === item.view;
                   return (
                     <button
@@ -7597,14 +7602,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         setSelectedEstatus2026Estatus(null);
                         setSelectedEstatus2026Phase(null);
                       }}
-                      className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${
                         isActive
-                          ? 'bg-slate-100 text-[#B38E5D]'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                       }`}
                     >
-                      <item.icon className={`h-4 w-4 mr-3 ${isActive ? 'text-[#B38E5D]' : 'text-slate-400'}`} />
-                      {item.label}
+                      <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-white/30'}`} />
+                      <span className="truncate">{item.label}</span>
+                      {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-400 flex-shrink-0" />}
                     </button>
                   );
                 })}
@@ -7612,48 +7618,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             )}
           </div>
 
-          {/* Reportes Group */}
-          <div>
+          {/* ─ Reportes Group (indigo) ─ */}
+          <div className="mb-1">
             <button
               onClick={() => setIsReportesExpanded(!isReportesExpanded)}
-              className="w-full flex items-center justify-between px-3 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors"
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all group hover:bg-white/5"
             >
-              <div className="flex items-center">
-                <FileSpreadsheet className="h-5 w-5 mr-3 text-slate-400" />
-                Reportes
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-500/20">
+                  <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-400" />
+                </span>
+                <span className="text-[13px] font-bold text-white/80 group-hover:text-white tracking-wide">Reportes</span>
               </div>
-              {isReportesExpanded ? (
-                <Minimize2 className="h-4 w-4 text-slate-400" />
-              ) : (
-                <Plus className="h-4 w-4 text-slate-400" />
-              )}
+              <ChevronRight className={`h-3.5 w-3.5 text-white/30 transition-transform duration-200 ${isReportesExpanded ? 'rotate-90' : ''}`} />
             </button>
 
             {isReportesExpanded && (
-              <div className="pl-4 mt-1 space-y-1">
+              <div className="mt-0.5 ml-3 pl-3 border-l border-indigo-500/20 space-y-0.5">
                 {([
-                  { id: 'gastoEfectuado',    icon: DollarSign,      label: 'Gasto Efectuado 2026' },
-                  { id: 'historicoServicios', icon: TrendingUp,       label: 'Histórico de Servicios' },
-                  { id: 'anteproyecto',      icon: FileText,         label: 'Anteproyecto' },
-                  { id: 'paaas',             icon: Layers,           label: 'PAAAS' },
-                  { id: 'deductivas',        icon: CreditCard,       label: 'Deductivas' },
+                  { id: 'gastoEfectuado',    icon: DollarSign,  label: 'Gasto Efectuado 2026' },
+                  { id: 'historicoServicios', icon: TrendingUp,  label: 'Histórico de Servicios' },
+                  { id: 'anteproyecto',      icon: FileText,    label: 'Anteproyecto' },
+                  { id: 'paaas',             icon: Layers,      label: 'PAAAS' },
+                  { id: 'deductivas',        icon: CreditCard,  label: 'Deductivas' },
                 ] as { id: typeof activeReportesView; icon: React.ComponentType<{className?: string}>; label: string }[]).map((item) => {
                   const isActive = activeTab === 'reportes' && activeReportesView === item.id;
                   return (
                     <button
                       key={item.id}
-                      onClick={() => {
-                        handleSidebarSelection('reportes');
-                        setActiveReportesView(item.id);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                      onClick={() => { handleSidebarSelection('reportes'); setActiveReportesView(item.id); }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${
                         isActive
-                          ? 'bg-slate-100 text-[#B38E5D]'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                          ? 'bg-indigo-500/15 text-indigo-300'
+                          : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                       }`}
                     >
-                      <item.icon className={`h-4 w-4 mr-3 ${isActive ? 'text-[#B38E5D]' : 'text-slate-400'}`} />
-                      {item.label}
+                      <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-indigo-400' : 'text-white/30'}`} />
+                      <span className="truncate">{item.label}</span>
+                      {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-indigo-400 flex-shrink-0" />}
                     </button>
                   );
                 })}
@@ -7661,36 +7663,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             )}
           </div>
 
-             {/* History */}
-             <button
-              onClick={() => handleSidebarSelection('history')}
-              className={`w-full flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-colors ${
-                activeTab === 'history'
-                  ? 'bg-slate-100 text-[#B38E5D]'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-               <History className={`h-5 w-5 mr-3 ${activeTab === 'history' ? 'text-[#B38E5D]' : 'text-slate-400'}`} />
-              Historial
-            </button>
+          {/* ─ Historial (sky) ─ */}
+          <button
+            onClick={() => handleSidebarSelection('history')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
+              activeTab === 'history'
+                ? 'bg-sky-500/15 text-sky-300'
+                : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+            }`}
+          >
+            <span className={`flex h-6 w-6 items-center justify-center rounded-lg ${activeTab === 'history' ? 'bg-sky-500/20' : 'bg-white/5'}`}>
+              <History className={`h-3.5 w-3.5 ${activeTab === 'history' ? 'text-sky-400' : 'text-white/30'}`} />
+            </span>
+            <span>Historial</span>
+            {activeTab === 'history' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400 flex-shrink-0" />}
+          </button>
 
         </nav>
 
-        <div className="p-4 border-t border-slate-100">
-          <div className="flex items-center p-3 bg-slate-50 rounded-lg mb-3">
-            <div className="h-10 w-10 rounded-full bg-[#B38E5D]/10 flex items-center justify-center text-[#B38E5D] font-bold border border-[#B38E5D]/20">
+        {/* ── User footer ── */}
+        <div className="flex-shrink-0 p-3 border-t border-white/8">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5 mb-2">
+            <div className="h-8 w-8 rounded-full flex items-center justify-center text-sm font-black flex-shrink-0 text-white ring-2 ring-[#B38E5D]/50"
+              style={{ background: 'linear-gradient(135deg, #0F4C3A, #1B3A5E)' }}>
               {user.name.charAt(0).toUpperCase()}
             </div>
-            <div className="ml-3 overflow-hidden">
-              <p className="text-sm font-bold text-slate-700 truncate">{user.name}</p>
-              <p className="text-xs text-slate-500 truncate">{user.email}</p>
+            <div className="overflow-hidden flex-1 min-w-0">
+              <p className="text-[12px] font-bold text-white truncate leading-tight">{user.name}</p>
+              <p className="text-[10px] text-white/40 truncate leading-tight">{user.email}</p>
             </div>
           </div>
-          <button 
+          <button
             onClick={onLogout}
-            className="w-full flex items-center justify-center px-4 py-2 text-sm text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-[12px] font-semibold text-red-400 hover:text-red-300 bg-red-500/8 hover:bg-red-500/15 rounded-xl transition-all"
           >
-            <LogOut className="h-4 w-4 mr-2" />
+            <LogOut className="h-3.5 w-3.5" />
             Cerrar Sesión
           </button>
         </div>
