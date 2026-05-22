@@ -11316,8 +11316,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           {activeTab === 'reportes' && (
             <div>
               {/* Sub-navigation tabs */}
-              <div className="flex items-center gap-0 border-b border-slate-200 mb-6 overflow-x-auto">
-                {([
+              <div className="mb-6">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+                  <span>Secciones disponibles</span>
+                  <ChevronRight className="h-3 w-3" />
+                </p>
+                <div className="bg-slate-100 rounded-xl p-1 flex items-center gap-1 overflow-x-auto">
+                {([  
                   { id: 'gastoEfectuado'    as const, label: 'Gasto Efectuado 2026', icon: DollarSign },
                   { id: 'historicoServicios' as const, label: 'Histórico de Servicios', icon: TrendingUp },
                   { id: 'anteproyecto'      as const, label: 'Anteproyecto', icon: FileText },
@@ -11327,16 +11332,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   <button
                     key={id}
                     onClick={() => setActiveReportesView(id)}
-                    className={`flex items-center gap-1.5 px-5 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm whitespace-nowrap transition-all ${
                       activeReportesView === id
-                        ? 'border-[#B38E5D] text-[#B38E5D]'
-                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                        ? 'bg-white text-[#0F4C3A] shadow-sm font-bold ring-1 ring-slate-200'
+                        : 'text-slate-500 font-medium hover:bg-white/70 hover:text-slate-800'
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className={`h-4 w-4 flex-shrink-0 ${activeReportesView === id ? 'text-[#B38E5D]' : ''}`} />
                     {label}
                   </button>
                 ))}
+                </div>
               </div>
 
               {/* ── Gasto Efectuado 2026 ─────────────────────────────────── */}
@@ -11351,17 +11357,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </h1>
                       <p className="text-slate-500 text-sm mt-1">Avance financiero mensual y acumulado por contrato, basado en la tabla de pagos.</p>
                     </div>
-                    <button
-                      onClick={() => setShowGastoCharts(v => !v)}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                        showGastoCharts
-                          ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
-                          : 'bg-white text-slate-600 border-slate-300 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'
-                      }`}
-                    >
-                      <BarChart2 className="h-4 w-4" />
-                      {showGastoCharts ? 'Ocultar gráficas' : 'Ver gráficas'}
-                    </button>
+                    <div className="flex flex-col items-end gap-1.5">
+                      {!showGastoCharts && (
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1.5">
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                          Haz clic para ver gráficas de avance
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setShowGastoCharts(v => !v)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all shadow-sm ${
+                          showGastoCharts
+                            ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
+                            : 'bg-white text-[#0F4C3A] border-[#0F4C3A] hover:bg-[#0F4C3A] hover:text-white'
+                        }`}
+                      >
+                        <BarChart2 className="h-4 w-4" />
+                        {showGastoCharts ? 'Ocultar gráficas' : 'Ver gráficas'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Summary Cards */}
@@ -11861,66 +11875,35 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                </div>
 
                {/* Sub-Tabs Navigation */}
-              <div className="flex border-b border-slate-200 mb-6 overflow-x-auto">
-                  {/*
-                  <button 
-                     onClick={() => setActiveContractSubTab('paas')}
-                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'paas' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4" />
-                      Balance PAAS 2026
-                    </div>
-                  </button>
-                  */}
+              <div className="mb-6">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+                  <span>Secciones disponibles</span>
+                  <ChevronRight className="h-3 w-3" />
+                </p>
+                <div className="bg-slate-100 rounded-xl p-1 flex items-center gap-1 overflow-x-auto">
                   <button 
                      onClick={() => setActiveContractSubTab('payments')}
-                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'payments' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                     className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm whitespace-nowrap transition-all ${activeContractSubTab === 'payments' ? 'bg-white text-[#0F4C3A] shadow-sm font-bold ring-1 ring-slate-200' : 'text-slate-500 font-medium hover:bg-white/70 hover:text-slate-800'}`}
                   >
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4" />
-                      Pagos
-                    </div>
+                    <CreditCard className={`h-4 w-4 flex-shrink-0 ${activeContractSubTab === 'payments' ? 'text-[#B38E5D]' : ''}`} />
+                    Pagos
                   </button>
                   <button 
                      onClick={() => setActiveContractSubTab('invoices')}
-                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'invoices' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                     className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm whitespace-nowrap transition-all ${activeContractSubTab === 'invoices' ? 'bg-white text-[#0F4C3A] shadow-sm font-bold ring-1 ring-slate-200' : 'text-slate-500 font-medium hover:bg-white/70 hover:text-slate-800'}`}
                   >
-                    <div className="flex items-center gap-2">
-                      <FileSpreadsheet className="h-4 w-4" />
-                      Facturas
-                    </div>
+                    <FileSpreadsheet className={`h-4 w-4 flex-shrink-0 ${activeContractSubTab === 'invoices' ? 'text-[#B38E5D]' : ''}`} />
+                    Facturas
                   </button>
-                  {/*
-                  <button 
-                     onClick={() => setActiveContractSubTab('compranet')}
-                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'compranet' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Briefcase className="h-4 w-4" />
-                      Procedimientos Compranet
-                    </div>
-                  </button>
-                  <button 
-                     onClick={() => setActiveContractSubTab('pendingOct')}
-                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'pendingOct' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4" />
-                      Observaciones de Pago (Octubre)
-                    </div>
-                  </button>
-                  */}
                   <button 
                      onClick={() => setActiveContractSubTab('procedures')}
-                     className={`px-6 py-3 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeContractSubTab === 'procedures' ? 'border-[#B38E5D] text-[#B38E5D]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                     className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm whitespace-nowrap transition-all ${activeContractSubTab === 'procedures' ? 'bg-white text-[#0F4C3A] shadow-sm font-bold ring-1 ring-slate-200' : 'text-slate-500 font-medium hover:bg-white/70 hover:text-slate-800'}`}
                   >
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Procedimientos
-                    </div>
+                    <FileText className={`h-4 w-4 flex-shrink-0 ${activeContractSubTab === 'procedures' ? 'text-[#B38E5D]' : ''}`} />
+                    Procedimientos
                   </button>
-               </div>
+                </div>
+              </div>
 
                {/* === CONTRACTS: PAAS 2026 === */}
                {activeContractSubTab === 'paas' && (
