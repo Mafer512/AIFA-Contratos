@@ -954,6 +954,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [estatus2026CalendarView, setEstatus2026CalendarView] = useState<View>('month');
   const [estatus2026CalendarDate, setEstatus2026CalendarDate] = useState(new Date());
   const [showEstatus2026CalendarInfo, setShowEstatus2026CalendarInfo] = useState(false);
+  const [calSelDay, setCalSelDay] = useState<Date | null>(null);
+  const [calHovEvt, setCalHovEvt] = useState<{ ev: any; x: number; y: number } | null>(null);
   const [isAddingEstatus2026Row, setIsAddingEstatus2026Row] = useState(false);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
   const [deletingRecordKey, setDeletingRecordKey] = useState<string | null>(null);
@@ -9867,31 +9869,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       a.getMonth()    === b.getMonth() &&
                       a.getFullYear() === b.getFullYear();
 
-                    // First/last visible cells (Monday-based grid)
                     const monthFirst = new Date(navYear, navMonth, 1);
                     const startOff   = (monthFirst.getDay() + 6) % 7;
                     const gridStart  = new Date(monthFirst.getTime() - startOff * 86_400_000);
-
                     const monthLast  = new Date(navYear, navMonth + 1, 0);
                     const endOff     = (monthLast.getDay() + 6) % 7;
                     const gridEnd    = new Date(monthLast.getTime() + (6 - endOff) * 86_400_000);
 
-                    // Build week rows
                     const weeks: Date[][] = [];
                     const cur = new Date(gridStart);
                     while (cur <= gridEnd) {
                       const week: Date[] = [];
-                      for (let i = 0; i < 7; i++) {
-                        week.push(new Date(cur));
-                        cur.setDate(cur.getDate() + 1);
-                      }
+                      for (let i = 0; i < 7; i++) { week.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
                       weeks.push(week);
                     }
 
-                    const getDayEvts = (d: Date) =>
-                      calendarEvents2026.filter(e => sameDay_(new Date(e.start), d));
+                    const getDayEvts = (d: Date) => calendarEvents2026.filter(e => sameDay_(new Date(e.start), d));
 
-                    // Stats for current month
                     const monthEvts  = calendarEvents2026.filter(e => {
                       const d = new Date(e.start);
                       return d.getMonth() === navMonth && d.getFullYear() === navYear;
@@ -9901,18 +9895,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       const cnt = new Map<string, number>();
                       monthEvts.forEach(e => {
                         const d = new Date(e.start);
-                        const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-                        cnt.set(k, (cnt.get(k) ?? 0) + 1);
+                        cnt.set(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`, (cnt.get(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`) ?? 0) + 1);
                       });
                       return Array.from(cnt.values()).filter(v => v > 1).length;
                     })();
 
-                    const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-                    const DAYS_  = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+                    const MONTHS_    = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+                    const WDAYS_     = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+                    const WDAYS_FULL = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 
-                    const prevMo_  = () => setEstatus2026CalendarDate(new Date(navYear, navMonth - 1, 1));
-                    const nextMo_  = () => setEstatus2026CalendarDate(new Date(navYear, navMonth + 1, 1));
-                    const goToday_ = () => { const t = new Date(); t.setHours(0,0,0,0); setEstatus2026CalendarDate(t); };
+                    const prevMo_  = () => { setCalSelDay(null); setEstatus2026CalendarDate(new Date(navYear, navMonth - 1, 1)); };
+                    const nextMo_  = () => { setCalSelDay(null); setEstatus2026CalendarDate(new Date(navYear, navMonth + 1, 1)); };
+                    const goToday_ = () => { setCalSelDay(null); const t = new Date(); t.setHours(0,0,0,0); setEstatus2026CalendarDate(t); };
+
+                    const selEvts    = calSelDay ? getDayEvts(calSelDay) : [];
+                    const isSelToday = calSelDay ? sameDay_(calSelDay, today_) : false;
 
                     return (
                       <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-lg">
@@ -9932,15 +9929,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </div>
                             <div className="select-none">
                               <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/50 leading-none">{navYear}</div>
-                              <div className="text-2xl font-black text-white leading-tight mt-0.5">{MONTHS[navMonth]}</div>
+                              <div className="text-2xl font-black text-white leading-tight mt-0.5">{MONTHS_[navMonth]}</div>
                             </div>
                             <button type="button" onClick={goToday_}
                               className="hidden sm:block text-[11px] font-bold text-white/60 hover:text-white border border-white/20 hover:border-white/50 rounded-lg px-3 py-1.5 transition-all leading-none">
                               Hoy
                             </button>
                           </div>
-
-                          {/* Stats */}
                           <div className="flex items-center gap-2">
                             <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl px-4 py-2.5 min-w-[64px]">
                               <span className="text-xl font-black text-white leading-none">{monthEvts.length}</span>
@@ -9961,7 +9956,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                         {/* ── Day-of-week headers ── */}
                         <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200">
-                          {DAYS_.map((d, i) => (
+                          {WDAYS_.map((d, i) => (
                             <div key={d} className={`py-3 text-center text-[11px] font-bold uppercase tracking-wider select-none ${i >= 5 ? 'text-blue-400/70' : 'text-slate-400'}`}>
                               {d}
                             </div>
@@ -9976,43 +9971,52 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 const dayEvts   = getDayEvts(day);
                                 const inMonth   = day.getMonth() === navMonth && day.getFullYear() === navYear;
                                 const isToday_  = sameDay_(day, today_);
+                                const isSel_    = calSelDay ? sameDay_(day, calSelDay) : false;
                                 const isWeekend = di >= 5;
                                 return (
                                   <div key={di}
+                                    onClick={() => { if (inMonth) setCalSelDay(isSel_ ? null : day); }}
                                     className={[
-                                      'min-h-[110px] p-2 flex flex-col gap-1 transition-colors',
-                                      !inMonth   ? 'bg-slate-50/70' : isWeekend ? 'bg-slate-50/30' : 'bg-white',
-                                      isToday_   ? 'ring-2 ring-inset ring-blue-400/60 bg-blue-50/30' : '',
-                                      'hover:bg-slate-50/70',
+                                      'min-h-[110px] p-2 flex flex-col gap-1 transition-all duration-150',
+                                      inMonth ? 'cursor-pointer' : 'cursor-default',
+                                      !inMonth ? 'bg-slate-50/70' : isWeekend ? 'bg-slate-50/30' : 'bg-white',
+                                      isToday_ && !isSel_ ? 'ring-2 ring-inset ring-blue-400/60 bg-blue-50/30' : '',
+                                      isSel_ ? 'ring-2 ring-inset ring-emerald-500/70 bg-emerald-50/40' : '',
+                                      inMonth && !isSel_ ? 'hover:bg-slate-50 hover:shadow-inner' : '',
                                     ].filter(Boolean).join(' ')}
                                   >
-                                    {/* Day number row */}
                                     <div className="flex items-center justify-between mb-0.5">
                                       <span className={[
                                         'flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold leading-none select-none',
-                                        isToday_  ? 'bg-blue-500 text-white shadow-sm' : '',
-                                        !isToday_ && inMonth  ? (isWeekend ? 'text-blue-400/80' : 'text-slate-700') : '',
-                                        !isToday_ && !inMonth ? 'text-slate-300' : '',
+                                        isSel_                              ? 'bg-emerald-500 text-white shadow-sm ring-2 ring-emerald-300/60' : '',
+                                        !isSel_ && isToday_                 ? 'bg-blue-500 text-white shadow-sm' : '',
+                                        !isSel_ && !isToday_ && inMonth  && isWeekend  ? 'text-blue-400/80' : '',
+                                        !isSel_ && !isToday_ && inMonth  && !isWeekend ? 'text-slate-700'   : '',
+                                        !isSel_ && !isToday_ && !inMonth               ? 'text-slate-300'   : '',
                                       ].filter(Boolean).join(' ')}>
                                         {day.getDate()}
                                       </span>
-                                      {dayEvts.length > 1 && !isToday_ && inMonth && (
-                                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-[9px] font-bold text-slate-500 leading-none">
+                                      {dayEvts.length > 1 && inMonth && (
+                                        <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold leading-none ${isSel_ ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
                                           {dayEvts.length}
                                         </span>
                                       )}
                                     </div>
 
-                                    {/* Event items */}
                                     {dayEvts.slice(0, 3).map((ev, ei) => {
                                       const c = ev.resource?.color ?? '#3B82F6';
                                       return (
-                                        <div key={ei} title={ev.title}
-                                          className="flex items-center gap-1 rounded-[5px] overflow-hidden cursor-default"
+                                        <div key={ei}
+                                          className="flex items-center gap-1 rounded-[5px] overflow-hidden"
                                           style={{ backgroundColor: c + '12', borderLeft: `3px solid ${c}`, padding: '2px 5px 2px 4px' }}
+                                          onMouseEnter={(e) => {
+                                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                            setCalHovEvt({ ev, x: Math.round(r.left + r.width / 2), y: Math.round(r.top) });
+                                          }}
+                                          onMouseLeave={() => setCalHovEvt(null)}
+                                          onClick={(e) => e.stopPropagation()}
                                         >
-                                          <span className="flex-shrink-0 text-[9px] font-black uppercase leading-tight whitespace-nowrap truncate max-w-[48px]"
-                                            style={{ color: c }}>
+                                          <span className="flex-shrink-0 text-[9px] font-black uppercase leading-tight whitespace-nowrap truncate max-w-[48px]" style={{ color: c }}>
                                             {ev.resource?.type}
                                           </span>
                                           <span className={`text-[9px] truncate leading-tight font-medium ${inMonth ? 'text-slate-600' : 'text-slate-400'}`}>
@@ -10032,6 +10036,105 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </div>
                           ))}
                         </div>
+
+                        {/* ── Day detail panel ── */}
+                        {calSelDay && (
+                          <div className="border-t-2 border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-50">
+                            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                              <div className="flex items-center gap-3">
+                                <div className={`flex flex-col items-center justify-center rounded-xl w-12 h-12 shadow-sm select-none ${isSelToday ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white' : 'bg-white border-2 border-slate-200 text-slate-800'}`}>
+                                  <span className="text-[9px] font-extrabold uppercase leading-none opacity-70 tracking-wider">{MONTHS_[calSelDay.getMonth()].slice(0,3)}</span>
+                                  <span className="text-xl font-black leading-tight">{calSelDay.getDate()}</span>
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-base font-extrabold text-slate-800 leading-tight">
+                                      {WDAYS_FULL[calSelDay.getDay()]}, {calSelDay.getDate()} de {MONTHS_[calSelDay.getMonth()]}
+                                    </span>
+                                    {isSelToday && (
+                                      <span className="text-[10px] font-bold bg-blue-500 text-white rounded-full px-2 py-0.5 leading-none shadow-sm">HOY</span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                                    {selEvts.length === 0 ? 'Sin eventos programados' : selEvts.length === 1 ? '1 evento programado' : `${selEvts.length} eventos programados`}
+                                  </div>
+                                </div>
+                              </div>
+                              <button type="button"
+                                onClick={(e) => { e.stopPropagation(); setCalSelDay(null); }}
+                                className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 transition-all text-base font-black leading-none select-none">
+                                ×
+                              </button>
+                            </div>
+
+                            <div className="px-5 py-4">
+                              {selEvts.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-8 text-slate-400 gap-2">
+                                  <CalendarDays className="h-9 w-9 opacity-20" />
+                                  <p className="text-sm font-semibold">No hay eventos para este día</p>
+                                </div>
+                              ) : (
+                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                  {selEvts.map((ev, ei) => {
+                                    const c = ev.resource?.color ?? '#3B82F6';
+                                    return (
+                                      <div key={ei}
+                                        className="bg-white rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-md transition-all duration-200 overflow-hidden"
+                                        style={{ borderTopWidth: 3, borderTopColor: c, borderTopStyle: 'solid' }}>
+                                        <div className="px-4 pt-3 pb-2">
+                                          <span className="inline-flex items-center text-[10px] font-black uppercase tracking-wider rounded-full px-2.5 py-1 leading-none mb-2"
+                                            style={{ backgroundColor: c + '20', color: c }}>
+                                            {ev.resource?.type}
+                                          </span>
+                                          <p className="text-sm font-bold text-slate-800 leading-snug">
+                                            {ev.resource?.serviceName}
+                                          </p>
+                                        </div>
+                                        <div className="px-4 pb-3 border-t border-slate-50 pt-2 flex items-center gap-1.5">
+                                          <CalendarDays className="h-3 w-3 flex-shrink-0 opacity-40" style={{ color: c }} />
+                                          <span className="text-[10px] font-medium text-slate-400">
+                                            {calSelDay.getDate()} de {MONTHS_[calSelDay.getMonth()]}, {calSelDay.getFullYear()}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── Floating event tooltip (fixed, escapes overflow-hidden) ── */}
+                        {calHovEvt && (() => {
+                          const c   = calHovEvt.ev.resource?.color ?? '#3B82F6';
+                          const evD = new Date(calHovEvt.ev.start);
+                          const TM  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                          return (
+                            <div style={{ position: 'fixed', left: calHovEvt.x, top: calHovEvt.y, transform: 'translate(-50%, calc(-100% - 10px))', zIndex: 9999 }}
+                              className="pointer-events-none">
+                              <div className="bg-[#0D1F2D] rounded-xl shadow-2xl border border-white/10 overflow-hidden w-64">
+                                <div className="h-[3px]" style={{ backgroundColor: c }} />
+                                <div className="px-4 py-3">
+                                  <span className="inline-flex items-center text-[10px] font-black uppercase tracking-wider rounded-full px-2.5 py-1 leading-none"
+                                    style={{ backgroundColor: c + '30', color: c }}>
+                                    {calHovEvt.ev.resource?.type}
+                                  </span>
+                                  <p className="text-[13px] font-bold text-white leading-snug mt-2">
+                                    {calHovEvt.ev.resource?.serviceName}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-white/10">
+                                    <CalendarDays className="h-3 w-3 text-white/40 flex-shrink-0" />
+                                    <span className="text-[11px] text-white/50 font-medium">
+                                      {evD.getDate()} de {TM[evD.getMonth()]} {evD.getFullYear()}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '6px solid #0D1F2D' }} />
+                            </div>
+                          );
+                        })()}
 
                       </div>
                     );
