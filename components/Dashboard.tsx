@@ -9243,13 +9243,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
 
                       {/* KPI Cards */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Servicios</p>
                               <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.total}</p>
-                              <p className="text-xs text-slate-500 mt-2">Registros en estatus 2026</p>
+                              <p className="text-xs text-slate-500 mt-2">Registros en estatus 2026 <span className="text-slate-400">(algunos agrupados por convenio)</span></p>
                             </div>
                             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-[#0F4C3A] border border-white/60 shadow-sm">
                               <Layers className="h-5 w-5" />
@@ -9270,23 +9270,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </div>
                             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-700 border border-white/60 shadow-sm">
                               <TrendingUp className="h-5 w-5" />
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">En Procedimiento</p>
-                              <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.procedimiento}</p>
-                              <p className="text-xs text-slate-500 mt-2">
-                                {estatus2026KPIs.total > 0
-                                  ? `${Math.round((estatus2026KPIs.procedimiento / estatus2026KPIs.total) * 100)}% del total`
-                                  : 'Sin datos'}
-                              </p>
-                            </div>
-                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-700 border border-white/60 shadow-sm">
-                              <Activity className="h-5 w-5" />
                             </span>
                           </div>
                         </div>
