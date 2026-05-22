@@ -4772,7 +4772,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [estatus2026Data, estatus2026GerenciaFieldSummary]);
 
   const estatus2026KPIs = useMemo(() => {
-    const total = estatus2026Data.length;
+    // uniqueTotal = distinct service groups (same collapsing logic as the table)
+    const uniqueTotal = (() => {
+      if (!estatus2026ServiceNameFieldSummary) return estatus2026Data.length;
+      const keys = new Set(
+        estatus2026Data.map((row) =>
+          buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary)
+        )
+      );
+      return keys.size;
+    })();
+    const total = uniqueTotal;
+    const dbTotal = estatus2026Data.length;
     const uniqueStatuses = estatus2026EstatusDistribution.length;
     const adjudicados = estatus2026EstatusDistribution.find(d =>
       d.name.toLowerCase().includes('adjudicad') || d.name.toLowerCase().includes('contratad')
@@ -4780,8 +4791,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const procedimiento = estatus2026EstatusDistribution.find(d =>
       d.name.toLowerCase().includes('procedimiento') || d.name.toLowerCase().includes('contratacion')
     )?.value ?? 0;
-    return { total, uniqueStatuses, adjudicados, procedimiento };
-  }, [estatus2026Data, estatus2026EstatusDistribution]);
+    return { total, dbTotal, uniqueStatuses, adjudicados, procedimiento };
+  }, [estatus2026Data, estatus2026EstatusDistribution, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
 
   const pagos2026MonthlyFlow = useMemo(() => {
     if (!pagos2026Data.length) return [] as { name: string; value: number }[];
@@ -9249,7 +9260,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div>
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Servicios</p>
                               <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.total}</p>
-                              <p className="text-xs text-slate-500 mt-2">Registros en estatus 2026 <span className="text-slate-400">(algunos agrupados por convenio)</span></p>
+                              <p className="text-xs text-slate-500 mt-2">
+                                Servicios únicos en 2026
+                                {estatus2026KPIs.dbTotal > estatus2026KPIs.total && (
+                                  <span className="text-slate-400 ml-1">({estatus2026KPIs.dbTotal} registros totales)</span>
+                                )}
+                              </p>
                             </div>
                             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-[#0F4C3A] border border-white/60 shadow-sm">
                               <Layers className="h-5 w-5" />
@@ -9263,8 +9279,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Adjudicados</p>
                               <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.adjudicados}</p>
                               <p className="text-xs text-slate-500 mt-2">
-                                {estatus2026KPIs.total > 0
-                                  ? `${Math.round((estatus2026KPIs.adjudicados / estatus2026KPIs.total) * 100)}% del total`
+                                {estatus2026KPIs.dbTotal > 0
+                                  ? `${Math.round((estatus2026KPIs.adjudicados / estatus2026KPIs.dbTotal) * 100)}% del total`
                                   : 'Sin datos'}
                               </p>
                             </div>
