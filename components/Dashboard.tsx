@@ -8008,12 +8008,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           const pct = servicios2026Data.length > 0 ? Math.round((entry.value / servicios2026Data.length) * 100) : 0;
                           const color = chartPalette[index % chartPalette.length];
                           return (
-                            <div key={entry.name} className="flex items-center gap-3">
-                              <div className="w-32 text-xs text-slate-600 truncate text-right shrink-0" title={entry.name}>{entry.name}</div>
-                              <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
-                                <div className="h-3 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                            <div key={entry.name} className="space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-medium text-slate-700 leading-snug">{entry.name}</span>
+                                <span className="text-xs font-bold flex-shrink-0" style={{ color }}>{entry.value} <span className="text-slate-400 font-normal">({pct}%)</span></span>
                               </div>
-                              <span className="text-xs text-slate-500 shrink-0 font-medium">{entry.value} ({pct}%)</span>
+                              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                              </div>
                             </div>
                           );
                         });
@@ -8028,7 +8030,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <h3 className="text-lg font-bold text-slate-800">Servicios 2025 por Subdirección</h3>
                       <span className="text-xs font-medium text-slate-400">{servicios2026Data.length} total</span>
                     </div>
-                    <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                    <div className="space-y-3">
                       {serviciosSubdirDistribution.length > 0 ? (() => {
                         const maxVal = Math.max(...serviciosSubdirDistribution.map(e => e.value), 1);
                         return serviciosSubdirDistribution.map((entry, index) => {
@@ -8036,12 +8038,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           const pct = servicios2026Data.length > 0 ? Math.round((entry.value / servicios2026Data.length) * 100) : 0;
                           const color = chartPalette[index % chartPalette.length];
                           return (
-                            <div key={entry.name} className="flex items-center gap-3">
-                              <div className="w-32 text-xs text-slate-600 truncate text-right shrink-0" title={entry.name}>{entry.name}</div>
-                              <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
-                                <div className="h-3 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                            <div key={entry.name} className="space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-medium text-slate-700 leading-snug">{entry.name}</span>
+                                <span className="text-xs font-bold flex-shrink-0" style={{ color }}>{entry.value} <span className="text-slate-400 font-normal">({pct}%)</span></span>
                               </div>
-                              <span className="text-xs text-slate-500 shrink-0 font-medium">{entry.value} ({pct}%)</span>
+                              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                              </div>
                             </div>
                           );
                         });
