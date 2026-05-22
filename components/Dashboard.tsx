@@ -7756,6 +7756,94 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           </div>
         </header>
 
+        {/* ══════════════════════════════════════════════════════════════
+            BARRA DE AGENDA — HOY / MAÑANA  (siempre visible)
+            ══════════════════════════════════════════════════════════════ */}
+        {(() => {
+          const _hoy = new Date(); _hoy.setHours(0, 0, 0, 0);
+          const _mañana = new Date(_hoy.getTime() + 86_400_000);
+          const _pasado = new Date(_mañana.getTime() + 86_400_000);
+          const hoyEvts = calendarEvents2026.filter(e => e.start >= _hoy && e.start < _mañana);
+          const mañanaEvts = calendarEvents2026.filter(e => e.start >= _mañana && e.start < _pasado);
+          const total = hoyEvts.length + mañanaEvts.length;
+          const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+          const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+          const fmt = (d: Date) => `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+          const irCalendario = () => {
+            setActiveTab('2026');
+            setActive2026View('estatus');
+            setEstatus2026Tab('calendar');
+            setEstatus2026CalendarDate(new Date());
+          };
+          const renderChips = (evts: typeof calendarEvents2026) => {
+            if (evts.length === 0) return <span className="text-xs text-slate-400 italic">Sin eventos</span>;
+            return (
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                {evts.slice(0, 3).map((ev, i) => {
+                  const c = ev.resource?.color ?? '#3B82F6';
+                  return (
+                    <button key={i} type="button" onClick={irCalendario} title={ev.title}
+                      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold hover:scale-105 transition-transform truncate max-w-[160px]"
+                      style={{ borderColor: c + '60', backgroundColor: c + '18', color: c }}>
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
+                      <span className="truncate">{ev.resource?.type ?? ev.title}</span>
+                    </button>
+                  );
+                })}
+                {evts.length > 3 && (
+                  <button type="button" onClick={irCalendario}
+                    className="text-xs font-bold text-slate-400 hover:text-[#0F4C3A] transition-colors">
+                    +{evts.length - 3} más
+                  </button>
+                )}
+              </div>
+            );
+          };
+          return (
+            <div className="sticky top-16 z-10 bg-white/95 backdrop-blur-sm border-b border-slate-200 shadow-[0_2px_8px_0_rgba(0,0,0,0.06)]">
+              <div className="flex items-stretch h-12 px-4 sm:px-8">
+                {/* ── Ícono + etiqueta ── */}
+                <div className="flex items-center gap-2.5 pr-4 border-r border-slate-200 flex-shrink-0">
+                  <div className="relative flex h-7 w-7 items-center justify-center rounded-lg bg-[#0F4C3A]/10">
+                    <CalendarDays className="h-4 w-4 text-[#0F4C3A]" />
+                    {total > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0F4C3A] text-[9px] font-black text-white leading-none ring-2 ring-white">
+                        {total > 9 ? '9+' : total}
+                      </span>
+                    )}
+                  </div>
+                  <div className="hidden sm:flex flex-col leading-none gap-0.5">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#0F4C3A]">Agenda 2026</span>
+                    <span className="text-[9px] text-slate-400">próx. 2 días</span>
+                  </div>
+                </div>
+                {/* ── HOY ── */}
+                <div className="flex items-center gap-3 px-4 flex-1 min-w-0 border-r border-slate-200">
+                  <div className="flex-shrink-0 rounded-xl bg-[#0F4C3A] px-2.5 py-1 text-center min-w-[52px]">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-white/80 leading-none">HOY</div>
+                    <div className="text-[10px] font-bold text-white leading-tight mt-0.5 whitespace-nowrap">{fmt(_hoy)}</div>
+                  </div>
+                  {renderChips(hoyEvts)}
+                </div>
+                {/* ── MAÑANA ── */}
+                <div className="flex items-center gap-3 px-4 flex-1 min-w-0 border-r border-slate-200">
+                  <div className="flex-shrink-0 rounded-xl bg-slate-100 px-2.5 py-1 text-center min-w-[52px]">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-slate-400 leading-none">MÑN</div>
+                    <div className="text-[10px] font-bold text-slate-600 leading-tight mt-0.5 whitespace-nowrap">{fmt(_mañana)}</div>
+                  </div>
+                  {renderChips(mañanaEvts)}
+                </div>
+                {/* ── Ver calendario ── */}
+                <button type="button" onClick={irCalendario}
+                  className="flex-shrink-0 flex items-center gap-2 pl-4 pr-2 text-xs font-bold text-[#0F4C3A] hover:bg-[#0F4C3A]/5 transition-colors group">
+                  <CalendarDays className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                  <span className="hidden sm:inline whitespace-nowrap">Ver calendario</span>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="flex-1 overflow-y-auto">
           <div className="p-4 sm:p-8 space-y-8">
           
@@ -9761,53 +9849,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   )}
 
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 h-[800px]">
-                    {/* ── Próximos 2 días ── */}
-                    {(() => {
-                      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-                      const tomorrowStart = new Date(todayStart.getTime() + 86400000);
-                      const dayAfterStart = new Date(tomorrowStart.getTime() + 86400000);
-                      const todayEvts = calendarEvents2026.filter(e => e.start >= todayStart && e.start < tomorrowStart);
-                      const tomorrowEvts = calendarEvents2026.filter(e => e.start >= tomorrowStart && e.start < dayAfterStart);
-                      const DAY = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-                      const MON = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-                      const fmt = (d: Date) => `${DAY[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`;
-                      const Chips = ({ evts }: { evts: any[] }) => evts.length === 0
-                        ? <span className="text-xs text-slate-400 italic">Sin eventos</span>
-                        : <div className="flex items-center gap-1.5 flex-wrap">
-                            {evts.slice(0, 3).map((ev, i) => (
-                              <span key={i} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium truncate max-w-[180px]"
-                                style={{ borderColor: (ev.resource?.color ?? '#3B82F6') + '55', backgroundColor: (ev.resource?.color ?? '#3B82F6') + '18', color: ev.resource?.color ?? '#3B82F6' }}>
-                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: ev.resource?.color ?? '#3B82F6' }} />
-                                {ev.resource?.type}
-                              </span>
-                            ))}
-                            {evts.length > 3 && <span className="text-xs text-slate-500 font-medium">+{evts.length - 3} más</span>}
-                          </div>;
-                      return (
-                        <div className="flex items-stretch rounded-xl border border-slate-200 overflow-hidden mb-4 text-sm bg-slate-50">
-                          <div className="flex items-center gap-3 px-4 py-2.5 flex-1 min-w-0">
-                            <span className="inline-flex items-center rounded-full bg-[#0F4C3A] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white flex-shrink-0">HOY</span>
-                            <span className="text-xs font-semibold text-slate-500 flex-shrink-0">{fmt(todayStart)}</span>
-                            <Chips evts={todayEvts} />
-                          </div>
-                          <div className="w-px bg-slate-200 flex-shrink-0" />
-                          <div className="flex items-center gap-3 px-4 py-2.5 flex-1 min-w-0">
-                            <span className="inline-flex items-center rounded-full bg-slate-200 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 flex-shrink-0">MAÑANA</span>
-                            <span className="text-xs font-semibold text-slate-500 flex-shrink-0">{fmt(tomorrowStart)}</span>
-                            <Chips evts={tomorrowEvts} />
-                          </div>
-                          <div className="w-px bg-slate-200 flex-shrink-0" />
-                          <button
-                            type="button"
-                            onClick={() => { setEstatus2026CalendarView('agenda'); setEstatus2026CalendarDate(new Date()); }}
-                            className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-[#0F4C3A] hover:bg-[#0F4C3A]/5 transition-colors flex-shrink-0"
-                          >
-                            <CalendarDays className="h-3.5 w-3.5" />
-                            Ver agenda
-                          </button>
-                        </div>
-                      );
-                    })()}
                     <BigCalendar
                       localizer={localizer}
                       events={calendarEvents2026}
