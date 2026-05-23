@@ -173,23 +173,15 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
       <div className="flex w-full max-w-6xl bg-white rounded-3xl shadow-2xl overflow-hidden min-h-[760px] md:min-h-[720px]">
         
         {/* ─── LEFT PANEL ──────────────────────────────────────── */}
-        <div className="hidden md:flex w-[52%] relative flex-col items-center justify-center text-white text-center overflow-hidden">
+        <div className="hidden md:flex w-[52%] relative flex-col items-center justify-center text-white text-center overflow-hidden bg-gradient-to-br from-[#020D07] via-[#062B1A] to-[#0A1F12]">
           
-          {/* Background photo */}
-          <div 
-            className="absolute inset-0 bg-cover bg-center z-0 transform scale-105 transition-transform duration-[20s] hover:scale-110"
-            style={{ backgroundImage: `url('${AIFA_ASSETS.background}')` }}
-          />
-
-          {/* Deep forest-green overlay */}
-          <div className="absolute inset-0 bg-gradient-to-br from-[#020D07]/95 via-[#062B1A]/88 to-[#081E30]/90 z-10" />
-          {/* Subtle green shimmer on top-left */}
-          <div className="absolute top-0 left-0 w-3/4 h-2/3 bg-gradient-to-br from-[#0F4C3A]/35 to-transparent z-10 pointer-events-none" />
+          {/* Subtle green depth layers */}
+          <div className="absolute top-0 left-0 w-3/4 h-2/3 bg-gradient-to-br from-[#0F4C3A]/30 to-transparent pointer-events-none" />
           {/* Gold bottom-right glow */}
-          <div className="absolute bottom-0 right-0 w-2/3 h-1/2 bg-gradient-to-tl from-[#B38E5D]/15 to-transparent z-10 pointer-events-none" />
+          <div className="absolute bottom-0 right-0 w-2/3 h-1/2 bg-gradient-to-tl from-[#B38E5D]/10 to-transparent pointer-events-none" />
 
           {/* Animated clouds + plane */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden z-[15]">
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
             <style>{`
               @keyframes loginPlaneFlight {
                 0%   { transform: translate(-58%, 30%) scale(0.7) rotate(6deg); opacity: 0; }
@@ -244,7 +236,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
           </div>
 
           {/* Content */}
-          <div className="relative z-20 flex flex-col items-center justify-between h-full py-12 px-10">
+          <div className="relative z-10 flex flex-col items-center justify-between h-full py-12 px-10">
             
             {/* Logo */}
             <div className="flex flex-col items-center gap-5 w-full">
