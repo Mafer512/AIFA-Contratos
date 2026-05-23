@@ -972,6 +972,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activeReportesView, setActiveReportesView] = useState<'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas'>('gastoEfectuado');
   const [isReportesExpanded, setIsReportesExpanded] = useState(true);
   const [selectedHistoricoYear, setSelectedHistoricoYear] = useState<number>(2026);
+  const [serviciosHistoricoRaw, setServiciosHistoricoRaw] = useState<Record<string, any>[]>([]);
+  const [loadingServiciosHistorico, setLoadingServiciosHistorico] = useState(false);
+  const [showHistoricoModal, setShowHistoricoModal] = useState(false);
+  const [editingHistoricoRow, setEditingHistoricoRow] = useState<Record<string, any> | null>(null);
+  const [savingHistoricoRow, setSavingHistoricoRow] = useState(false);
+  const [historicoForm, setHistoricoForm] = useState<Record<string, string>>({});
   const [showGastoCharts, setShowGastoCharts] = useState(false);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
@@ -1666,6 +1672,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       case 'commercial_spaces':
         await fetchCommercialSpacesData();
         break;
+      case 'servicios_historicos':
+        await fetchServiciosHistorico();
+        break;
       default:
         console.warn('No refresh handler registered for table', table);
     }
@@ -2098,6 +2107,92 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
 
 
+  const fetchServiciosHistorico = async () => {
+    setLoadingServiciosHistorico(true);
+    try {
+      const { data, error } = await supabase
+        .from('servicios_historicos')
+        .select('*')
+        .order('anio', { ascending: false });
+      if (!error && data) setServiciosHistoricoRaw(data);
+      else if (error) console.error('Error fetching servicios_historicos:', error.message);
+    } catch (err) {
+      console.error('Exception fetching servicios_historicos:', err);
+    } finally {
+      setLoadingServiciosHistorico(false);
+    }
+  };
+
+  const openHistoricoModal = (row?: Record<string, any>) => {
+    if (!requireManagePermission()) return;
+    const emptyForm: Record<string, string> = {
+      anio: String(selectedHistoricoYear !== 2026 ? selectedHistoricoYear : new Date().getFullYear() - 1),
+      no_contrato: '', objeto_contrato: '', proveedor: '',
+      tipo_contrato: '', subdirección: '', gerencia: '',
+      fecha_inicio: '', fecha_termino: '', monto_maximo: '',
+      ene: '', feb: '', mar: '', abr: '', may: '', jun: '',
+      jul: '', ago: '', sep: '', oct: '', nov: '', dic: '',
+      observaciones: '',
+    };
+    if (row) {
+      Object.keys(emptyForm).forEach(k => { emptyForm[k] = row[k] != null ? String(row[k]) : ''; });
+      setEditingHistoricoRow(row);
+    } else {
+      setEditingHistoricoRow(null);
+    }
+    setHistoricoForm(emptyForm);
+    setShowHistoricoModal(true);
+  };
+
+  const saveHistoricoRow = async () => {
+    if (!requireManagePermission()) return;
+    setSavingHistoricoRow(true);
+    try {
+      const MONTH_KEYS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+      const payload: Record<string, any> = {
+        anio: parseInt(historicoForm.anio) || new Date().getFullYear(),
+        no_contrato: historicoForm.no_contrato || null,
+        objeto_contrato: historicoForm.objeto_contrato || null,
+        proveedor: historicoForm.proveedor || null,
+        tipo_contrato: historicoForm.tipo_contrato || null,
+        subdirección: historicoForm.subdirección || null,
+        gerencia: historicoForm.gerencia || null,
+        fecha_inicio: historicoForm.fecha_inicio || null,
+        fecha_termino: historicoForm.fecha_termino || null,
+        monto_maximo: parseFloat(historicoForm.monto_maximo) || 0,
+        observaciones: historicoForm.observaciones || null,
+      };
+      MONTH_KEYS.forEach(k => { payload[k] = parseFloat(historicoForm[k]) || 0; });
+      if (editingHistoricoRow?.id) {
+        const { error } = await supabase.from('servicios_historicos').update(payload).eq('id', editingHistoricoRow.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('servicios_historicos').insert([payload]);
+        if (error) throw error;
+      }
+      setShowHistoricoModal(false);
+      const savedYear = parseInt(historicoForm.anio) || selectedHistoricoYear;
+      await fetchServiciosHistorico();
+      setSelectedHistoricoYear(savedYear);
+    } catch (err: any) {
+      alert('Error al guardar: ' + (err?.message ?? String(err)));
+    } finally {
+      setSavingHistoricoRow(false);
+    }
+  };
+
+  const deleteHistoricoRow = async (id: number, label: string) => {
+    if (!requireManagePermission()) return;
+    if (!window.confirm(`¿Eliminar el registro "${label}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      const { error } = await supabase.from('servicios_historicos').delete().eq('id', id);
+      if (error) throw error;
+      await fetchServiciosHistorico();
+    } catch (err: any) {
+      alert('Error al eliminar: ' + (err?.message ?? String(err)));
+    }
+  };
+
   const fetchInvoicesData = async () => {
     const { data: invoices, error } = await supabase
       .from('estatus_facturas')
@@ -2173,6 +2268,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           fetchServicios2026Data(),
           fetchEstatus2026Data(),
           fetchPagos2026Data(),
+          fetchServiciosHistorico(),
           fetchPaasData(),
           fetchPaymentsData(),
           fetchInvoicesData(),
@@ -11667,17 +11763,49 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
               {/* ── Histórico de Servicios ──────────────────────────────── */}
               {activeReportesView === 'historicoServicios' && (() => {
-                // Available years — add more entries here when new pagos_XXXX tables are incorporated
-                const availableYears: number[] = [2026];
-                // Map each year to the already-computed data (no new fetches, no data duplication)
-                const yearDataMap: Record<number, typeof gastoEfectuado2026Data> = {
-                  2026: gastoEfectuado2026Data,
+                // Month keys for servicios_historicos table
+                const HIST_MONTH_KEYS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+                // Map a raw DB row from servicios_historicos to the same shape used by the table
+                const mapHistRow = (r: Record<string, any>) => {
+                  const montMax = Number(r.monto_maximo) || 0;
+                  let acumSum = 0;
+                  const monthly = REPORTE_MONTH_DEFS.map(({ label }, mi) => {
+                    const amount = Number(r[HIST_MONTH_KEYS[mi]]) || 0;
+                    acumSum += amount;
+                    return { label, amount, pctMensual: montMax > 0 ? (amount / montMax) * 100 : 0, pctAcum: montMax > 0 ? (acumSum / montMax) * 100 : 0 };
+                  });
+                  const totalPagado = monthly.reduce((s, m) => s + m.amount, 0);
+                  return {
+                    id: r.id as number,
+                    key: String(r.id),
+                    noContrato: String(r.no_contrato ?? ''),
+                    objeto: String(r.objeto_contrato ?? ''),
+                    proveedor: String(r.proveedor ?? ''),
+                    fechaInicio: String(r.fecha_inicio ?? ''),
+                    fechaTermino: String(r.fecha_termino ?? ''),
+                    montMax,
+                    monthly,
+                    totalPagado,
+                    pctTotal: montMax > 0 ? (totalPagado / montMax) * 100 : 0,
+                    _raw: r,
+                  };
                 };
-                const rows = yearDataMap[selectedHistoricoYear] ?? [];
+
+                // Build available years: 2026 always present + any years in serviciosHistoricoRaw
+                const historicExtraYears = Array.from(new Set(serviciosHistoricoRaw.map(r => Number(r.anio)))).filter(y => y !== 2026);
+                const availableYears = [...historicExtraYears, 2026].sort((a, b) => b - a);
+
+                const is2026 = selectedHistoricoYear === 2026;
+                const rows: Array<{ id?: number; key: string; noContrato: string; objeto: string; proveedor: string; fechaInicio: string; fechaTermino: string; montMax: number; monthly: Array<{label: string; amount: number; pctMensual: number; pctAcum: number}>; totalPagado: number; pctTotal: number; _raw?: Record<string, any> }> = is2026
+                  ? gastoEfectuado2026Data
+                  : serviciosHistoricoRaw.filter(r => Number(r.anio) === selectedHistoricoYear).map(mapHistRow);
+
                 const totalMax    = rows.reduce((a, r) => a + r.montMax, 0);
                 const totalPagado = rows.reduce((a, r) => a + r.totalPagado, 0);
                 const pctGlobal   = totalMax > 0 ? (totalPagado / totalMax) * 100 : 0;
                 const saldoRest   = Math.max(0, totalMax - totalPagado);
+                const showActions = !is2026 && canManageRecords;
                 return (
                   <div>
                     {/* Header */}
@@ -11687,13 +11815,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <TrendingUp className="h-6 w-6 text-[#B38E5D]" />
                           Histórico de Servicios
                         </h1>
-                        <p className="text-slate-500 text-sm mt-1">Vista histórica del avance financiero por año. Los datos provienen de las tablas de pagos existentes.</p>
+                        <p className="text-slate-500 text-sm mt-1">
+                          {is2026
+                            ? 'Datos del año 2026 provenientes de la tabla de pagos.'
+                            : `Registros del año ${selectedHistoricoYear}. Puedes agregar, editar y eliminar servicios.`}
+                        </p>
                       </div>
+                      {canManageRecords && !is2026 && (
+                        <button
+                          onClick={() => openHistoricoModal()}
+                          className="flex items-center gap-2 bg-[#0F4C3A] hover:bg-[#0a3b2d] text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-colors"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Agregar servicio {selectedHistoricoYear}
+                        </button>
+                      )}
                     </div>
 
                     {/* Year selector */}
-                    <div className="flex items-center gap-3 mb-5 flex-wrap">
-                      <span className="text-sm font-semibold text-slate-600">Año:</span>
+                    <div className="flex items-center gap-2 mb-5 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-600 mr-1">Año:</span>
                       {availableYears.map(year => (
                         <button
                           key={year}
@@ -11707,7 +11848,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           {year}
                         </button>
                       ))}
-                      <span className="text-[11px] text-slate-400 italic ml-1">Cuando se incorpore la tabla de pagos de otro año, aparecerá aquí automáticamente.</span>
+                      {canManageRecords && (
+                        <button
+                          onClick={() => {
+                            setHistoricoForm(prev => ({ ...prev, anio: '' }));
+                            openHistoricoModal();
+                          }}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border border-dashed border-slate-400 text-slate-500 hover:border-[#0F4C3A] hover:text-[#0F4C3A] transition-colors"
+                          title="Registrar en un año distinto"
+                        >
+                          <Plus className="h-3 w-3" /> Otro año
+                        </button>
+                      )}
                     </div>
 
                     {/* Summary cards */}
@@ -11734,7 +11886,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
 
                     {/* Table */}
-                    {loadingData ? (
+                    {(loadingData && is2026) || loadingServiciosHistorico ? (
                       <div className="flex items-center justify-center py-16 text-slate-400">
                         <Loader2 className="h-8 w-8 animate-spin mr-3" />
                         Cargando datos...
@@ -11742,7 +11894,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     ) : rows.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-16 text-slate-400">
                         <FileSpreadsheet className="h-12 w-12 mb-3 opacity-30" />
-                        <p>No hay datos de pagos disponibles para {selectedHistoricoYear}.</p>
+                        <p className="mb-3">No hay datos disponibles para {selectedHistoricoYear}.</p>
+                        {canManageRecords && !is2026 && (
+                          <button
+                            onClick={() => openHistoricoModal()}
+                            className="flex items-center gap-2 bg-[#0F4C3A] hover:bg-[#0a3b2d] text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-colors"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Agregar primer servicio {selectedHistoricoYear}
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div className="overflow-x-auto overflow-y-auto max-h-[72vh] rounded-xl border border-slate-200 shadow-sm">
@@ -11759,6 +11920,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <th key={label} className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[100px] border-l border-white/10">{label}</th>
                               ))}
                               <th className="px-3 py-3 text-right font-bold whitespace-nowrap border-l border-white/30 bg-[#0c3b2d] min-w-[120px]">Total / %</th>
+                              {showActions && (
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap border-l border-white/20 min-w-[90px]">Acciones</th>
+                              )}
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
@@ -11793,6 +11957,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <span className={`text-[11px] font-bold tabular-nums ${row.pctTotal >= 90 ? 'text-emerald-600' : row.pctTotal >= 60 ? 'text-blue-600' : row.pctTotal >= 30 ? 'text-amber-600' : 'text-red-500'}`}>{row.pctTotal.toFixed(1)}%</span>
                                   </div>
                                 </td>
+                                {showActions && (
+                                  <td className="px-2 py-2 text-center border-l border-slate-100 align-middle">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button
+                                        onClick={() => openHistoricoModal(row._raw)}
+                                        className="p-1.5 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                        title="Editar"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => row.id != null && deleteHistoricoRow(row.id, row.objeto || String(row.id))}
+                                        className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                        title="Eliminar"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                )}
                               </tr>
                             ))}
                             {/* Footer totals */}
@@ -11832,6 +12016,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       <span className="text-[11px] font-bold text-emerald-700">{totPct.toFixed(1)}%</span>
                                     </div>
                                   </td>
+                                  {showActions && <td />}
                                 </tr>
                               );
                             })()}
@@ -15030,6 +15215,199 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Histórico de Servicios — Add / Edit Modal ─────────────────── */}
+      {showHistoricoModal && (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowHistoricoModal(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-[#0F4C3A] to-[#1a7a5e]">
+              <div>
+                <h2 className="text-lg font-bold text-white">
+                  {editingHistoricoRow ? 'Editar servicio histórico' : 'Agregar servicio histórico'}
+                </h2>
+                <p className="text-emerald-200 text-xs mt-0.5">Tabla: servicios_historicos</p>
+              </div>
+              <button onClick={() => setShowHistoricoModal(false)} className="text-white/70 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
+              {/* Row 1: year + contract info */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Año *</label>
+                  <input
+                    type="number"
+                    value={historicoForm.anio}
+                    onChange={e => setHistoricoForm(f => ({ ...f, anio: e.target.value }))}
+                    placeholder="2025"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-xs font-bold text-slate-600 mb-1">No. Contrato</label>
+                  <input
+                    type="text"
+                    value={historicoForm.no_contrato}
+                    onChange={e => setHistoricoForm(f => ({ ...f, no_contrato: e.target.value }))}
+                    placeholder="Ej. AIFA-SER-2025-001"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Objeto */}
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Objeto del Contrato</label>
+                <textarea
+                  rows={2}
+                  value={historicoForm.objeto_contrato}
+                  onChange={e => setHistoricoForm(f => ({ ...f, objeto_contrato: e.target.value }))}
+                  placeholder="Descripción del servicio contratado..."
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none resize-none"
+                />
+              </div>
+
+              {/* Proveedor + Tipo */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Proveedor</label>
+                  <input
+                    type="text"
+                    value={historicoForm.proveedor}
+                    onChange={e => setHistoricoForm(f => ({ ...f, proveedor: e.target.value }))}
+                    placeholder="Nombre del proveedor"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Tipo de Contrato</label>
+                  <input
+                    type="text"
+                    value={historicoForm.tipo_contrato}
+                    onChange={e => setHistoricoForm(f => ({ ...f, tipo_contrato: e.target.value }))}
+                    placeholder="Ej. Servicio, Arrendamiento..."
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Subdirección + Gerencia */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Subdirección</label>
+                  <input
+                    type="text"
+                    value={historicoForm.subdirección}
+                    onChange={e => setHistoricoForm(f => ({ ...f, subdirección: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Gerencia</label>
+                  <input
+                    type="text"
+                    value={historicoForm.gerencia}
+                    onChange={e => setHistoricoForm(f => ({ ...f, gerencia: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Fechas + Monto */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Fecha Inicio</label>
+                  <input
+                    type="text"
+                    value={historicoForm.fecha_inicio}
+                    onChange={e => setHistoricoForm(f => ({ ...f, fecha_inicio: e.target.value }))}
+                    placeholder="DD/MM/AAAA"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Fecha Término</label>
+                  <input
+                    type="text"
+                    value={historicoForm.fecha_termino}
+                    onChange={e => setHistoricoForm(f => ({ ...f, fecha_termino: e.target.value }))}
+                    placeholder="DD/MM/AAAA"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Monto Máximo ($)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={historicoForm.monto_maximo}
+                    onChange={e => setHistoricoForm(f => ({ ...f, monto_maximo: e.target.value }))}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Monthly amounts */}
+              <div>
+                <p className="text-xs font-bold text-slate-600 mb-2">Pagos mensuales ($)</p>
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  {(['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'] as const).map((m, i) => (
+                    <div key={m}>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-0.5 capitalize">{REPORTE_MONTH_DEFS[i].label}</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={historicoForm[m]}
+                        onChange={e => setHistoricoForm(f => ({ ...f, [m]: e.target.value }))}
+                        placeholder="0"
+                        className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none tabular-nums"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Observaciones */}
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Observaciones</label>
+                <textarea
+                  rows={2}
+                  value={historicoForm.observaciones}
+                  onChange={e => setHistoricoForm(f => ({ ...f, observaciones: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0F4C3A]/30 focus:border-[#0F4C3A] outline-none resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+              <button
+                onClick={() => setShowHistoricoModal(false)}
+                disabled={savingHistoricoRow}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 border border-slate-300 rounded-lg hover:bg-white transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveHistoricoRow}
+                disabled={savingHistoricoRow}
+                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-[#0F4C3A] hover:bg-[#0a3b2d] rounded-lg shadow-sm transition-colors disabled:opacity-50"
+              >
+                {savingHistoricoRow ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {editingHistoricoRow ? 'Guardar cambios' : 'Agregar servicio'}
+              </button>
             </div>
           </div>
         </div>
