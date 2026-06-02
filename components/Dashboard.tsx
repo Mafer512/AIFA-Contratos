@@ -517,6 +517,7 @@ const ESTATUS_2026_OPTIONS = [
   'Cancelado',
   'Pausado',
   'Elaboración de anexo técnico, administrativo y apéndices',
+  'Validación de carpeta de investigación de mercado',
   'En proceso de publicación',
   'En investigación de mercado',
   'En revisión de Defensa',
@@ -530,6 +531,7 @@ const ESTATUS_2026_COLOR_MAP: Record<string, string> = {
   'Elaboración de anexo técnico, administrativo y apéndices':           '#06B6D4', // cyan-500
   'En proceso de publicación':                                          '#3B82F6', // blue-500
   'En investigación de mercado':                                        '#6366F1', // indigo-500
+  'Validación de carpeta de investigación de mercado':                  '#0EA5E9', // sky-500
   'En revisión de Defensa':                                             '#8B5CF6', // violet-500
   'Adjudicado':                                                         '#10B981', // emerald-500
   'Sin estatus':                                                        '#94A3B8', // slate-400
@@ -543,6 +545,7 @@ const getEstatusColorClass = (label: string) => {
   if (l.includes('adjudicado')) return 'bg-emerald-100 text-emerald-800 border-emerald-200';
   if (l.includes('publicaci')) return 'bg-blue-100 text-blue-800 border-blue-200';
   if (l.includes('investigaci')) return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+  if (l.includes('validaci') && l.includes('carpeta')) return 'bg-sky-100 text-sky-800 border-sky-200';
   if (l.includes('defensa')) return 'bg-purple-100 text-purple-800 border-purple-200';
   if (l.includes('elaboraci')) return 'bg-cyan-100 text-cyan-800 border-cyan-200';
   return 'bg-slate-100 text-slate-700 border-slate-200';
@@ -4796,6 +4799,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (val.includes('cancelad') || val.includes('cancelar')) return 'Cancelado';
     if (val.includes('pausad') || val.includes('pausa')) return 'Pausado';
     if (val.includes('adjudicad') || val.includes('contratad')) return 'Adjudicado';
+    if (val.includes('validaci') && (val.includes('carpeta') || val.includes('carpeta investigacion'))) return 'Validación de carpeta de investigación de mercado';
     if (val.includes('publicaci') || val.includes('compras mx') || val.includes('publicada')) return 'En proceso de publicación';
     if (val.includes('investigaci') || val.includes('investigacion')) return 'En investigación de mercado';
     if (val.includes('defensa') || val.includes('revision')) return 'En revisión de Defensa';
@@ -9314,9 +9318,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
-                                {estatus2026MontoFieldSummary && (
-                                  <th scope="col" className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider">Monto</th>
-                                )}
                               </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-slate-200">
@@ -9349,11 +9350,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         {estatus2026GerenciaFieldSummary ? [['Aeronautica','Aeronáutica'],['Electromecanica','Electromecánica'],['Electromecanico','Electromecánico'],['Ingenieria','Ingeniería'],['Distribucion','Distribución'],['Generacion','Generación'],['Operacion','Operación'],['Administracion','Administración'],['Medico','Médico'],['Tecnico','Técnico'],['Tecnica','Técnica'],['Juridica','Jurídica'],['Juridico','Jurídico'],['Gestion','Gestión'],['Comunicacion','Comunicación']].reduce((s, [a, b]) => s.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}
                                       </span>
                                     </td>
-                                    {estatus2026MontoFieldSummary && (
-                                      <td className="px-6 py-4 text-right font-mono text-sm text-slate-700">
-                                        {formatCurrency(parseNumericValue(row[estatus2026MontoFieldSummary]))}
-                                      </td>
-                                    )}
                                   </tr>
                                 ))}
                             </tbody>
@@ -9852,9 +9848,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
-                                {estatus2026MontoFieldSummary && (
-                                  <th scope="col" className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider">Monto</th>
-                                )}
                               </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-slate-200">
@@ -9881,11 +9874,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         {estatus2026GerenciaFieldSummary ? [['Aeronautica','Aeronáutica'],['Electromecanica','Electromecánica'],['Electromecanico','Electromecánico'],['Ingenieria','Ingeniería'],['Distribucion','Distribución'],['Generacion','Generación'],['Operacion','Operación'],['Administracion','Administración'],['Medico','Médico'],['Tecnico','Técnico'],['Tecnica','Técnica'],['Juridica','Jurídica'],['Juridico','Jurídico'],['Gestion','Gestión'],['Comunicacion','Comunicación']].reduce((s, [a, b]) => s.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}
                                       </span>
                                     </td>
-                                    {estatus2026MontoFieldSummary && (
-                                      <td className="px-6 py-4 text-right font-mono text-sm text-slate-700">
-                                        {formatCurrency(parseNumericValue(row[estatus2026MontoFieldSummary]))}
-                                      </td>
-                                    )}
                                   </tr>
                                 ))}
                             </tbody>
