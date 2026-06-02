@@ -4809,7 +4809,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     // Pre-seed all canonical options at 0 so they always appear
     ESTATUS_2026_OPTIONS.forEach((opt) => { counts[opt] = 0; });
     counts['Sin estatus'] = 0;
-    estatus2026Data.forEach((row) => {
+    // Deduplicate by group key so convenio-modificatorio rows don't double-count
+    const seenKeys = new Set<string>();
+    const dedupedRows = estatus2026ServiceNameFieldSummary
+      ? estatus2026Data.filter((row) => {
+          const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary!, estatus2026ClaveFieldSummary);
+          if (seenKeys.has(key)) return false;
+          seenKeys.add(key);
+          return true;
+        })
+      : estatus2026Data;
+    dedupedRows.forEach((row) => {
       const raw = row[estatus2026EstatusColumnField];
       const label = normalizeEstatus2026Value(raw);
       counts[label] = (counts[label] ?? 0) + 1;
@@ -4818,7 +4828,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       .filter(([, v]) => v > 0)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [estatus2026Data, estatus2026EstatusColumnField]);
+  }, [estatus2026Data, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
 
   const estatus2026TotalMonto = useMemo(() => {
     if (!estatus2026Data.length || !estatus2026MontoFieldSummary) return 0;
@@ -4878,7 +4888,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       );
       return keys.size;
     })();
-    const total = uniqueTotal;
     const dbTotal = estatus2026Data.length;
     const uniqueStatuses = estatus2026EstatusDistribution.length;
     const adjudicados = estatus2026EstatusDistribution.find(d =>
@@ -4887,7 +4896,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const procedimiento = estatus2026EstatusDistribution.find(d =>
       d.name.toLowerCase().includes('procedimiento') || d.name.toLowerCase().includes('contratacion')
     )?.value ?? 0;
-    return { total, dbTotal, uniqueStatuses, adjudicados, procedimiento };
+    const cancelados = estatus2026EstatusDistribution.find(d => d.name === 'Cancelado')?.value ?? 0;
+    // total = unique services excluding cancelled
+    const total = uniqueTotal - cancelados;
+    return { total, dbTotal, uniqueStatuses, adjudicados, procedimiento, cancelados, allUnique: uniqueTotal };
   }, [estatus2026Data, estatus2026EstatusDistribution, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
 
   const pagos2026MonthlyFlow = useMemo(() => {
@@ -9278,15 +9290,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           Servicios con estatus: <span className="text-[#B38E5D]">{selectedEstatus2026Estatus}</span>
                         </h2>
                         <p className="text-slate-500 mt-1">
-                          {estatus2026Data.filter((row) => {
-                            if (!estatus2026EstatusColumnField) return false;
-                            const raw = row[estatus2026EstatusColumnField];
-                            if ((!raw || String(raw).trim() === '') && selectedEstatus2026Estatus === 'Sin estatus') return true;
-                            const label = String(raw ?? '').trim();
-                            let displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
-                            if (displayLabel.toLowerCase().startsWith('investigaci')) displayLabel = 'Investigación de mercado';
-                            return displayLabel === selectedEstatus2026Estatus;
-                          }).length} servicio(s) con este estatus.
+                          {(() => {
+                            const seenKeys = new Set<string>();
+                            return estatus2026Data.filter((row) => {
+                              if (!estatus2026EstatusColumnField) return false;
+                              const raw = row[estatus2026EstatusColumnField];
+                              if (normalizeEstatus2026Value(raw) !== selectedEstatus2026Estatus) return false;
+                              const key = estatus2026ServiceNameFieldSummary
+                                ? buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary)
+                                : String(row.id ?? Math.random());
+                              if (seenKeys.has(key)) return false;
+                              seenKeys.add(key);
+                              return true;
+                            }).length;
+                          })()} servicio(s) con este estatus.
                         </p>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
@@ -9303,16 +9320,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-slate-200">
-                              {estatus2026Data
-                                .filter((row) => {
+                              {(() => {
+                                const seenKeys = new Set<string>();
+                                return estatus2026Data.filter((row) => {
                                   if (!estatus2026EstatusColumnField) return false;
                                   const raw = row[estatus2026EstatusColumnField];
-                                  if ((!raw || String(raw).trim() === '') && selectedEstatus2026Estatus === 'Sin estatus') return true;
-                                  const label = String(raw ?? '').trim();
-                                  let displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
-                                  if (displayLabel.toLowerCase().startsWith('investigaci')) displayLabel = 'Investigación de mercado';
-                                  return displayLabel === selectedEstatus2026Estatus;
-                                })
+                                  if (normalizeEstatus2026Value(raw) !== selectedEstatus2026Estatus) return false;
+                                  const key = estatus2026ServiceNameFieldSummary
+                                    ? buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary)
+                                    : String(row.id ?? Math.random());
+                                  if (seenKeys.has(key)) return false;
+                                  seenKeys.add(key);
+                                  return true;
+                                });
+                              })()
                                 .map((row, idx) => (
                                   <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-6 py-4 text-sm font-semibold text-slate-800">
@@ -9357,11 +9378,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Servicios</p>
                               <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.total}</p>
                               <p className="text-xs text-slate-500 mt-2">
-                                Servicios únicos en 2026
-                                {estatus2026KPIs.dbTotal > estatus2026KPIs.total && (
+                                Servicios activos en 2026
+                                {estatus2026KPIs.dbTotal > estatus2026KPIs.allUnique && (
                                   <span className="text-slate-400 ml-1">({estatus2026KPIs.dbTotal} registros totales)</span>
                                 )}
                               </p>
+                              {estatus2026KPIs.cancelados > 0 && (
+                                <p className="text-xs text-red-500 mt-1 font-medium">
+                                  + {estatus2026KPIs.cancelados} cancelado{estatus2026KPIs.cancelados !== 1 ? 's' : ''}
+                                </p>
+                              )}
                             </div>
                             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-[#0F4C3A] border border-white/60 shadow-sm">
                               <Layers className="h-5 w-5" />
@@ -9375,8 +9401,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Adjudicados</p>
                               <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.adjudicados}</p>
                               <p className="text-xs text-slate-500 mt-2">
-                                {estatus2026KPIs.dbTotal > 0
-                                  ? `${Math.round((estatus2026KPIs.adjudicados / estatus2026KPIs.dbTotal) * 100)}% del total`
+                                {estatus2026KPIs.allUnique > 0
+                                  ? `${Math.round((estatus2026KPIs.adjudicados / estatus2026KPIs.allUnique) * 100)}% del total`
                                   : 'Sin datos'}
                               </p>
                             </div>
@@ -9409,7 +9435,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               Haz clic en un estatus para ver los servicios en esa categoría.
                             </p>
                           </div>
-                          <span className="text-xs text-slate-400">{estatus2026Data.length} servicios</span>
+                          <span className="text-xs text-slate-400">{estatus2026KPIs.allUnique} servicios</span>
                         </div>
                         <div className="h-[460px] w-full">
                           {loadingData ? (
@@ -9478,7 +9504,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <div className="mt-6 space-y-3">
                             <h4 className="text-sm font-semibold text-slate-600">Desglose por estatus</h4>
                             {estatus2026EstatusDistribution.map((item, index) => {
-                              const pct = estatus2026Data.length > 0 ? Math.round((item.value / estatus2026Data.length) * 100) : 0;
+                              const pct = estatus2026KPIs.allUnique > 0 ? Math.round((item.value / estatus2026KPIs.allUnique) * 100) : 0;
                               const color = ESTATUS_2026_COLOR_MAP[item.name] ?? chartPalette[index % chartPalette.length];
                               return (
                                 <button key={item.name} className="w-full text-left group" onClick={() => setSelectedEstatus2026Estatus(item.name)}>
@@ -9505,7 +9531,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               Haz clic en una fase para ver los servicios en esa etapa.
                             </p>
                           </div>
-                          <span className="text-xs text-slate-400">{estatus2026Data.length} servicios</span>
+                          <span className="text-xs text-slate-400">{estatus2026KPIs.allUnique} servicios</span>
                         </div>
                         <div className="h-[460px] w-full">
                           {loadingData ? (
@@ -9622,8 +9648,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <div className="space-y-3">
                                 {estatus2026GerenciaDistribution.map((entry, index) => {
                                   const barWidth = maxVal > 0 ? (entry.value / maxVal) * 100 : 0;
-                                  const pct = estatus2026KPIs.total > 0
-                                    ? ((entry.value / estatus2026KPIs.total) * 100).toFixed(1)
+                                  const pct = estatus2026KPIs.allUnique > 0
+                                    ? ((entry.value / estatus2026KPIs.allUnique) * 100).toFixed(1)
                                     : '0';
                                   const color = chartPalette[index % chartPalette.length];
                                   return (
@@ -9664,14 +9690,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                           <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-bold text-slate-800">Servicios 2026 por Subdirección</h3>
-                            <span className="text-xs font-medium text-slate-400">{estatus2026KPIs.total} total</span>
+                            <span className="text-xs font-medium text-slate-400">{estatus2026KPIs.allUnique} total</span>
                           </div>
                           <div className="space-y-3">
                             {estatus2026SubdirDistribution.length > 0 ? (() => {
                               const maxVal = Math.max(...estatus2026SubdirDistribution.map(e => e.value), 1);
                               return estatus2026SubdirDistribution.map((entry, index) => {
                                 const barWidth = Math.round((entry.value / maxVal) * 100);
-                                const pct = estatus2026KPIs.total > 0 ? Math.round((entry.value / estatus2026KPIs.total) * 100) : 0;
+                                const pct = estatus2026KPIs.allUnique > 0 ? Math.round((entry.value / estatus2026KPIs.allUnique) * 100) : 0;
                                 const color = chartPalette[index % chartPalette.length];
                                 return (
                                   <div key={entry.name} className="space-y-1">
@@ -9758,8 +9784,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
                         <div className="space-y-3">
                           {estatus2026PhaseDistribution.map((phase, index) => {
-                            const pct = estatus2026KPIs.total > 0
-                              ? Math.round((phase.value / estatus2026KPIs.total) * 100)
+                            const pct = estatus2026KPIs.allUnique > 0
+                              ? Math.round((phase.value / estatus2026KPIs.allUnique) * 100)
                               : 0;
                             const color = chartPalette[index % chartPalette.length];
                             return (
