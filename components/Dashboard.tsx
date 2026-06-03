@@ -518,7 +518,7 @@ const ESTATUS_2026_OPTIONS = [
   'Pausado',
   'Elaboración de anexo técnico, administrativo y apéndices',
   'Validación de carpeta de investigación de mercado',
-  'En proceso de publicación',
+  'Publicado en Compras MX',
   'En investigación de mercado',
   'En revisión de Defensa',
   'Adjudicado',
@@ -529,7 +529,7 @@ const ESTATUS_2026_COLOR_MAP: Record<string, string> = {
   'Cancelado':                                                          '#EF4444', // red-500
   'Pausado':                                                            '#F59E0B', // amber-500
   'Elaboración de anexo técnico, administrativo y apéndices':           '#06B6D4', // cyan-500
-  'En proceso de publicación':                                          '#3B82F6', // blue-500
+  'Publicado en Compras MX':                                              '#3B82F6', // blue-500
   'En investigación de mercado':                                        '#6366F1', // indigo-500
   'Validación de carpeta de investigación de mercado':                  '#0EA5E9', // sky-500
   'En revisión de Defensa':                                             '#8B5CF6', // violet-500
@@ -4800,7 +4800,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (val.includes('pausad') || val.includes('pausa')) return 'Pausado';
     if (val.includes('adjudicad') || val.includes('contratad')) return 'Adjudicado';
     if (val.includes('validaci') && (val.includes('carpeta') || val.includes('carpeta investigacion'))) return 'Validación de carpeta de investigación de mercado';
-    if (val.includes('publicaci') || val.includes('compras mx') || val.includes('publicada')) return 'En proceso de publicación';
+    if (val.includes('publicaci') || val.includes('compras mx') || val.includes('publicada')) return 'Publicado en Compras MX';
     if (val.includes('investigaci') || val.includes('investigacion')) return 'En investigación de mercado';
     if (val.includes('defensa') || val.includes('revision')) return 'En revisión de Defensa';
     if (val.includes('elaboraci') || val.includes('anexo') || val.includes('apendice') || val.includes('tecnico') || val.includes('ficha')) return 'Elaboración de anexo técnico, administrativo y apéndices';
@@ -9440,7 +9440,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart margin={{ top: 40, bottom: 40, left: 40, right: 40 }}>
                                 <Pie
-                                  data={estatus2026EstatusDistribution}
+                                  data={estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado')}
                                   dataKey="value"
                                   nameKey="name"
                                   cx="50%"
@@ -9469,13 +9469,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   }}
                                   labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                                 >
-                                  {estatus2026EstatusDistribution.map((entry, index) => (
+                                  {estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado').map((entry, index) => (
                                     <Cell key={`cell-estatus2-${index}`} fill={ESTATUS_2026_COLOR_MAP[entry.name] ?? chartPalette[index % chartPalette.length]} />
                                   ))}
                                 </Pie>
                                 <Tooltip
                                   formatter={(value: number, name: string) => {
-                                    const total = estatus2026EstatusDistribution.reduce((a, b) => a + b.value, 0);
+                                    const total = estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado').reduce((a, b) => a + b.value, 0);
                                     const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
                                     return [`${value} servicio${value === 1 ? '' : 's'} (${pct}%)`, name];
                                   }}
@@ -9499,8 +9499,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {estatus2026EstatusDistribution.length > 0 && (
                           <div className="mt-6 space-y-3">
                             <h4 className="text-sm font-semibold text-slate-600">Desglose por estatus</h4>
-                            {estatus2026EstatusDistribution.map((item, index) => {
-                              const pct = estatus2026KPIs.allUnique > 0 ? Math.round((item.value / estatus2026KPIs.allUnique) * 100) : 0;
+                            {estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado').map((item, index) => {
+                              const pct = estatus2026KPIs.total > 0 ? Math.round((item.value / estatus2026KPIs.total) * 100) : 0;
                               const color = ESTATUS_2026_COLOR_MAP[item.name] ?? chartPalette[index % chartPalette.length];
                               return (
                                 <button key={item.name} className="w-full text-left group" onClick={() => setSelectedEstatus2026Estatus(item.name)}>
@@ -11147,7 +11147,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             const columnMeta = pagos2026ColumnMeta.get(column)!;
                                             const { isBoolean, isDate, isMonthRelated, isNotaCredito, parentMonth: colParentMonthCell, stickyConfig, isLastSticky } = columnMeta;
                                             const isIdColumn = ['id', 'ID', 'Id'].includes(column) || column.toLowerCase() === 'id' || column.toLowerCase() === 'no.' || column.toLowerCase() === 'numero';
-                                            const numeric = !isBoolean && !isDate && !isIdColumn && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
+                                            const isYearColumn = ['año', 'anio', 'year'].includes(column.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+                                            const numeric = !isBoolean && !isDate && !isIdColumn && !isYearColumn && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
 
                                             // Per-month accent palette (same as header)
                                             const cellMonthPalette: Record<string, string> = {
