@@ -1,9 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import { Screen, User, UserRole, BeforeInstallPromptEvent } from './types';
 import { supabase } from './services/supabaseClient';
+
+const INACTIVITY_TIMEOUT_MS  = 10 * 60 * 1000; // 10 min → auto logout
+const INACTIVITY_WARNING_MS  =  8 * 60 * 1000; //  8 min → show warning
+const WARNING_COUNTDOWN_SECS = 120;             //  2 min countdown
 
 const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.LOGIN);
@@ -15,6 +19,60 @@ const App: React.FC = () => {
   const [isStandaloneMode, setIsStandaloneMode] = useState(false);
   const forceLoginRef = useRef(false);
   const authTimeoutRef = useRef<number | null>(null);
+
+  // ── Inactivity timeout ─────────────────────────────────────────────────
+  const [inactivityWarning, setInactivityWarning] = useState(false);
+  const [inactivityCountdown, setInactivityCountdown] = useState(WARNING_COUNTDOWN_SECS);
+  const inactivityLogoutTimerRef  = useRef<number | null>(null);
+  const inactivityWarningTimerRef = useRef<number | null>(null);
+  const inactivityCountdownRef    = useRef<number | null>(null);
+  const lastActivityThrottleRef   = useRef(0);
+
+  const clearInactivityTimers = useCallback(() => {
+    if (inactivityLogoutTimerRef.current  !== null) { window.clearTimeout(inactivityLogoutTimerRef.current);  inactivityLogoutTimerRef.current  = null; }
+    if (inactivityWarningTimerRef.current !== null) { window.clearTimeout(inactivityWarningTimerRef.current); inactivityWarningTimerRef.current = null; }
+    if (inactivityCountdownRef.current    !== null) { window.clearInterval(inactivityCountdownRef.current);   inactivityCountdownRef.current    = null; }
+  }, []);
+
+  const handleInactivityLogout = useCallback(async () => {
+    clearInactivityTimers();
+    setInactivityWarning(false);
+    try { await supabase.auth.signOut(); } catch (_) {}
+    forceLoginRef.current = false;
+    setCurrentUser(null);
+    setCurrentScreen(Screen.LOGIN);
+    setAuthNotice('Tu sesión fue cerrada por inactividad. Vuelve a iniciar sesión.');
+    setLoading(false);
+  }, [clearInactivityTimers]);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (currentScreen !== Screen.DASHBOARD) return;
+    const now = Date.now();
+    // Throttle: only re-arm if > 5 s since last reset to avoid flooding
+    if (now - lastActivityThrottleRef.current < 5_000) return;
+    lastActivityThrottleRef.current = now;
+
+    clearInactivityTimers();
+    setInactivityWarning(false);
+    setInactivityCountdown(WARNING_COUNTDOWN_SECS);
+
+    inactivityWarningTimerRef.current = window.setTimeout(() => {
+      setInactivityWarning(true);
+      setInactivityCountdown(WARNING_COUNTDOWN_SECS);
+      let secs = WARNING_COUNTDOWN_SECS;
+      inactivityCountdownRef.current = window.setInterval(() => {
+        secs -= 1;
+        setInactivityCountdown(secs);
+        if (secs <= 0) {
+          if (inactivityCountdownRef.current !== null) window.clearInterval(inactivityCountdownRef.current);
+        }
+      }, 1_000);
+    }, INACTIVITY_WARNING_MS);
+
+    inactivityLogoutTimerRef.current = window.setTimeout(() => {
+      handleInactivityLogout();
+    }, INACTIVITY_TIMEOUT_MS);
+  }, [currentScreen, clearInactivityTimers, handleInactivityLogout]);
 
   useEffect(() => {
     let isMounted = true;
@@ -275,14 +333,34 @@ const App: React.FC = () => {
     setShowInstallPrompt(false);
   };
 
+  // Start / stop inactivity monitoring based on screen
+  useEffect(() => {
+    if (currentScreen !== Screen.DASHBOARD) {
+      clearInactivityTimers();
+      setInactivityWarning(false);
+      return;
+    }
+    const EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click', 'wheel'] as const;
+    const onActivity = () => resetInactivityTimer();
+    EVENTS.forEach(ev => window.addEventListener(ev, onActivity, { passive: true }));
+    // Arm the timer on mount
+    lastActivityThrottleRef.current = 0; // force first arm
+    resetInactivityTimer();
+    return () => {
+      EVENTS.forEach(ev => window.removeEventListener(ev, onActivity));
+      clearInactivityTimers();
+    };
+  }, [currentScreen, resetInactivityTimer, clearInactivityTimers]);
+
   useEffect(() => {
     return () => {
       if (authTimeoutRef.current !== null) {
         window.clearTimeout(authTimeoutRef.current);
         authTimeoutRef.current = null;
       }
+      clearInactivityTimers();
     };
-  }, []);
+  }, [clearInactivityTimers]);
 
   if (loading) {
     return (
@@ -320,6 +398,12 @@ const App: React.FC = () => {
     );
   }
 
+  const formatCountdown = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? `${m}:${String(s).padStart(2, '0')} min` : `${s} segundos`;
+  };
+
   return (
     <div className="antialiased text-slate-900">
       {currentScreen === Screen.LOGIN && (
@@ -327,6 +411,67 @@ const App: React.FC = () => {
       )}
       {currentScreen === Screen.DASHBOARD && currentUser && (
         <Dashboard user={currentUser} onLogout={handleLogout} />
+      )}
+
+      {/* ── Inactivity warning modal ─────────────────────────────────── */}
+      {inactivityWarning && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(15,76,58,0.55)', backdropFilter: 'blur(4px)' }}
+          aria-modal="true"
+          role="dialog"
+          aria-labelledby="inactivity-title"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden">
+            {/* Accent bar */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#0F4C3A] to-[#B38E5D]" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 id="inactivity-title" className="text-base font-bold text-slate-800">¿Sigues ahí?</h2>
+                  <p className="text-xs text-slate-500">Detectamos inactividad en tu sesión</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-600 mb-5">
+                Por seguridad, la sesión se cerrará automáticamente en{' '}
+                <span className="font-bold text-[#0F4C3A]">{formatCountdown(inactivityCountdown)}</span>
+                {' '}si no hay actividad.
+              </p>
+              {/* Countdown progress bar */}
+              <div className="w-full bg-slate-100 rounded-full h-1.5 mb-5 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-1000"
+                  style={{
+                    width: `${Math.round((inactivityCountdown / WARNING_COUNTDOWN_SECS) * 100)}%`,
+                    backgroundColor: inactivityCountdown > 60 ? '#0F4C3A' : inactivityCountdown > 30 ? '#D97706' : '#DC2626',
+                  }}
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    lastActivityThrottleRef.current = 0;
+                    resetInactivityTimer();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-[#0F4C3A] text-white text-sm font-semibold hover:bg-[#0c3b2d] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F4C3A]"
+                >
+                  Continuar sesión
+                </button>
+                <button
+                  onClick={handleInactivityLogout}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors focus:outline-none"
+                >
+                  Cerrar sesión
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {!isStandaloneMode && showInstallPrompt && installPromptEvent && (
         <div className="fixed bottom-6 right-6 z-50 max-w-xs rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
