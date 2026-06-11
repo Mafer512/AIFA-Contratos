@@ -2102,7 +2102,56 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                  const strB = String(idB ?? '');
                  return strA.localeCompare(strB, undefined, { numeric: true });
              });
-              setPagos2026Data(sortedData);
+
+             // ── Normalize pagos rows ────────────────────────────────────────
+             // 1. Convert any string values stored with $ signs to numbers (e.g. "$891,784.84" → 891784.84)
+             // 2. Derive parent month total from sub-columns when parent is null / 0
+             //    (happens when sub-columns were filled directly without running Recalcular)
+             const pN = (v: any): number => {
+               if (v === null || v === undefined || v === '') return 0;
+               if (typeof v === 'number') return isNaN(v) ? 0 : v;
+               return parseFloat(String(v).replace(/[$,\s]/g, '')) || 0;
+             };
+             const MONTH_NORM_DEFS: Array<{ parent: string; prevKey: string; corrKey: string; notaKey: string }> = [
+               { parent: 'Ene.',  prevKey: 'Ene. Preventivos',        corrKey: 'Ene. Correctivos',        notaKey: 'Ene. Nota de Crédito' },
+               { parent: 'Feb.',  prevKey: 'Feb. Preventivos',        corrKey: 'Feb. Correctivos',        notaKey: 'Feb. Nota de Crédito' },
+               { parent: 'Mar.',  prevKey: 'Mar. Preventivos',        corrKey: 'Mar. Correctivos',        notaKey: 'Mar. Nota de Crédito' },
+               { parent: 'Abr.',  prevKey: 'Abr. Preventivos',        corrKey: 'Abr. Correctivos',        notaKey: 'Abr. Nota de Crédito' },
+               { parent: 'May.',  prevKey: 'May. Preventivos',        corrKey: 'May. Correctivos',        notaKey: 'May. Nota de Crédito' },
+               { parent: 'Jun.',  prevKey: 'Jun. Preventivos',        corrKey: 'Jun. Correctivos',        notaKey: 'Jun. Nota de Crédito' },
+               { parent: 'Jul.',  prevKey: 'Jul. Preventivos',        corrKey: 'Jul. Correctivos',        notaKey: 'Jul. Nota de Crédito' },
+               { parent: 'Ago.',  prevKey: 'Ago. Preventivos',        corrKey: 'Ago. Correctivos',        notaKey: 'Ago. Nota de Crédito' },
+               { parent: 'Sept.', prevKey: 'Sept. Preventivos',       corrKey: 'Sept. Correctivos',       notaKey: 'Sept. Nota de Crédito' },
+               { parent: 'Oct.',  prevKey: 'Oct. Preventivos',        corrKey: 'Oct. Correctivos',        notaKey: 'Oct. Nota de Crédito' },
+               { parent: 'Nov.',  prevKey: 'Nov. Preventivos',        corrKey: 'Nov. Correctivos',        notaKey: 'Nov. Nota de Crédito' },
+               { parent: 'Dic.',  prevKey: 'Dic. Preventivos',        corrKey: 'Dic. Correctivos',        notaKey: 'Dic. Nota de Crédito' },
+             ];
+             const normalizedData = sortedData.map((row) => {
+               const r: Record<string, any> = { ...row };
+               const rowKeys = Object.keys(r);
+               // Step 1: parse $ strings to numbers for ALL month-related columns
+               rowKeys.forEach(k => {
+                 if (typeof r[k] === 'string' && r[k].includes('$')) {
+                   const parsed = parseFloat(r[k].replace(/[$,\s]/g, ''));
+                   if (!isNaN(parsed)) r[k] = parsed;
+                 }
+               });
+               // Step 2: derive parent totals from sub-columns when parent is 0 / null
+               MONTH_NORM_DEFS.forEach(({ parent, prevKey, corrKey, notaKey }) => {
+                 if (!(parent in r)) return; // column doesn't exist in this table
+                 if (pN(r[parent]) !== 0) return; // already has a non-zero value
+                 // Find sub-columns by exact name first, then by fuzzy match as fallback
+                 const findKey = (exact: string, frag: string) =>
+                   exact in r ? exact : rowKeys.find(k => k !== parent && k.toLowerCase().includes(frag));
+                 const pk = findKey(prevKey,  'preventivo');
+                 const ck = findKey(corrKey,  'correctivo');
+                 const nk = findKey(notaKey,  'nota de cr');
+                 const derived = pN(pk ? r[pk] : 0) + pN(ck ? r[ck] : 0) - pN(nk ? r[nk] : 0);
+                 if (derived > 0) r[parent] = derived;
+               });
+               return r;
+             });
+              setPagos2026Data(normalizedData);
           }
       } catch (err) {
           console.error("Exception fetching pagos (anio=2026):", err);
