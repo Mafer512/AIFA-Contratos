@@ -11150,6 +11150,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             const isYearColumn = ['año', 'anio', 'year'].includes(column.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
                                             const numeric = !isBoolean && !isDate && !isIdColumn && !isYearColumn && (typeof rawValue === 'number' || shouldFormatAsCurrency(column));
 
+                                            // ── Effective display value for parent month columns ──────────
+                                            // Fix 1: values stored as "$891,784.84" string → parseFloat("$...") = NaN
+                                            // Fix 2: parent month column is null/0 but sub-columns (Preventivos,
+                                            //         Correctivos, Nota de Crédito) have values → derive the total
+                                            const _parseMonthNum = (v: any) => {
+                                                if (v === null || v === undefined || v === '') return 0;
+                                                if (typeof v === 'number') return isNaN(v) ? 0 : v;
+                                                return parseFloat(String(v).replace(/[$,\s]/g, '')) || 0;
+                                            };
+                                            const PARENT_MONTH_COLS = new Set(['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sept.', 'Oct.', 'Nov.', 'Dic.']);
+                                            let displayRawValue: any = rawValue;
+                                            if (numeric && PARENT_MONTH_COLS.has(column) && _parseMonthNum(rawValue) === 0) {
+                                                const abbr = column.toLowerCase().replace(/\./g, '');
+                                                const _matchMo = (c: string) => { const cl = c.toLowerCase(); return cl.includes(abbr) || (abbr === 'sept' && cl.includes('sep')); };
+                                                const r = row as Record<string, any>;
+                                                const prevKey = pagos2026TableColumns.find(c => _matchMo(c) && c.toLowerCase().includes('preventivo'));
+                                                const corrKey = pagos2026TableColumns.find(c => _matchMo(c) && c.toLowerCase().includes('correctivo'));
+                                                const notaKey = pagos2026TableColumns.find(c => _matchMo(c) && (c.toLowerCase().includes('nota') || c.toLowerCase().includes('credito')));
+                                                const derived = _parseMonthNum(prevKey ? r[prevKey] : 0) + _parseMonthNum(corrKey ? r[corrKey] : 0) - _parseMonthNum(notaKey ? r[notaKey] : 0);
+                                                if (derived > 0) displayRawValue = derived;
+                                            }
+
                                             // Per-month accent palette (same as header)
                                             const cellMonthPalette: Record<string, string> = {
                                               'Ene.': '#dbeafe', 'Feb.': '#ede9fe', 'Mar.': '#cffafe',
@@ -11185,8 +11207,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                           : String(rawValue);
                                                     }
                                                 } else {
-                                                    editingValue = String(rawValue);
+                                                    // String rawValue — strip $ for currency columns so edit box shows clean number
+                                                    if (numeric || shouldFormatAsCurrency(column)) {
+                                                        const _cleaned = String(rawValue).replace(/[$,\s]/g, '');
+                                                        const _n = parseFloat(_cleaned);
+                                                        editingValue = !isNaN(_n)
+                                                            ? _n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 10 })
+                                                            : String(rawValue);
+                                                    } else {
+                                                        editingValue = String(rawValue);
+                                                    }
                                                 }
+                                            } else if (typeof displayRawValue === 'number' && Number.isFinite(displayRawValue) && displayRawValue > 0) {
+                                                // rawValue is null/0 but derived from sub-columns — show it in edit mode too
+                                                editingValue = numeric
+                                                    ? displayRawValue.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 10 })
+                                                    : String(displayRawValue);
                                             }
 
                                             let dateInputValue = '';
@@ -11268,8 +11304,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                       </div>
                                                   ) : numeric ? (
                                                       // Show exact value as captured — no rounding
+                                                      // displayRawValue handles: (1) $ in stored strings, (2) null parent → derived from sub-columns
                                                       (() => {
-                                                        const numVal = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue ?? '').replace(/,/g, ''));
+                                                        const numVal = typeof displayRawValue === 'number' ? displayRawValue : parseFloat(String(displayRawValue ?? '').replace(/[$,\s]/g, ''));
                                                         if (!Number.isFinite(numVal)) return '$0.00';
                                                         return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 0, maximumFractionDigits: 10 }).format(numVal);
                                                       })()
