@@ -11162,12 +11162,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             const PARENT_MONTH_COLS = new Set(['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sept.', 'Oct.', 'Nov.', 'Dic.']);
                                             let displayRawValue: any = rawValue;
                                             if (numeric && PARENT_MONTH_COLS.has(column) && _parseMonthNum(rawValue) === 0) {
-                                                const abbr = column.toLowerCase().replace(/\./g, '');
+                                                const abbr = column.toLowerCase().replace(/\./g, ''); // 'Feb.' → 'feb'
                                                 const _matchMo = (c: string) => { const cl = c.toLowerCase(); return cl.includes(abbr) || (abbr === 'sept' && cl.includes('sep')); };
                                                 const r = row as Record<string, any>;
-                                                const prevKey = pagos2026TableColumns.find(c => _matchMo(c) && c.toLowerCase().includes('preventivo'));
-                                                const corrKey = pagos2026TableColumns.find(c => _matchMo(c) && c.toLowerCase().includes('correctivo'));
-                                                const notaKey = pagos2026TableColumns.find(c => _matchMo(c) && (c.toLowerCase().includes('nota') || c.toLowerCase().includes('credito')));
+                                                // Use ALL keys in the row (not pagos2026TableColumns which omits
+                                                // collapsed sub-columns) so we find them even when month is collapsed
+                                                const allKeys = Object.keys(r);
+                                                const prevKey = allKeys.find(c => _matchMo(c) && c.toLowerCase().includes('preventivo'));
+                                                const corrKey = allKeys.find(c => _matchMo(c) && c.toLowerCase().includes('correctivo'));
+                                                const notaKey = allKeys.find(c => _matchMo(c) && (c.toLowerCase().includes('nota') || c.toLowerCase().includes('credito')));
                                                 const derived = _parseMonthNum(prevKey ? r[prevKey] : 0) + _parseMonthNum(corrKey ? r[corrKey] : 0) - _parseMonthNum(notaKey ? r[notaKey] : 0);
                                                 if (derived > 0) displayRawValue = derived;
                                             }
