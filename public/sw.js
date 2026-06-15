@@ -1,4 +1,4 @@
-const CACHE_VERSION = '20241126-01';
+const CACHE_VERSION = '20260615-01';
 const CACHE_NAME = `aifa-contratos-cache-${CACHE_VERSION}`;
 const ASSETS_TO_CACHE = [
   '/',
