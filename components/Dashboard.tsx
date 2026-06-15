@@ -1892,13 +1892,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setDeletingRecordKey(activeDeleteKey);
 
     try {
-      const { error } = await supabase
+      const { data: deletedRows, error } = await supabase
         .from(table)
         .delete()
-        .eq(resolvedKey, resolvedValue);
+        .eq(resolvedKey, resolvedValue)
+        .select();
 
       if (error) {
         alert(`Error al eliminar: ${error.message}`);
+        return;
+      }
+
+      if (!deletedRows || deletedRows.length === 0) {
+        alert(`No se pudo eliminar el registro. Es posible que no tengas permisos suficientes o que el registro ya no exista (ID: ${resolvedValue}).`);
+        await refreshTable(table);
         return;
       }
 
@@ -6656,12 +6663,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setData((prev) => prev.map((entry) => (matchesTarget(entry) ? updatedRecord : entry)));
 
     try {
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from(tableName)
         .update({ [column]: nextValue })
-        .eq(pk, rowRef[pk]);
+        .eq(pk, rowRef[pk])
+        .select();
 
       if (error) throw error;
+
+      if (!updatedRows || updatedRows.length === 0) {
+        console.warn(`UPDATE sin efecto: tabla=${tableName}, pk=${pk}, val=${rowRef[pk]}, col=${column}`);
+        alert('No se pudo guardar el cambio. Es posible que no tengas permisos suficientes. Contacta al administrador.');
+        setData(optimisticSnapshot);
+        return;
+      }
 
       await logChange({
         table: tableName,
@@ -7023,6 +7038,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [estatus2026TableColumns, isAddingEstatus2026Row, estatus2026Data]);
 
   const handlePagos2026CellEdit = async (row: Record<string, any>, col: string, val: any) => {
+    const PARENT_MONTHS = new Set(['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sept.', 'Oct.', 'Nov.', 'Dic.']);
+
+    // If user clears a parent month column, also clear its sub-columns so the
+    // value doesn't get re-derived from Preventivos/Correctivos on next reload.
+    const isEmptyVal = val === null || val === undefined || val === '' || val === 0;
+    if (PARENT_MONTHS.has(col) && isEmptyVal) {
+      const colNormParent = col.toLowerCase().replace(/\./g, ''); // 'Ago.' → 'ago'
+      const isThisParent = (c: string) => {
+        const cl = c.toLowerCase();
+        return cl.includes(colNormParent) || (colNormParent === 'sept' && cl.includes('sep'));
+      };
+      const allRowKeys = Object.keys(row);
+      const subCols = allRowKeys.filter(c =>
+        c !== col && isThisParent(c) &&
+        (c.toLowerCase().includes('preventivo') || c.toLowerCase().includes('correctivo') ||
+         (c.toLowerCase().includes('nota') && (c.toLowerCase().includes('credito') || c.toLowerCase().includes('crédito'))))
+      );
+      // Clear parent + all sub-columns in one batch
+      const colsToClear = [col, ...subCols];
+      await Promise.all(
+        colsToClear.map(c => handleGenericCellEdit('pagos', row, c, null, setPagos2026Data, pagos2026Data))
+      );
+      return;
+    }
+
     // Save the edited column first
     await handleGenericCellEdit('pagos', row, col, val, setPagos2026Data, pagos2026Data);
 
