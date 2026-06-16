@@ -2143,10 +2143,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                    if (!isNaN(parsed)) r[k] = parsed;
                  }
                });
-               // Step 2: derive parent totals from sub-columns when parent is 0 / null
+               // Step 2: derive parent totals from sub-columns ONLY when parent is strictly
+               // absent (null/undefined). A stored 0 means the user intentionally cleared it
+               // and must NOT be re-inflated.
                MONTH_NORM_DEFS.forEach(({ parent, prevKey, corrKey, notaKey }) => {
                  if (!(parent in r)) return; // column doesn't exist in this table
-                 if (pN(r[parent]) !== 0) return; // already has a non-zero value
+                 // Only re-derive if parent has never been set (null/undefined/empty string).
+                 // If parent is 0 or any number, it was explicitly saved — leave it alone.
+                 const rawParent = r[parent];
+                 if (rawParent !== null && rawParent !== undefined && rawParent !== '') return;
                  // Find sub-columns by exact name first, then by fuzzy match as fallback
                  const findKey = (exact: string, frag: string) =>
                    exact in r ? exact : rowKeys.find(k => k !== parent && k.toLowerCase().includes(frag));
@@ -5166,6 +5171,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         isHighlighted: boolean;
         isMonthRelated: boolean;
         isNotaCredito: boolean;
+        parentMonth: string | null;
         stickyConfig?: { left: number; width: number };
         isLastSticky: boolean;
     }>();
@@ -6678,6 +6684,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         return;
       }
 
+      // Verificar que el valor guardado coincide con el enviado
+      const savedRow = updatedRows[0];
+      if (column in savedRow && !deepEqual(savedRow[column], nextValue)) {
+        console.warn(
+          `Discrepancia en ${tableName}.${column}: enviado=${JSON.stringify(nextValue)}, guardado en DB=${JSON.stringify(savedRow[column])}`
+        );
+        // Sincronizar estado local con el valor real de la base de datos
+        setData((prev) =>
+          prev.map((entry) => (matchesTarget(entry) ? { ...entry, [column]: savedRow[column] } : entry))
+        );
+        if (savedRow[column] !== null && (nextValue === null || nextValue === '')) {
+          alert(
+            `No se pudo eliminar el valor. La base de datos conserva: ${savedRow[column]}. Verifica los permisos (RLS) o intenta de nuevo.`
+          );
+          return;
+        }
+      }
+
       await logChange({
         table: tableName,
         action: 'UPDATE',
@@ -7003,7 +7027,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         .limit(1);
 
       if (!maxIdError && Array.isArray(maxIdRows) && maxIdRows.length > 0) {
-        const dbMax = Number(maxIdRows[0]?.ID ?? maxIdRows[0]?.id);
+        const dbMax = Number(maxIdRows[0]?.ID);
         if (Number.isFinite(dbMax)) {
           nextId = Math.max(nextId, dbMax + 1);
         }
@@ -7056,10 +7080,62 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
          (c.toLowerCase().includes('nota') && (c.toLowerCase().includes('credito') || c.toLowerCase().includes('crédito'))))
       );
       // Clear parent + all sub-columns in one batch
+      // Build the full cleared row and update local state once (avoids each parallel
+      // setData call overwriting the others with the original row snapshot).
       const colsToClear = [col, ...subCols];
-      await Promise.all(
-        colsToClear.map(c => handleGenericCellEdit('pagos', row, c, null, setPagos2026Data, pagos2026Data))
+      // Parent month column is stored as 0 (not null) so the fetch-normalization
+      // recognises it as an intentional clear and does NOT re-derive it from sub-cols.
+      // Sub-columns are stored as null (they have no re-derivation risk).
+      const storedClearedValue = (c: string) => PARENT_MONTHS.has(c) ? 0 : null;
+      const clearedRow = colsToClear.reduce<Record<string, any>>(
+        (acc, c) => ({ ...acc, [c]: storedClearedValue(c) }), { ...row }
       );
+      setPagos2026Data((prev) =>
+        prev.map((entry) => (entry['id'] === row['id'] ? clearedRow : entry))
+      );
+      // Fire all Supabase updates in parallel
+      const clearErrors: string[] = [];
+      await Promise.all(
+        colsToClear.map(async (c) => {
+          if (!requireManagePermission()) return;
+          const currentVal = row[c];
+          const targetVal = storedClearedValue(c);
+          if (deepEqual(currentVal === undefined ? null : currentVal, targetVal)) return; // already at target
+          try {
+            const { data: savedRows, error } = await supabase
+              .from('pagos')
+              .update({ [c]: targetVal })
+              .eq('id', row['id'])
+              .select();
+            if (error) { clearErrors.push(`${c}: ${error.message}`); return; }
+            if (!savedRows || savedRows.length === 0) {
+              clearErrors.push(`${c}: UPDATE sin efecto (sin permisos?)`);
+              return;
+            }
+            // Verify DB stored the target value
+            const dbVal = savedRows[0][c];
+            if (!deepEqual(dbVal, targetVal)) {
+              clearErrors.push(`${c}: valor en DB es ${dbVal} en vez de ${targetVal}`);
+            } else {
+              await logChange({
+                table: 'pagos',
+                action: 'UPDATE',
+                recordId: row['id'],
+                before: { [c]: currentVal },
+                after: { [c]: targetVal },
+              });
+            }
+          } catch (err: any) {
+            clearErrors.push(`${c}: ${err?.message ?? 'Error desconocido'}`);
+          }
+        })
+      );
+      if (clearErrors.length > 0) {
+        console.error('Errores al limpiar columnas del mes:', clearErrors);
+        alert(`Algunos valores no se pudieron eliminar:\n${clearErrors.join('\n')}`);
+      }
+      // Rectificación: vuelve a leer desde la DB para confirmar el estado real
+      await fetchPagos2026Data();
       return;
     }
 
@@ -7071,56 +7147,57 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const isPreventivos = colNormL.includes('preventivo');
     const isCorrectivos = colNormL.includes('correctivo');
     const isNotaCreditoCol = colNormL.includes('nota') && (colNormL.includes('credito') || colNormL.includes('crédito'));
-    if (!isPreventivos && !isCorrectivos && !isNotaCreditoCol) return;
 
-    // Map each month abbreviation to fragments used to detect its columns
-    const monthMap: Array<{ key: string; fragments: string[] }> = [
-      { key: 'Ene.', fragments: ['ene.', 'enero'] },
-      { key: 'Feb.', fragments: ['feb.', 'febrero'] },
-      { key: 'Mar.', fragments: ['mar.', 'marzo'] },
-      { key: 'Abr.', fragments: ['abr.', 'abril'] },
-      { key: 'May.', fragments: ['may.', 'mayo'] },
-      { key: 'Jun.', fragments: ['jun.', 'junio'] },
-      { key: 'Jul.', fragments: ['jul.', 'julio'] },
-      { key: 'Ago.', fragments: ['ago.', 'agosto'] },
-      { key: 'Sept.', fragments: ['sept.', 'sep.', 'septiembre'] },
-      { key: 'Oct.', fragments: ['oct.', 'octubre'] },
-      { key: 'Nov.', fragments: ['nov.', 'noviembre'] },
-      { key: 'Dic.', fragments: ['dic.', 'diciembre'] },
-    ];
+    if (isPreventivos || isCorrectivos || isNotaCreditoCol) {
+      // Map each month abbreviation to fragments used to detect its columns
+      const monthMap: Array<{ key: string; fragments: string[] }> = [
+        { key: 'Ene.', fragments: ['ene.', 'enero'] },
+        { key: 'Feb.', fragments: ['feb.', 'febrero'] },
+        { key: 'Mar.', fragments: ['mar.', 'marzo'] },
+        { key: 'Abr.', fragments: ['abr.', 'abril'] },
+        { key: 'May.', fragments: ['may.', 'mayo'] },
+        { key: 'Jun.', fragments: ['jun.', 'junio'] },
+        { key: 'Jul.', fragments: ['jul.', 'julio'] },
+        { key: 'Ago.', fragments: ['ago.', 'agosto'] },
+        { key: 'Sept.', fragments: ['sept.', 'sep.', 'septiembre'] },
+        { key: 'Oct.', fragments: ['oct.', 'octubre'] },
+        { key: 'Nov.', fragments: ['nov.', 'noviembre'] },
+        { key: 'Dic.', fragments: ['dic.', 'diciembre'] },
+      ];
 
-    const monthEntry = monthMap.find(({ fragments }) => fragments.some(f => colNormL.includes(f)));
-    if (!monthEntry) return;
+      const monthEntry = monthMap.find(({ fragments }) => fragments.some(f => colNormL.includes(f)));
+      const parentMonthKey = monthEntry ? pagos2026TableColumns.find(c => c === monthEntry.key) : null;
 
-    // Verify the parent month total column actually exists in the table
-    const parentMonthKey = pagos2026TableColumns.find(c => c === monthEntry.key);
-    if (!parentMonthKey) return;
+      if (monthEntry && parentMonthKey) {
+        // Find sibling sub-columns for this month
+        const isThisMonth = (c: string) => monthEntry.fragments.some(f => c.toLowerCase().includes(f));
+        const prevColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('preventivo'));
+        const corrColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('correctivo'));
+        const notaColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('nota'));
 
-    // Find sibling sub-columns for this month
-    const isThisMonth = (c: string) => monthEntry.fragments.some(f => c.toLowerCase().includes(f));
-    const prevColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('preventivo'));
-    const corrColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('correctivo'));
-    const notaColKey = pagos2026TableColumns.find(c => isThisMonth(c) && c.toLowerCase().includes('nota'));
+        const parseNum = (v: any): number => {
+          if (v === null || v === undefined || v === '') return 0;
+          if (typeof v === 'number') return isNaN(v) ? 0 : v;
+          const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
+          return isNaN(n) ? 0 : n;
+        };
 
-    const parseNum = (v: any): number => {
-      if (v === null || v === undefined || v === '') return 0;
-      if (typeof v === 'number') return isNaN(v) ? 0 : v;
-      const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
-      return isNaN(n) ? 0 : n;
-    };
+        // Build row with the newly edited value applied so totals are correct
+        const parsedNewVal = parseNum(val);
+        const updatedRow = { ...row, [col]: parsedNewVal };
 
-    // Build row with the newly edited value applied so totals are correct
-    const parsedNewVal = parseNum(val);
-    const updatedRow = { ...row, [col]: parsedNewVal };
+        const prevVal = parseNum(prevColKey ? updatedRow[prevColKey] : 0);
+        const corrVal = parseNum(corrColKey ? updatedRow[corrColKey] : 0);
+        const notaVal = parseNum(notaColKey ? updatedRow[notaColKey] : 0);
+        const monthTotal = prevVal + corrVal - notaVal;
 
-    const prevVal = parseNum(prevColKey ? updatedRow[prevColKey] : 0);
-    const corrVal = parseNum(corrColKey ? updatedRow[corrColKey] : 0);
-    const notaVal = parseNum(notaColKey ? updatedRow[notaColKey] : 0);
+        // Save the computed total to the parent month column
+        await handleGenericCellEdit('pagos', updatedRow, parentMonthKey, monthTotal, setPagos2026Data, pagos2026Data);
+      }
+    }
 
-    const monthTotal = prevVal + corrVal - notaVal;
-
-    // Save the computed total to the parent month column
-    await handleGenericCellEdit('pagos', updatedRow, parentMonthKey, monthTotal, setPagos2026Data, pagos2026Data);
+    // Rectificación: vuelve a leer desde la DB para confirmar el estado real tras cualquier modificación
+    await fetchPagos2026Data();
   };
 
   const handleRecalcPagos2026AllTotals = useCallback(async () => {
