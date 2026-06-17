@@ -9,7 +9,7 @@ import {
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
   CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
   Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, RefreshCw,
-  Users, Plane, Activity, Info
+  Users, Plane, Activity, Info, XCircle
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
@@ -984,6 +984,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [showGastoCharts, setShowGastoCharts] = useState(false);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
+  const [selectedResumenCard, setSelectedResumenCard] = useState<'total' | 'adjudicados' | 'pagos' | 'cancelados' | null>(null);
   
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [expandedServiciosConvenio, setExpandedServiciosConvenio] = useState<Record<string, boolean>>({});
@@ -5309,6 +5310,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       monthly: Array<{ month: string; value: number }>;
     }>;
 
+    // Use ALL columns from raw data (not pagos2026TableColumns which filters by expanded months)
+    const allRawColumns = pagos2026Data.length > 0 ? Object.keys(pagos2026Data[0]) : [];
+
     // For each month, find sub-columns (preventivos, correctivos, nota) and parent total column
     const monthDefs = [
       { label: 'Enero',      fragments: ['ene.', 'enero'],       parentKey: 'Ene.'  },
@@ -5325,14 +5329,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       { label: 'Diciembre',  fragments: ['dic.', 'diciembre'],   parentKey: 'Dic.'  },
     ];
 
-    // Pre-compute column keys for each month's sub-columns (use toLowerCase to preserve dots)
+    // Pre-compute column keys for each month's sub-columns using ALL raw columns (ignores expand state)
     const resolvedMonths = monthDefs.map(({ label, fragments, parentKey }) => {
       const colL = (col: string) => col.toLowerCase();
       const isThisMonth = (col: string) => fragments.some(f => colL(col).includes(f));
-      const prevCol   = pagos2026TableColumns.find(c => isThisMonth(c) && colL(c).includes('preventivo')) ?? null;
-      const corrCol   = pagos2026TableColumns.find(c => isThisMonth(c) && colL(c).includes('correctivo')) ?? null;
-      const notaCol   = pagos2026TableColumns.find(c => isThisMonth(c) && (colL(c).includes('nota') || colL(c).includes('crédito') || colL(c).includes('credito'))) ?? null;
-      const parentCol = pagos2026TableColumns.find(c => c === parentKey) ?? null;
+      const prevCol   = allRawColumns.find(c => isThisMonth(c) && colL(c).includes('preventivo')) ?? null;
+      const corrCol   = allRawColumns.find(c => isThisMonth(c) && colL(c).includes('correctivo')) ?? null;
+      const notaCol   = allRawColumns.find(c => isThisMonth(c) && (colL(c).includes('nota') || colL(c).includes('crédito') || colL(c).includes('credito'))) ?? null;
+      const parentCol = allRawColumns.find(c => c === parentKey) ?? null;
       return { label, prevCol, corrCol, notaCol, parentCol };
     });
 
@@ -5380,7 +5384,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         monthly,
       };
     }).sort((a, b) => b.paid - a.paid);
-  }, [pagos2026Data, pagos2026ServiceFieldSummary, pagos2026MontoMaxFieldSummary, pagos2026TableColumns]);
+  }, [pagos2026Data, pagos2026ServiceFieldSummary, pagos2026MontoMaxFieldSummary]);
 
   const pagos2026ProgressTotals = useMemo(() => {
     const totalToPay = pagos2026ServicePaymentProgress.reduce((acc, row) => acc + row.total, 0);
@@ -7890,6 +7894,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         setActive2026View(item.view);
                         setSelectedEstatus2026Estatus(null);
                         setSelectedEstatus2026Phase(null);
+                        setSelectedResumenCard(null);
                       }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${
                         isActive
@@ -9445,7 +9450,221 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             <div className="space-y-6">
               {active2026View === 'resumen' && (
                 <>
-                  {selectedEstatus2026Estatus ? (
+                  {selectedResumenCard ? (
+                    /* ── Detail view: KPI card drill-down ─────────────────── */
+                    <div className="space-y-6">
+                      <button
+                        onClick={() => setSelectedResumenCard(null)}
+                        className="flex items-center text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                      >
+                        <ArrowLeft className="h-4 w-4 mr-1" />
+                        Volver al resumen 2026
+                      </button>
+
+                      {/* Card: Total Servicios */}
+                      {selectedResumenCard === 'total' && (() => {
+                        const rows = estatus2026Data.filter((row) => {
+                          if (!estatus2026EstatusColumnField) return true;
+                          return normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) !== 'Cancelado';
+                        });
+                        return (
+                          <div className="space-y-4">
+                            <div>
+                              <h2 className="text-2xl font-bold text-slate-900">Servicios Activos 2026</h2>
+                              <p className="text-slate-500 mt-1">{rows.length} registro{rows.length !== 1 ? 's' : ''} activos.</p>
+                            </div>
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-slate-200">
+                                  <thead className="bg-[#0F4C3A] text-white">
+                                    <tr>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Estatus</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Proveedor</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-slate-200">
+                                    {rows.map((row, idx) => {
+                                      const accentStatuses: Record<string, string> = { 'Adjudicado': 'bg-green-50 text-green-700 border-green-100', 'Cancelado': 'bg-red-50 text-red-700 border-red-100' };
+                                      const estVal = estatus2026EstatusColumnField ? normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) : '';
+                                      const badgeClass = accentStatuses[estVal] ?? 'bg-blue-50 text-blue-700 border-blue-100';
+                                      const acento = [['Aeronautica','Aeronáutica'],['Electromecanica','Electromecánica'],['Electromecanico','Electromecánico'],['Ingenieria','Ingeniería'],['Distribucion','Distribución'],['Generacion','Generación'],['Operacion','Operación'],['Administracion','Administración'],['Medico','Médico'],['Tecnico','Técnico'],['Tecnica','Técnica'],['Juridica','Jurídica'],['Juridico','Jurídico'],['Gestion','Gestión'],['Comunicacion','Comunicación']];
+                                      const fixAccent = (s: string) => acento.reduce((t,[a,b])=>t.replace(new RegExp(`\\b${a}\\b`,'gi'),b), s);
+                                      const proveedorField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('proveedor'));
+                                      return (
+                                        <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                          <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
+                                          <td className="px-6 py-4 whitespace-nowrap"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>{estVal || '—'}</span></td>
+                                          <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">{estatus2026SubdirFieldSummary ? fixAccent(String(row[estatus2026SubdirFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
+                                          <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">{estatus2026GerenciaFieldSummary ? fixAccent(String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
+                                          <td className="px-6 py-4 text-sm text-slate-600">{proveedorField ? String(row[proveedorField] ?? '—') : '—'}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Card: Adjudicados */}
+                      {selectedResumenCard === 'adjudicados' && (() => {
+                        const rows = estatus2026Data.filter((row) => {
+                          if (!estatus2026EstatusColumnField) return false;
+                          const v = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
+                          return v.toLowerCase().includes('adjudicad') || v.toLowerCase().includes('contratad');
+                        });
+                        return (
+                          <div className="space-y-4">
+                            <div>
+                              <h2 className="text-2xl font-bold text-slate-900">Servicios Adjudicados</h2>
+                              <p className="text-slate-500 mt-1">{rows.length} servicio{rows.length !== 1 ? 's' : ''} adjudicado{rows.length !== 1 ? 's' : ''}.</p>
+                            </div>
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-slate-200">
+                                  <thead className="bg-[#0F4C3A] text-white">
+                                    <tr>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Proveedor</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">No. Contrato</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-slate-200">
+                                    {rows.map((row, idx) => {
+                                      const acento = [['Aeronautica','Aeronáutica'],['Electromecanica','Electromecánica'],['Electromecanico','Electromecánico'],['Ingenieria','Ingeniería'],['Distribucion','Distribución'],['Generacion','Generación'],['Operacion','Operación'],['Administracion','Administración'],['Medico','Médico'],['Tecnico','Técnico'],['Tecnica','Técnica'],['Juridica','Jurídica'],['Juridico','Jurídico'],['Gestion','Gestión'],['Comunicacion','Comunicación']];
+                                      const fixAccent = (s: string) => acento.reduce((t,[a,b])=>t.replace(new RegExp(`\\b${a}\\b`,'gi'),b), s);
+                                      const proveedorField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('proveedor'));
+                                      const contratoField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('no contrato') || normalizeAnnualKey(c).includes('contrato'));
+                                      return (
+                                        <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                          <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
+                                          <td className="px-6 py-4 text-sm text-slate-600">{proveedorField ? String(row[proveedorField] ?? '—') : '—'}</td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{contratoField ? String(row[contratoField] ?? '—') : '—'}</td>
+                                          <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">{estatus2026SubdirFieldSummary ? fixAccent(String(row[estatus2026SubdirFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
+                                          <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">{estatus2026GerenciaFieldSummary ? fixAccent(String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Card: Cancelados */}
+                      {selectedResumenCard === 'cancelados' && (() => {
+                        const rows = estatus2026Data.filter((row) => {
+                          if (!estatus2026EstatusColumnField) return false;
+                          return normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) === 'Cancelado';
+                        });
+                        return (
+                          <div className="space-y-4">
+                            <div>
+                              <h2 className="text-2xl font-bold text-slate-900">Servicios Cancelados</h2>
+                              <p className="text-slate-500 mt-1">{rows.length} servicio{rows.length !== 1 ? 's' : ''} cancelado{rows.length !== 1 ? 's' : ''}.</p>
+                            </div>
+                            <div className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden">
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-slate-200">
+                                  <thead className="bg-red-700 text-white">
+                                    <tr>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
+                                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-slate-200">
+                                    {rows.map((row, idx) => {
+                                      const acento = [['Aeronautica','Aeronáutica'],['Electromecanica','Electromecánica'],['Electromecanico','Electromecánico'],['Ingenieria','Ingeniería'],['Distribucion','Distribución'],['Generacion','Generación'],['Operacion','Operación'],['Administracion','Administración'],['Medico','Médico'],['Tecnico','Técnico'],['Tecnica','Técnica'],['Juridica','Jurídica'],['Juridico','Jurídico'],['Gestion','Gestión'],['Comunicacion','Comunicación']];
+                                      const fixAccent = (s: string) => acento.reduce((t,[a,b])=>t.replace(new RegExp(`\\b${a}\\b`,'gi'),b), s);
+                                      const montoField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('monto maximo 2026') || normalizeAnnualKey(c).includes('monto maximo'));
+                                      const monto = montoField ? parseFloat(String(row[montoField] ?? '0').replace(/[$,]/g, '')) : 0;
+                                      return (
+                                        <tr key={idx} className={`hover:bg-red-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-red-50/20'}`}>
+                                          <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
+                                          <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">{estatus2026SubdirFieldSummary ? fixAccent(String(row[estatus2026SubdirFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
+                                          <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">{estatus2026GerenciaFieldSummary ? fixAccent(String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Card: Pagos 2026 */}
+                      {selectedResumenCard === 'pagos' && (() => {
+                        // Use pre-computed progress data (same logic as the main Pagos table)
+                        // sorted by total ejercido descending; only show services with actual payments
+                        const rows = pagos2026ServicePaymentProgress.filter(r => r.paid > 0);
+                        const grandTotal = rows.reduce((s, r) => s + r.paid, 0);
+                        return (
+                          <div className="space-y-4">
+                            <div>
+                              <h2 className="text-2xl font-bold text-slate-900">Desglose de Pagos 2026</h2>
+                              <p className="text-slate-500 mt-1">{rows.length} registro{rows.length !== 1 ? 's' : ''} · Total ejercido: <span className="font-semibold text-violet-700">{formatCurrency(grandTotal)}</span></p>
+                            </div>
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-slate-200">
+                                  <thead className="bg-[#2d3e50] text-white">
+                                    <tr>
+                                      <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider">ID</th>
+                                      <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider">Objeto / Servicio</th>
+                                      <th className="px-4 py-4 text-right text-xs font-bold uppercase tracking-wider">Mont. Máx.</th>
+                                      <th className="px-4 py-4 text-right text-xs font-bold uppercase tracking-wider">Total Ejercido</th>
+                                      <th className="px-4 py-4 text-right text-xs font-bold uppercase tracking-wider">% Ejercido</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-slate-200">
+                                    {rows.map((entry, idx) => {
+                                      const pct = Math.round(entry.pct);
+                                      const row = pagos2026Data[idx] ?? {};
+                                      return (
+                                        <tr key={entry.key} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                          <td className="px-4 py-3 text-xs font-mono text-slate-400 whitespace-nowrap">{row['id'] ?? idx + 1}</td>
+                                          <td className="px-4 py-3 text-sm font-medium text-slate-800" style={{ maxWidth: '380px' }}>{entry.service || '—'}</td>
+                                          <td className="px-4 py-3 text-sm font-mono text-right text-slate-600 whitespace-nowrap">{entry.total > 0 ? formatCurrency(entry.total) : '—'}</td>
+                                          <td className="px-4 py-3 text-sm font-mono font-semibold text-right text-violet-700 whitespace-nowrap">{entry.paid > 0 ? formatCurrency(entry.paid) : '$0'}</td>
+                                          <td className="px-4 py-3 whitespace-nowrap">
+                                            <div className="flex flex-col items-end gap-1">
+                                              <span className="text-xs font-semibold text-slate-600">{pct}%</span>
+                                              <div className="w-24 bg-slate-100 rounded-full h-1.5">
+                                                <div className="h-1.5 rounded-full bg-violet-500 transition-all" style={{ width: `${Math.min(100,pct)}%` }} />
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                  <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                                    <tr>
+                                      <td colSpan={3} className="px-4 py-3 text-sm font-bold text-slate-700 text-right">TOTAL EJERCIDO</td>
+                                      <td className="px-4 py-3 text-sm font-bold font-mono text-violet-700 text-right whitespace-nowrap">{formatCurrency(grandTotal)}</td>
+                                      <td />
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : selectedEstatus2026Estatus ? (
                     /* Detail view: services in selected estatus */
                     <div className="space-y-6">
                       <button
@@ -9533,8 +9752,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
 
                       {/* KPI Cards */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        {/* Total Servicios */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedResumenCard('total')}
+                          className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-emerald-300 transition-all text-left group"
+                        >
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Servicios</p>
@@ -9545,19 +9769,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   <span className="text-slate-400 ml-1">({estatus2026KPIs.dbTotal} registros totales)</span>
                                 )}
                               </p>
-                              {estatus2026KPIs.cancelados > 0 && (
-                                <p className="text-xs text-red-500 mt-1 font-medium">
-                                  + {estatus2026KPIs.cancelados} cancelado{estatus2026KPIs.cancelados !== 1 ? 's' : ''}
-                                </p>
-                              )}
                             </div>
-                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-[#0F4C3A] border border-white/60 shadow-sm">
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-[#0F4C3A] border border-white/60 shadow-sm group-hover:bg-emerald-100 transition-colors">
                               <Layers className="h-5 w-5" />
                             </span>
                           </div>
-                        </div>
+                          <p className="text-[10px] text-emerald-600 font-medium mt-3 group-hover:underline">Ver servicios activos →</p>
+                        </button>
 
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+                        {/* Adjudicados */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedResumenCard('adjudicados')}
+                          className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-amber-300 transition-all text-left group"
+                        >
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Adjudicados</p>
@@ -9568,24 +9793,54 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   : 'Sin datos'}
                               </p>
                             </div>
-                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-700 border border-white/60 shadow-sm">
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-700 border border-white/60 shadow-sm group-hover:bg-amber-100 transition-colors">
                               <TrendingUp className="h-5 w-5" />
                             </span>
                           </div>
-                        </div>
+                          <p className="text-[10px] text-amber-600 font-medium mt-3 group-hover:underline">Ver adjudicados →</p>
+                        </button>
 
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+                        {/* Cancelados */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedResumenCard('cancelados')}
+                          className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-red-300 transition-all text-left group"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cancelados</p>
+                              <p className="text-3xl font-bold text-red-600 mt-2">{estatus2026KPIs.cancelados}</p>
+                              <p className="text-xs text-slate-500 mt-2">
+                                {estatus2026KPIs.allUnique > 0
+                                  ? `${Math.round((estatus2026KPIs.cancelados / estatus2026KPIs.allUnique) * 100)}% del total`
+                                  : 'Sin datos'}
+                              </p>
+                            </div>
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-red-600 border border-white/60 shadow-sm group-hover:bg-red-100 transition-colors">
+                              <XCircle className="h-5 w-5" />
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-red-500 font-medium mt-3 group-hover:underline">Ver cancelados →</p>
+                        </button>
+
+                        {/* Total Pagos 2026 */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedResumenCard('pagos')}
+                          className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-violet-300 transition-all text-left group"
+                        >
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Pagos 2026</p>
                               <p className="text-2xl font-bold text-slate-900 mt-2">{formatCurrency(pagos2026TotalAmount)}</p>
                               <p className="text-xs text-slate-500 mt-2">{pagos2026Data.length} registros de pago</p>
                             </div>
-                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-violet-50 text-violet-700 border border-white/60 shadow-sm">
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-violet-50 text-violet-700 border border-white/60 shadow-sm group-hover:bg-violet-100 transition-colors">
                               <DollarSign className="h-5 w-5" />
                             </span>
                           </div>
-                        </div>
+                          <p className="text-[10px] text-violet-600 font-medium mt-3 group-hover:underline">Ver desglose de pagos →</p>
+                        </button>
                       </div>
 
                       {/* Pie chart: Distribución por Estatus – columna Estatus de la tabla estatus_2026 */}
@@ -9606,7 +9861,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart margin={{ top: 40, bottom: 40, left: 40, right: 40 }}>
                                 <Pie
-                                  data={estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado')}
+                                  data={estatus2026EstatusDistribution}
                                   dataKey="value"
                                   nameKey="name"
                                   cx="50%"
@@ -9635,13 +9890,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   }}
                                   labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                                 >
-                                  {estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado').map((entry, index) => (
-                                    <Cell key={`cell-estatus2-${index}`} fill={ESTATUS_2026_COLOR_MAP[entry.name] ?? chartPalette[index % chartPalette.length]} />
+                                  {estatus2026EstatusDistribution.map((entry, index) => (
+                                    <Cell key={`cell-estatus2-${index}`} fill={entry.name === 'Cancelado' ? '#ef4444' : (ESTATUS_2026_COLOR_MAP[entry.name] ?? chartPalette[index % chartPalette.length])} />
                                   ))}
                                 </Pie>
                                 <Tooltip
                                   formatter={(value: number, name: string) => {
-                                    const total = estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado').reduce((a, b) => a + b.value, 0);
+                                    const total = estatus2026EstatusDistribution.reduce((a, b) => a + b.value, 0);
                                     const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
                                     return [`${value} servicio${value === 1 ? '' : 's'} (${pct}%)`, name];
                                   }}
@@ -9665,9 +9920,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {estatus2026EstatusDistribution.length > 0 && (
                           <div className="mt-6 space-y-3">
                             <h4 className="text-sm font-semibold text-slate-600">Desglose por estatus</h4>
-                            {estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado').map((item, index) => {
-                              const pct = estatus2026KPIs.total > 0 ? Math.round((item.value / estatus2026KPIs.total) * 100) : 0;
-                              const color = ESTATUS_2026_COLOR_MAP[item.name] ?? chartPalette[index % chartPalette.length];
+                            {estatus2026EstatusDistribution.map((item, index) => {
+                              const color = item.name === 'Cancelado' ? '#ef4444' : (ESTATUS_2026_COLOR_MAP[item.name] ?? chartPalette[index % chartPalette.length]);
+                              const total = estatus2026EstatusDistribution.reduce((a, b) => a + b.value, 0);
+                              const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
                               return (
                                 <button key={item.name} className="w-full text-left group" onClick={() => setSelectedEstatus2026Estatus(item.name)}>
                                   <div className="flex items-center justify-between mb-1">
