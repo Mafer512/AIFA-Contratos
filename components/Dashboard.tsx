@@ -9833,7 +9833,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div>
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Pagos 2026</p>
                               <p className="text-2xl font-bold text-slate-900 mt-2">{formatCurrency(pagos2026TotalAmount)}</p>
-                              <p className="text-xs text-slate-500 mt-2">{pagos2026Data.length} registros de pago</p>
+                              <p className="text-xs text-slate-500 mt-2">{pagos2026ServicePaymentProgress.filter(r => r.paid > 0).length} registros de pago</p>
                             </div>
                             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-violet-50 text-violet-700 border border-white/60 shadow-sm group-hover:bg-violet-100 transition-colors">
                               <DollarSign className="h-5 w-5" />
