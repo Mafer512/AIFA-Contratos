@@ -9563,10 +9563,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {/* Card: En Proceso */}
                         {selectedResumenCard === 'en-proceso' && (() => {
                           const EN_PROCESO_STATUSES = ESTATUS_2026_OPTIONS.filter(s => s !== 'Adjudicado' && s !== 'Cancelado') as readonly string[];
+                          const seenKeys = new Set<string>();
                           const rows = estatus2026Data.filter((row) => {
                             if (!estatus2026EstatusColumnField) return false;
                             const v = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
-                            return EN_PROCESO_STATUSES.includes(v);
+                            if (!EN_PROCESO_STATUSES.includes(v)) return false;
+                            if (estatus2026ServiceNameFieldSummary) {
+                              const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary);
+                              if (seenKeys.has(key)) return false;
+                              seenKeys.add(key);
+                            }
+                            return true;
                           });
                           const acento = [['Aeronautica', 'Aeronáutica'], ['Electromecanica', 'Electromecánica'], ['Electromecanico', 'Electromecánico'], ['Ingenieria', 'Ingeniería'], ['Distribucion', 'Distribución'], ['Generacion', 'Generación'], ['Operacion', 'Operación'], ['Administracion', 'Administración'], ['Medico', 'Médico'], ['Tecnico', 'Técnico'], ['Tecnica', 'Técnica'], ['Juridica', 'Jurídica'], ['Juridico', 'Jurídico'], ['Gestion', 'Gestión'], ['Comunicacion', 'Comunicación']];
                           const fixAccent = (s: string) => acento.reduce((t, [a, b]) => t.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), s);
@@ -9615,10 +9622,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                         {/* Card: Adjudicados */}
                         {selectedResumenCard === 'adjudicados' && (() => {
+                          const seenKeys = new Set<string>();
                           const rows = estatus2026Data.filter((row) => {
                             if (!estatus2026EstatusColumnField) return false;
                             const v = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
-                            return v.toLowerCase().includes('adjudicad') || v.toLowerCase().includes('contratad');
+                            if (!(v.toLowerCase().includes('adjudicad') || v.toLowerCase().includes('contratad'))) return false;
+                            if (estatus2026ServiceNameFieldSummary) {
+                              const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary);
+                              if (seenKeys.has(key)) return false;
+                              seenKeys.add(key);
+                            }
+                            return true;
                           });
                           return (
                             <div className="space-y-4">
@@ -9664,9 +9678,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                         {/* Card: Cancelados */}
                         {selectedResumenCard === 'cancelados' && (() => {
+                          const seenKeys = new Set<string>();
                           const rows = estatus2026Data.filter((row) => {
                             if (!estatus2026EstatusColumnField) return false;
-                            return normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) === 'Cancelado';
+                            if (normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) !== 'Cancelado') return false;
+                            if (estatus2026ServiceNameFieldSummary) {
+                              const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary);
+                              if (seenKeys.has(key)) return false;
+                              seenKeys.add(key);
+                            }
+                            return true;
                           });
                           return (
                             <div className="space-y-4">
@@ -9859,7 +9880,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <button
                             type="button"
                             onClick={() => setSelectedResumenCard('total')}
-                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-emerald-300 transition-all text-left group"
+                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-blue-300 transition-all text-left group"
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
@@ -9872,18 +9893,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   )}
                                 </p>
                               </div>
-                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-[#0F4C3A] border border-white/60 shadow-sm group-hover:bg-emerald-100 transition-colors">
+                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600 border border-blue-100 shadow-sm group-hover:bg-blue-100 transition-colors">
                                 <Layers className="h-5 w-5" />
                               </span>
                             </div>
-                            <p className="text-[10px] text-emerald-600 font-medium mt-3 group-hover:underline">Ver servicios activos →</p>
+                            <p className="text-[10px] text-blue-600 font-medium mt-3 group-hover:underline">Ver servicios activos →</p>
                           </button>
 
                           {/* Adjudicados */}
                           <button
                             type="button"
                             onClick={() => setSelectedResumenCard('adjudicados')}
-                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-amber-300 transition-all text-left group"
+                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-emerald-300 transition-all text-left group"
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
@@ -9895,11 +9916,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     : 'Sin datos'}
                                 </p>
                               </div>
-                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-700 border border-white/60 shadow-sm group-hover:bg-amber-100 transition-colors">
+                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 shadow-sm group-hover:bg-emerald-100 transition-colors">
                                 <TrendingUp className="h-5 w-5" />
                               </span>
                             </div>
-                            <p className="text-[10px] text-amber-600 font-medium mt-3 group-hover:underline">Ver adjudicados →</p>
+                            <p className="text-[10px] text-emerald-600 font-medium mt-3 group-hover:underline">Ver adjudicados →</p>
                           </button>
 
                           {/* En Proceso */}
@@ -9918,7 +9939,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     : 'Sin datos'}
                                 </p>
                               </div>
-                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-yellow-50 text-yellow-600 border border-white/60 shadow-sm group-hover:bg-yellow-100 transition-colors">
+                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-yellow-50 text-yellow-500 border border-yellow-100 shadow-sm group-hover:bg-yellow-100 transition-colors">
                                 <Clock className="h-5 w-5" />
                               </span>
                             </div>
