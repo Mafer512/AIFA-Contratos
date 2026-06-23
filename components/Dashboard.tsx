@@ -550,7 +550,7 @@ const GANTT_DATE_GROUPS: Array<{ label: string; start: string; end: string; colo
   { label: '3. Recepción de IM',                              start: 'Fecha recepción IM área técnica',              end: 'Fecha remisión área técnica',                  color: '#FACC15', textColor: '#78350F', area: 'DO' },
   { label: '4. Validación de IM por el área técnica',         start: 'Fecha inicio validación IM',                end: 'Fecha término validación IM',                color: '#EAB308', textColor: '#78350F', area: 'DO' },
   { label: '5. Envío de carpeta validada a RM',               start: 'Fecha recepción carpeta validada',          end: 'Fecha remisión carpeta RM',                  color: '#CA8A04', textColor: '#fff', area: 'DO' },
-  { label: '6. En revisión DEFENSA',                          start: 'Fecha envío revisión DEFENSA',              end: 'Fecha recepción revisión DEFENSA',            color: '#F59E0B', textColor: '#78350F', area: 'DO' },
+  { label: '6. En revisión DEFENSA',                          start: 'Fecha envío revisión DEFENSA',              end: 'Fecha recepción revisión DEFENSA',            color: '#F59E0B', textColor: '#78350F', area: 'DA' },
   { label: '7. Atención de observaciones DEFENSA',            start: 'Fecha inicio atención observaciones',        end: 'Fecha remisión observaciones',               color: '#D97706', textColor: '#fff', area: 'DO' },
   { label: '8. Documentación actualizada para publicación',   start: 'Fecha inicio documentación publicación',    end: 'Fecha remisión documentación publicación',   color: '#F97316', textColor: '#fff', area: 'DO' },
   { label: '9. Publicado Compras MX',                          start: 'Fecha inicio publicación',                  end: 'Fecha fallo',                               color: '#FFD700', textColor: '#78350F', area: 'DA' },
@@ -9598,11 +9598,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       {rows.map((row, idx) => {
                                         const estatusVal = estatus2026EstatusColumnField ? normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) : '—';
                                         const color = ESTATUS_2026_COLOR_MAP[estatusVal] ?? '#EAB308';
+                                        const lightColors = ['#FDE047','#FACC15','#EAB308','#FBBF24','#FFD700','#F59E0B','#F97316','#CA8A04','#D97706'];
+                                        const textColor = lightColors.includes(color) ? '#78350F' : color;
                                         return (
                                           <tr key={idx} className={`hover:bg-yellow-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-yellow-50/20'}`}>
                                             <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border" style={{ backgroundColor: `${color}1A`, borderColor: color, color }}>
+                                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border" style={{ backgroundColor: `${color}1A`, borderColor: color, color: textColor }}>
                                                 <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: color, display: 'inline-block', flexShrink: 0 }} />
                                                 {estatusVal}
                                               </span>
