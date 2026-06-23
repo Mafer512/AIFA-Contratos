@@ -9,7 +9,7 @@ import {
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
   CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
   Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, RefreshCw,
-  Users, Plane, Activity, Info, XCircle
+  Users, Plane, Activity, Info, XCircle, Clock
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
@@ -1007,7 +1007,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [showGastoCharts, setShowGastoCharts] = useState(false);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
-  const [selectedResumenCard, setSelectedResumenCard] = useState<'total' | 'adjudicados' | 'pagos' | 'cancelados' | null>(null);
+  const [selectedResumenCard, setSelectedResumenCard] = useState<'total' | 'adjudicados' | 'pagos' | 'cancelados' | 'en-proceso' | null>(null);
 
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [expandedServiciosConvenio, setExpandedServiciosConvenio] = useState<Record<string, boolean>>({});
@@ -4940,10 +4940,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       const label = normalizeEstatus2026Value(raw);
       counts[label] = (counts[label] ?? 0) + 1;
     });
+    const ORDER = [...ESTATUS_2026_OPTIONS, 'Sin estatus'];
     return Object.entries(counts)
       .filter(([, v]) => v > 0)
       .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
+      .sort((a, b) => {
+        const ia = ORDER.indexOf(a.name);
+        const ib = ORDER.indexOf(b.name);
+        return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+      });
   }, [estatus2026Data, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
 
   const estatus2026TotalMonto = useMemo(() => {
@@ -5013,9 +5018,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       d.name.toLowerCase().includes('procedimiento') || d.name.toLowerCase().includes('contratacion')
     )?.value ?? 0;
     const cancelados = estatus2026EstatusDistribution.find(d => d.name === 'Cancelado')?.value ?? 0;
+    const EN_PROCESO_STATUSES = ESTATUS_2026_OPTIONS.filter(s => s !== 'Adjudicado' && s !== 'Cancelado');
+    const enProceso = EN_PROCESO_STATUSES.reduce((sum, s) => sum + (estatus2026EstatusDistribution.find(d => d.name === s)?.value ?? 0), 0);
     // total = unique services excluding cancelled
     const total = uniqueTotal - cancelados;
-    return { total, dbTotal, uniqueStatuses, adjudicados, procedimiento, cancelados, allUnique: uniqueTotal };
+    return { total, dbTotal, uniqueStatuses, adjudicados, procedimiento, cancelados, enProceso, allUnique: uniqueTotal };
   }, [estatus2026Data, estatus2026EstatusDistribution, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
 
   const pagos2026MonthlyFlow = useMemo(() => {
@@ -9553,6 +9560,59 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           );
                         })()}
 
+                        {/* Card: En Proceso */}
+                        {selectedResumenCard === 'en-proceso' && (() => {
+                          const EN_PROCESO_STATUSES = ESTATUS_2026_OPTIONS.filter(s => s !== 'Adjudicado' && s !== 'Cancelado') as readonly string[];
+                          const rows = estatus2026Data.filter((row) => {
+                            if (!estatus2026EstatusColumnField) return false;
+                            const v = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
+                            return EN_PROCESO_STATUSES.includes(v);
+                          });
+                          const acento = [['Aeronautica', 'Aeronáutica'], ['Electromecanica', 'Electromecánica'], ['Electromecanico', 'Electromecánico'], ['Ingenieria', 'Ingeniería'], ['Distribucion', 'Distribución'], ['Generacion', 'Generación'], ['Operacion', 'Operación'], ['Administracion', 'Administración'], ['Medico', 'Médico'], ['Tecnico', 'Técnico'], ['Tecnica', 'Técnica'], ['Juridica', 'Jurídica'], ['Juridico', 'Jurídico'], ['Gestion', 'Gestión'], ['Comunicacion', 'Comunicación']];
+                          const fixAccent = (s: string) => acento.reduce((t, [a, b]) => t.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), s);
+                          return (
+                            <div className="space-y-4">
+                              <div>
+                                <h2 className="text-2xl font-bold text-slate-900">Servicios en Proceso</h2>
+                                <p className="text-slate-500 mt-1">{rows.length} servicio{rows.length !== 1 ? 's' : ''} en proceso de contratación.</p>
+                              </div>
+                              <div className="bg-white rounded-xl border border-yellow-200 shadow-sm overflow-hidden">
+                                <div className="overflow-x-auto">
+                                  <table className="min-w-full divide-y divide-slate-200">
+                                    <thead className="bg-yellow-500 text-white">
+                                      <tr>
+                                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
+                                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Estatus</th>
+                                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
+                                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-slate-200">
+                                      {rows.map((row, idx) => {
+                                        const estatusVal = estatus2026EstatusColumnField ? normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) : '—';
+                                        const color = ESTATUS_2026_COLOR_MAP[estatusVal] ?? '#EAB308';
+                                        return (
+                                          <tr key={idx} className={`hover:bg-yellow-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-yellow-50/20'}`}>
+                                            <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border" style={{ backgroundColor: `${color}1A`, borderColor: color, color }}>
+                                                <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: color, display: 'inline-block', flexShrink: 0 }} />
+                                                {estatusVal}
+                                              </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">{estatus2026SubdirFieldSummary ? fixAccent(String(row[estatus2026SubdirFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
+                                            <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">{estatus2026GerenciaFieldSummary ? fixAccent(String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {/* Card: Adjudicados */}
                         {selectedResumenCard === 'adjudicados' && (() => {
                           const rows = estatus2026Data.filter((row) => {
@@ -9794,7 +9854,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
 
                         {/* KPI Cards */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                           {/* Total Servicios */}
                           <button
                             type="button"
@@ -9840,6 +9900,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               </span>
                             </div>
                             <p className="text-[10px] text-amber-600 font-medium mt-3 group-hover:underline">Ver adjudicados →</p>
+                          </button>
+
+                          {/* En Proceso */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedResumenCard('en-proceso')}
+                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-yellow-300 transition-all text-left group"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">En Proceso</p>
+                                <p className="text-3xl font-bold text-yellow-600 mt-2">{estatus2026KPIs.enProceso}</p>
+                                <p className="text-xs text-slate-500 mt-2">
+                                  {estatus2026KPIs.allUnique > 0
+                                    ? `${Math.round((estatus2026KPIs.enProceso / estatus2026KPIs.allUnique) * 100)}% del total`
+                                    : 'Sin datos'}
+                                </p>
+                              </div>
+                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-yellow-50 text-yellow-600 border border-white/60 shadow-sm group-hover:bg-yellow-100 transition-colors">
+                                <Clock className="h-5 w-5" />
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-yellow-600 font-medium mt-3 group-hover:underline">Ver en proceso →</p>
                           </button>
 
                           {/* Cancelados */}
@@ -9896,29 +9979,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </div>
                             <span className="text-xs text-slate-400">{estatus2026KPIs.allUnique} servicios</span>
                           </div>
-                          <div className="h-[460px] w-full">
+                          <div className="h-[640px] w-full">
                             {loadingData ? (
                               <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
                             ) : estatus2026EstatusDistribution.length > 0 ? (
                               <ResponsiveContainer width="100%" height="100%">
-                                <PieChart margin={{ top: 40, bottom: 40, left: 40, right: 40 }}>
+                                <PieChart margin={{ top: 50, bottom: 20, left: 80, right: 80 }}>
                                   <Pie
                                     data={estatus2026EstatusDistribution}
                                     dataKey="value"
                                     nameKey="name"
                                     cx="50%"
                                     cy="50%"
-                                    outerRadius={100}
+                                    outerRadius={155}
                                     onClick={(data: any) => setSelectedEstatus2026Estatus(data.name)}
                                     className="cursor-pointer"
                                     label={({ cx, cy, midAngle = 0, outerRadius, percent = 0, index, name = '' }: any) => {
                                       const RADIAN = Math.PI / 180;
-                                      const radius = outerRadius + 60;
+                                      const radius = outerRadius + 78;
                                       const x = cx + radius * Math.cos(-midAngle * RADIAN);
                                       const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                                      if ((percent * 100) < 2) return null;
+                                      if ((percent * 100) < 1) return null;
                                       const sliceColor = ESTATUS_2026_COLOR_MAP[name] ?? '#94A3B8';
-                                      // Light/bright colors are unreadable on white — use dark text instead
                                       const lightColors = ['#FDE047','#FACC15','#EAB308','#FBBF24','#FFD700','#F59E0B','#F97316','#D97706'];
                                       const labelColor = lightColors.includes(sliceColor) ? '#78350F' : sliceColor;
                                       return (
@@ -9931,7 +10013,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           paintOrder="stroke"
                                           textAnchor={x > cx ? 'start' : 'end'}
                                           dominantBaseline="central"
-                                          style={{ fontSize: '11px', fontWeight: 700 }}
+                                          style={{ fontSize: '13px', fontWeight: 700 }}
                                         >
                                           {`${name} (${(percent * 100).toFixed(0)}%)`}
                                         </text>
@@ -9953,9 +10035,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   />
                                   <Legend
                                     verticalAlign="bottom"
-                                    height={36}
-                                    iconType="circle"
-                                    wrapperStyle={{ fontSize: '12px', paddingTop: '20px', cursor: 'pointer' }}
+                                    content={(props: any) => {
+                                      const { payload } = props;
+                                      if (!payload) return null;
+                                      return (
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', paddingTop: '20px' }}>
+                                          {payload.map((entry: any, i: number) => {
+                                            const col = entry.color as string;
+                                            const lightColors = ['#FDE047','#FACC15','#EAB308','#FBBF24','#FFD700','#F59E0B','#F97316','#D97706'];
+                                            const textCol = lightColors.includes(col) ? '#78350F' : col;
+                                            return (
+                                              <button
+                                                key={i}
+                                                onClick={() => setSelectedEstatus2026Estatus(entry.value || null)}
+                                                style={{
+                                                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                                                  padding: '5px 12px', borderRadius: 9999,
+                                                  border: `1.5px solid ${col}`,
+                                                  backgroundColor: `${col}1A`,
+                                                  cursor: 'pointer', transition: 'all 0.15s',
+                                                }}
+                                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = `${col}30`; }}
+                                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = `${col}1A`; }}
+                                              >
+                                                <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: col, flexShrink: 0, display: 'inline-block' }} />
+                                                <span style={{ fontSize: 11, fontWeight: 700, color: textCol, whiteSpace: 'nowrap' }}>{entry.value}</span>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    }}
                                     onClick={(data: any) => setSelectedEstatus2026Estatus(data.value || null)}
                                   />
                                 </PieChart>
@@ -11972,8 +12082,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 )}
 
                 {active2026View === 'gantt' && (() => {
-                  const DO_COLOR = '#60A5FA';
-                  const DA_COLOR = '#111827';
+                  const DO_COLOR = '#111827';
+                  const DA_COLOR = '#60A5FA';
                   const MONTHS_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
                   const MONTHS_FULL  = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
@@ -12090,17 +12200,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <div style={{ position: 'fixed', left: Math.min(ganttTooltip.x + 18, window.innerWidth - 340), top: Math.max(ganttTooltip.y - 160, 8), zIndex: 99999, pointerEvents: 'none', width: 320 }}>
                           <div style={{ backgroundColor: '#0D1117', border: '1px solid #30363D', borderRadius: 16, overflow: 'hidden', boxShadow: '0 32px 64px -12px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04)' }}>
                             {/* Gradient top bar */}
-                            <div style={{ height: 5, background: ganttTooltip.area === 'DO' ? `linear-gradient(90deg, ${DO_COLOR}, #BFDBFE)` : 'linear-gradient(90deg, #374151, #9CA3AF)' }} />
+                            <div style={{ height: 5, background: ganttTooltip.area === 'DO' ? 'linear-gradient(90deg, #374151, #6B7280)' : `linear-gradient(90deg, ${DA_COLOR}, #BFDBFE)` }} />
                             <div style={{ padding: '16px 18px 18px' }}>
                               {/* Area pill */}
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', padding: '3px 10px', borderRadius: 999, backgroundColor: ganttTooltip.area === 'DO' ? 'rgba(96,165,250,0.15)' : 'rgba(156,163,175,0.12)', color: ganttTooltip.area === 'DO' ? '#93C5FD' : '#9CA3AF', border: `1px solid ${ganttTooltip.area === 'DO' ? 'rgba(96,165,250,0.3)' : 'rgba(156,163,175,0.2)'}` }}>
+                                <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', padding: '3px 10px', borderRadius: 999, backgroundColor: ganttTooltip.area === 'DO' ? 'rgba(107,114,128,0.18)' : 'rgba(96,165,250,0.15)', color: ganttTooltip.area === 'DO' ? '#D1D5DB' : '#93C5FD', border: `1px solid ${ganttTooltip.area === 'DO' ? 'rgba(107,114,128,0.35)' : 'rgba(96,165,250,0.3)'}` }}>
                                   {ganttTooltip.area === 'DO' ? 'D.O — Dirección de Operación' : 'D.A — Dirección de Administración'}
                                 </span>
                                 <span style={{ fontSize: 9, color: '#4B5563', fontWeight: 600 }}>Fase {ganttTooltip.phaseIdx + 1} / {GANTT_DATE_GROUPS.length}</span>
                               </div>
                               {/* Phase name */}
-                              <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 6, color: ganttTooltip.area === 'DO' ? '#60A5FA' : '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 6, color: ganttTooltip.area === 'DO' ? '#9CA3AF' : DA_COLOR, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                                 {ganttTooltip.phaseName.replace(/^\d+\.\s+/, '')}
                               </div>
                               {/* Service name */}
@@ -12113,7 +12223,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               {/* Phase progress dots */}
                               <div style={{ display: 'flex', gap: 4, marginBottom: 14, alignItems: 'center' }}>
                                 {GANTT_DATE_GROUPS.map((g, i) => (
-                                  <div key={i} style={{ flex: 1, height: i === ganttTooltip.phaseIdx ? 6 : 3, borderRadius: 99, backgroundColor: i === ganttTooltip.phaseIdx ? (ganttTooltip.area === 'DO' ? DO_COLOR : '#9CA3AF') : i < ganttTooltip.phaseIdx ? '#374151' : '#1C2128', transition: 'all 0.2s' }} />
+                                  <div key={i} style={{ flex: 1, height: i === ganttTooltip.phaseIdx ? 6 : 3, borderRadius: 99, backgroundColor: i === ganttTooltip.phaseIdx ? (ganttTooltip.area === 'DO' ? '#9CA3AF' : DA_COLOR) : i < ganttTooltip.phaseIdx ? '#4B5563' : '#1C2128', transition: 'all 0.2s' }} />
                                 ))}
                               </div>
                               {/* Divider */}
@@ -12134,7 +12244,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               </div>
                               {/* Days count */}
                               <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, backgroundColor: '#161B22', borderRadius: 10, padding: '10px 14px' }}>
-                                <span style={{ fontSize: 36, fontWeight: 900, color: ganttTooltip.area === 'DO' ? DO_COLOR : '#E6EDF3', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{ganttTooltip.days}</span>
+                                <span style={{ fontSize: 36, fontWeight: 900, color: ganttTooltip.area === 'DO' ? '#E6EDF3' : DA_COLOR, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{ganttTooltip.days}</span>
                                 <div>
                                   <div style={{ fontSize: 12, fontWeight: 600, color: '#8B949E' }}>día{ganttTooltip.days !== 1 ? 's' : ''} de duración</div>
                                   <div style={{ fontSize: 10, color: '#4B5563' }}>{ganttTooltip.area === 'DO' ? 'Dirección de Operación' : 'Dirección de Administración'}</div>
@@ -12175,25 +12285,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       {showGanttLegend && (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="rounded-xl p-3 border-l-4" style={{ borderColor: DO_COLOR, backgroundColor: '#EFF6FF' }}>
+                            <div className="rounded-xl p-3 border-l-4" style={{ borderColor: DO_COLOR, backgroundColor: '#F9FAFB' }}>
                               <div className="flex items-center gap-2 mb-2">
                                 <div className="w-4 h-4 rounded" style={{ backgroundColor: DO_COLOR }} />
-                                <span className="text-sm font-bold text-blue-700">D.O — Dirección de Operación</span>
+                                <span className="text-sm font-bold text-slate-800">D.O — Dirección de Operación</span>
                               </div>
                               <div className="flex flex-wrap gap-1">
                                 {GANTT_DATE_GROUPS.filter(g => g.area === 'DO').map((g, i) => (
-                                  <span key={i} className="text-[10px] bg-blue-100 text-blue-800 rounded-full px-2 py-0.5">{g.label}</span>
+                                  <span key={i} className="text-[10px] bg-gray-200 text-gray-800 rounded-full px-2 py-0.5">{g.label}</span>
                                 ))}
                               </div>
                             </div>
-                            <div className="rounded-xl p-3 border-l-4" style={{ borderColor: DA_COLOR, backgroundColor: '#F9FAFB' }}>
+                            <div className="rounded-xl p-3 border-l-4" style={{ borderColor: DA_COLOR, backgroundColor: '#EFF6FF' }}>
                               <div className="flex items-center gap-2 mb-2">
                                 <div className="w-4 h-4 rounded" style={{ backgroundColor: DA_COLOR }} />
-                                <span className="text-sm font-bold text-slate-800">D.A — Dirección de Administración</span>
+                                <span className="text-sm font-bold text-blue-700">D.A — Dirección de Administración</span>
                               </div>
                               <div className="flex flex-wrap gap-1">
                                 {GANTT_DATE_GROUPS.filter(g => g.area === 'DA').map((g, i) => (
-                                  <span key={i} className="text-[10px] bg-gray-200 text-gray-800 rounded-full px-2 py-0.5">{g.label}</span>
+                                  <span key={i} className="text-[10px] bg-blue-100 text-blue-800 rounded-full px-2 py-0.5">{g.label}</span>
                                 ))}
                               </div>
                             </div>
@@ -12284,15 +12394,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                         {/* Total cards */}
                         <div className="grid grid-cols-2 gap-4 mb-4">
-                          <div className="rounded-2xl border-2 p-5" style={{ borderColor: DO_COLOR, backgroundColor: '#EFF6FF' }}>
+                          <div className="rounded-2xl border-2 p-5" style={{ borderColor: DO_COLOR, backgroundColor: '#F9FAFB' }}>
                             <div className="flex items-center gap-2 mb-2">
                               <div className="w-4 h-4 rounded" style={{ backgroundColor: DO_COLOR }} />
-                              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: DO_COLOR }}>D.O — Dirección de Operación</span>
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">D.O — Dirección de Operación</span>
                             </div>
-                            <div className="text-3xl font-black" style={{ color: DO_COLOR }}>{totalDO} <span className="text-base font-semibold">días</span></div>
+                            <div className="text-3xl font-black text-slate-900">{totalDO} <span className="text-base font-semibold">días</span></div>
                             <div className="text-xs text-slate-500 mt-1">Promedio por servicio: {ganttRows.length ? Math.round(totalDO / ganttRows.length) : 0} días</div>
                           </div>
-                          <div className="rounded-2xl border-2 p-5" style={{ borderColor: DA_COLOR, backgroundColor: '#F9FAFB' }}>
+                          <div className="rounded-2xl border-2 p-5" style={{ borderColor: DA_COLOR, backgroundColor: '#EFF6FF' }}>
                             <div className="flex items-center gap-2 mb-2">
                               <div className="w-4 h-4 rounded" style={{ backgroundColor: DA_COLOR }} />
                               <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: DA_COLOR }}>D.A — Dirección de Administración</span>
