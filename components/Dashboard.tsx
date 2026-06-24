@@ -412,8 +412,8 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
         aria-label={`Filtrar columna ${label}`}
         onClick={() => setIsOpen((prev) => !prev)}
         className={`p-1 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 ${isActive
-            ? 'bg-amber-100 text-amber-700 shadow-inner shadow-amber-200 hover:bg-amber-100'
-            : 'text-white/70 hover:text-white'
+          ? 'bg-amber-100 text-amber-700 shadow-inner shadow-amber-200 hover:bg-amber-100'
+          : 'text-white/70 hover:text-white'
           }`}
       >
         <Filter className="h-3.5 w-3.5" />
@@ -528,32 +528,32 @@ const ESTATUS_2026_OPTIONS = [
 
 // Hex colors for each canonical status — used in the pie chart and legend
 const ESTATUS_2026_COLOR_MAP: Record<string, string> = {
-  'Elaboración de anexo técnico, administrativo y apéndices': '#DC2626', // red-600  (etapa inicial / alerta)
-  'En IM':                                                    '#FDE047', // yellow-300 (etapa temprana)
-  'Recepción de IM':                                         '#FACC15', // yellow-400
-  'Validación de IM por el área técnica':                    '#EAB308', // yellow-500
-  'Envío de carpeta validada a RM':                          '#CA8A04', // yellow-600
-  'En revisión DEFENSA':                                     '#F59E0B', // amber-400
-  'Atención de observaciones DEFENSA':                       '#D97706', // amber-500
-  'Documentación actualizada para publicación':              '#F97316', // orange-500
-  'Publicado Compras MX':                                    '#FFD700', // gold yellow (última etapa antes de adjudicar)
-  'Adjudicado':                                              '#10B981', // emerald-500
-  'Cancelado':                                               '#111827', // gray-900 (negro)
-  'Sin estatus':                                             '#94A3B8', // slate-400
+  'Elaboración de anexo técnico, administrativo y apéndices': '#dbdb00', // amber-700
+  'En IM': '#FDE047', // yellow-300
+  'Recepción de IM': '#FACC15', // yellow-400
+  'Validación de IM por el área técnica': '#eadf08', // yellow-500
+  'Envío de carpeta validada a RM': '#f8e72a', // yellow-600
+  'En revisión DEFENSA': '#f5ed0b', // amber-400
+  'Atención de observaciones DEFENSA': '#f3f31e', // amber-500
+  'Documentación actualizada para publicación': '#eddd33', // orange-500
+  'Publicado Compras MX': '#FFD700', // gold yellow (última etapa antes de adjudicar)
+  'Adjudicado': '#10B981', // emerald-500
+  'Cancelado': '#111827', // gray-900
+  'Sin estatus': '#94A3B8', // slate-400
 };
 
 // Groups of Gantt date columns — each pair belongs to one process status.
 // Used to render the colored group-header row above the table columns.
 const GANTT_DATE_GROUPS: Array<{ label: string; start: string; end: string; color: string; textColor: string; area: 'DO' | 'DA' }> = [
-  { label: '1. Elaboración de anexo técnico, adm. y apéndices', start: 'Fecha inicio elaboración anexo técnico',   end: 'Fecha término elaboración anexo técnico',   color: '#DC2626', textColor: '#fff', area: 'DO' },
-  { label: '2. En IM',                                          start: 'Fecha remisión IM',                         end: 'Fecha recepción IM',                         color: '#FDE047', textColor: '#78350F', area: 'DA' },
-  { label: '3. Recepción de IM',                              start: 'Fecha recepción IM área técnica',              end: 'Fecha remisión área técnica',                  color: '#FACC15', textColor: '#78350F', area: 'DO' },
-  { label: '4. Validación de IM por el área técnica',         start: 'Fecha inicio validación IM',                end: 'Fecha término validación IM',                color: '#EAB308', textColor: '#78350F', area: 'DO' },
-  { label: '5. Envío de carpeta validada a RM',               start: 'Fecha recepción carpeta validada',          end: 'Fecha remisión carpeta RM',                  color: '#CA8A04', textColor: '#fff', area: 'DO' },
-  { label: '6. En revisión DEFENSA',                          start: 'Fecha envío revisión DEFENSA',              end: 'Fecha recepción revisión DEFENSA',            color: '#F59E0B', textColor: '#78350F', area: 'DA' },
-  { label: '7. Atención de observaciones DEFENSA',            start: 'Fecha inicio atención observaciones',        end: 'Fecha remisión observaciones',               color: '#D97706', textColor: '#fff', area: 'DO' },
-  { label: '8. Documentación actualizada para publicación',   start: 'Fecha inicio documentación publicación',    end: 'Fecha remisión documentación publicación',   color: '#F97316', textColor: '#fff', area: 'DO' },
-  { label: '9. Publicado Compras MX',                          start: 'Fecha inicio publicación',                  end: 'Fecha fallo',                               color: '#FFD700', textColor: '#78350F', area: 'DA' },
+  { label: '1. Elaboración de anexo técnico, adm. y apéndices', start: 'Fecha inicio elaboración anexo técnico', end: 'Fecha término elaboración anexo técnico', color: '#DC2626', textColor: '#fff', area: 'DO' },
+  { label: '2. En IM', start: 'Fecha remisión IM', end: 'Fecha recepción IM', color: '#FDE047', textColor: '#78350F', area: 'DA' },
+  { label: '3. Recepción de IM', start: 'Fecha recepción IM área técnica', end: 'Fecha remisión área técnica', color: '#FACC15', textColor: '#78350F', area: 'DO' },
+  { label: '4. Validación de IM por el área técnica', start: 'Fecha inicio validación IM', end: 'Fecha término validación IM', color: '#EAB308', textColor: '#78350F', area: 'DO' },
+  { label: '5. Envío de carpeta validada a RM', start: 'Fecha recepción carpeta validada', end: 'Fecha remisión carpeta RM', color: '#CA8A04', textColor: '#fff', area: 'DO' },
+  { label: '6. En revisión DEFENSA', start: 'Fecha envío revisión DEFENSA', end: 'Fecha recepción revisión DEFENSA', color: '#F59E0B', textColor: '#78350F', area: 'DA' },
+  { label: '7. Atención de observaciones DEFENSA', start: 'Fecha inicio atención observaciones', end: 'Fecha remisión observaciones', color: '#D97706', textColor: '#fff', area: 'DO' },
+  { label: '8. Documentación actualizada para publicación', start: 'Fecha inicio documentación publicación', end: 'Fecha remisión documentación publicación', color: '#F97316', textColor: '#fff', area: 'DO' },
+  { label: '9. Publicado Compras MX', start: 'Fecha inicio publicación', end: 'Fecha fallo', color: '#FFD700', textColor: '#78350F', area: 'DA' },
 ];
 
 const getEstatusColorClass = (label: string) => {
@@ -746,8 +746,8 @@ const TipoServicioPicker: React.FC<TipoServicioPickerProps> = ({ value, onChange
                     setIsOpen(false);
                   }}
                   className={`rounded-md border px-3 py-2 text-left transition-colors ${isActive
-                      ? 'border-[#0F4C3A] bg-emerald-50 text-[#0F4C3A]'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    ? 'border-[#0F4C3A] bg-emerald-50 text-[#0F4C3A]'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                     }`}
                 >
                   <span className="block text-[12px] font-semibold">{option.label}</span>
@@ -992,7 +992,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const obsTextareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const [active2026View, setActive2026View] = useState<'resumen' | 'estatus' | 'pagos' | 'gantt'>('resumen');
   const [showGanttLegend, setShowGanttLegend] = useState(false);
-  const [ganttTooltip, setGanttTooltip] = useState<{x:number;y:number;service:string;gerencia:string;phaseName:string;area:'DO'|'DA';start:Date;end:Date;days:number;phaseIdx:number}|null>(null);
+  const [ganttTooltip, setGanttTooltip] = useState<{ x: number; y: number; service: string; gerencia: string; phaseName: string; area: 'DO' | 'DA'; start: Date; end: Date; days: number; phaseIdx: number } | null>(null);
   const [activePagos2026View, setActivePagos2026View] = useState<'tabla' | 'resumen'>('tabla');
   const [expandedPagos2026SummaryKey, setExpandedPagos2026SummaryKey] = useState<string | null>(null);
   const [activeReportesView, setActiveReportesView] = useState<'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas'>('gastoEfectuado');
@@ -1008,6 +1008,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
   const [selectedResumenCard, setSelectedResumenCard] = useState<'total' | 'adjudicados' | 'pagos' | 'cancelados' | 'en-proceso' | null>(null);
+  const [ganttModalService, setGanttModalService] = useState<Record<string, any> | null>(null);
 
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [expandedServiciosConvenio, setExpandedServiciosConvenio] = useState<Record<string, boolean>>({});
@@ -7903,8 +7904,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       key={item.id}
                       onClick={() => handleSidebarSelection(item.id)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${isActive
-                          ? 'bg-amber-500/15 text-amber-300'
-                          : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                        ? 'bg-amber-500/15 text-amber-300'
+                        : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                         }`}
                     >
                       <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-amber-400' : 'text-white/30'}`} />
@@ -7953,8 +7954,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         setSelectedResumenCard(null);
                       }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${isActive
-                          ? 'bg-emerald-500/15 text-emerald-300'
-                          : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                        ? 'bg-emerald-500/15 text-emerald-300'
+                        : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                         }`}
                     >
                       <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-white/30'}`} />
@@ -7997,8 +7998,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       key={item.id}
                       onClick={() => { handleSidebarSelection('reportes'); setActiveReportesView(item.id); }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${isActive
-                          ? 'bg-indigo-500/15 text-indigo-300'
-                          : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                        ? 'bg-indigo-500/15 text-indigo-300'
+                        : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                         }`}
                     >
                       <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-indigo-400' : 'text-white/30'}`} />
@@ -8015,8 +8016,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           <button
             onClick={() => handleSidebarSelection('history')}
             className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${activeTab === 'history'
-                ? 'bg-sky-500/15 text-sky-300'
-                : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+              ? 'bg-sky-500/15 text-sky-300'
+              : 'text-white/50 hover:bg-white/5 hover:text-white/80'
               }`}
           >
             <span className={`flex h-6 w-6 items-center justify-center rounded-lg ${activeTab === 'history' ? 'bg-sky-500/20' : 'bg-white/5'}`}>
@@ -8709,8 +8710,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <button
                         onClick={() => setStatusTab('dashboard')}
                         className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${statusTab === 'dashboard'
-                            ? 'bg-[#0F4C3A] text-white shadow-sm'
-                            : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
+                          ? 'bg-[#0F4C3A] text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                           }`}
                       >
                         <LayoutDashboard className="h-3.5 w-3.5" />
@@ -8719,8 +8720,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <button
                         onClick={() => setStatusTab('calendar')}
                         className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${statusTab === 'calendar'
-                            ? 'bg-[#0F4C3A] text-white shadow-sm'
-                            : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
+                          ? 'bg-[#0F4C3A] text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                           }`}
                       >
                         <CalendarDays className="h-3.5 w-3.5" />
@@ -8729,8 +8730,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <button
                         onClick={() => setStatusTab('table')}
                         className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${statusTab === 'table'
-                            ? 'bg-[#0F4C3A] text-white shadow-sm'
-                            : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
+                          ? 'bg-[#0F4C3A] text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                           }`}
                       >
                         <FileSpreadsheet className="h-3.5 w-3.5" />
@@ -9504,9 +9505,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <div className="space-y-6">
                         <button
                           onClick={() => setSelectedResumenCard(null)}
-                          className="flex items-center text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
                         >
-                          <ArrowLeft className="h-4 w-4 mr-1" />
+                          <ArrowLeft className="h-4 w-4" />
                           Volver al resumen 2026
                         </button>
 
@@ -9593,16 +9594,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
                                         <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
                                       </tr>
+                                      <tr className="bg-yellow-400/60">
+                                        <td colSpan={4} className="px-6 py-1.5 text-[10px] font-semibold text-yellow-900/80 text-center tracking-wide flex items-center justify-center gap-1.5">
+                                          <Layers className="h-3 w-3 inline-block" /> Haz clic en cualquier servicio para ver su diagrama de Gantt
+                                        </td>
+                                      </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-slate-200">
                                       {rows.map((row, idx) => {
                                         const estatusVal = estatus2026EstatusColumnField ? normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) : '—';
                                         const color = ESTATUS_2026_COLOR_MAP[estatusVal] ?? '#EAB308';
-                                        const lightColors = ['#FDE047','#FACC15','#EAB308','#FBBF24','#FFD700','#F59E0B','#F97316','#CA8A04','#D97706'];
+                                        const lightColors = ['#FDE047', '#FACC15', '#EAB308', '#FBBF24', '#FFD700', '#F59E0B', '#F97316', '#CA8A04', '#D97706'];
                                         const textColor = lightColors.includes(color) ? '#78350F' : color;
+                                        const hasGantt = GANTT_DATE_GROUPS.some(g => row[g.start] && row[g.end]);
                                         return (
-                                          <tr key={idx} className={`hover:bg-yellow-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-yellow-50/20'}`}>
-                                            <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
+                                          <tr
+                                            key={idx}
+                                            onClick={() => setGanttModalService(row)}
+                                            className={`transition-colors cursor-pointer ${idx % 2 === 0 ? 'bg-white' : 'bg-yellow-50/20'} hover:bg-yellow-100/60`}
+                                          >
+                                            <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">
+                                              <span className="flex items-center gap-2">
+                                                {estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}
+                                                {hasGantt && <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300 rounded-full px-2 py-0.5 ml-1 whitespace-nowrap"><Layers className="h-3 w-3" />Gantt</span>}
+                                              </span>
+                                            </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border" style={{ backgroundColor: `${color}1A`, borderColor: color, color: textColor }}>
                                                 <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: color, display: 'inline-block', flexShrink: 0 }} />
@@ -9621,6 +9637,265 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </div>
                           );
                         })()}
+
+                        {/* ── Gantt Modal Portal (single service) ── */}
+                        {ganttModalService !== null && createPortal((() => {
+                          const DO_COLOR = '#111827';
+                          const DA_COLOR = '#60A5FA';
+                          const MONTHS_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+                          const parseGM = (v: any): Date | null => {
+                            if (!v) return null;
+                            const s = String(v).trim();
+                            const parts = s.split('-');
+                            if (parts.length === 3) {
+                              const y = parseInt(parts[0], 10), mo = parseInt(parts[1], 10) - 1, d = parseInt(parts[2], 10);
+                              if (!isNaN(y) && !isNaN(mo) && !isNaN(d)) return new Date(y, mo, d);
+                            }
+                            const dt = new Date(s);
+                            return isNaN(dt.getTime()) ? null : dt;
+                          };
+
+                          const svcRow = ganttModalService;
+                          const svcName = estatus2026ServiceNameFieldSummary ? String(svcRow[estatus2026ServiceNameFieldSummary] ?? 'Servicio') : 'Servicio';
+                          const svcGerencia = estatus2026GerenciaFieldSummary ? String(svcRow[estatus2026GerenciaFieldSummary] ?? '') : '';
+                          const svcSubdir = estatus2026SubdirFieldSummary ? String(svcRow[estatus2026SubdirFieldSummary] ?? '') : '';
+                          const svcEstatus = estatus2026EstatusColumnField ? normalizeEstatus2026Value(svcRow[estatus2026EstatusColumnField]) : '';
+                          const estatusColor = ESTATUS_2026_COLOR_MAP[svcEstatus] ?? '#EAB308';
+                          const lightColors = ['#FDE047', '#FACC15', '#EAB308', '#FBBF24', '#FFD700', '#F59E0B', '#F97316', '#CA8A04', '#D97706'];
+                          const estatusText = lightColors.includes(estatusColor) ? '#78350F' : estatusColor;
+
+                          const phases = GANTT_DATE_GROUPS.map(g => ({
+                            label: g.label,
+                            color: g.color,
+                            textColor: g.textColor,
+                            area: g.area,
+                            startDate: parseGM(svcRow[g.start]),
+                            endDate: parseGM(svcRow[g.end]),
+                          }));
+
+                          const validPhases = phases.filter(p => p.startDate && p.endDate);
+
+                          // Timeline bounds
+                          let minTs = Infinity, maxTs = -Infinity;
+                          validPhases.forEach(p => {
+                            const s = p.startDate!.getTime(), e = p.endDate!.getTime();
+                            if (s < minTs) minTs = s; if (s > maxTs) maxTs = s;
+                            if (e < minTs) minTs = e; if (e > maxTs) maxTs = e;
+                          });
+                          const pad = Math.max((maxTs - minTs) * 0.04, 86400000 * 4);
+                          const rMin = minTs - pad, rMax = maxTs + pad;
+                          const totalMs = rMax - rMin || 1;
+                          const pct = (ts: number) => Math.max(0, Math.min(100, (ts - rMin) / totalMs * 100));
+
+                          // Month slots for header
+                          const mSlots: { label: string; pct: number; w: number }[] = [];
+                          if (validPhases.length > 0) {
+                            const mCur = new Date(new Date(minTs).getFullYear(), new Date(minTs).getMonth(), 1);
+                            while (mCur.getTime() <= maxTs) {
+                              const mStart = mCur.getTime();
+                              const nextM = new Date(mCur.getFullYear(), mCur.getMonth() + 1, 1);
+                              const mEnd = nextM.getTime() - 1;
+                              const mP = pct(mStart);
+                              const mW = pct(mEnd) - mP;
+                              if (mW > 0) mSlots.push({ label: `${MONTHS_SHORT[mCur.getMonth()]} ${mCur.getFullYear()}`, pct: mP, w: mW });
+                              mCur.setMonth(mCur.getMonth() + 1);
+                            }
+                          }
+
+                          const doDays = validPhases.filter(p => p.area === 'DO').reduce((s, p) => s + Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000), 0);
+                          const daDays = validPhases.filter(p => p.area === 'DA').reduce((s, p) => s + Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000), 0);
+
+                          // Alert level per phase based on duration
+                          const alertLevel = (days: number): { stripe: string; glow: string; badge: string; label: string; rowBg: string } => {
+                            if (days === 0) return { stripe: 'transparent', glow: 'none', badge: '#4B5563', label: '', rowBg: 'transparent' };
+                            if (days <= 7) return { stripe: '#10B981', glow: 'none', badge: '#10B981', label: 'Rápido', rowBg: 'transparent' };
+                            if (days <= 20) return { stripe: '#F59E0B', glow: 'none', badge: '#F59E0B', label: 'Normal', rowBg: 'transparent' };
+                            if (days <= 44) return { stripe: '#F97316', glow: '0 0 8px rgba(249,115,22,0.5)', badge: '#F97316', label: 'Lento', rowBg: 'rgba(249,115,22,0.04)' };
+                            return { stripe: '#EF4444', glow: '0 0 12px rgba(239,68,68,0.6)', badge: '#EF4444', label: '⚠ Crítico', rowBg: 'rgba(239,68,68,0.06)' };
+                          };
+                          const maxPhaseDays = Math.max(...validPhases.map(p => Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
+                          const doMaxDays = validPhases.filter(p => p.area === 'DO').reduce((m, p) => Math.max(m, Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
+                          const daMaxDays = validPhases.filter(p => p.area === 'DA').reduce((m, p) => Math.max(m, Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
+                          const doAlert = alertLevel(doMaxDays);
+                          const daAlert = alertLevel(daMaxDays);
+
+                          return (
+                            <div
+                              className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                              style={{ backgroundColor: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)' }}
+                              onClick={() => setGanttModalService(null)}
+                            >
+                              <div
+                                className="relative bg-white rounded-2xl shadow-2xl w-full max-h-[92vh] overflow-hidden flex flex-col"
+                                style={{ maxWidth: 900 }}
+                                onClick={e => e.stopPropagation()}
+                              >
+                                {/* Header */}
+                                <div className="flex items-start justify-between gap-4 px-7 pt-6 pb-5 border-b border-slate-100 bg-gradient-to-r from-slate-900 to-slate-800 rounded-t-2xl">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border"
+                                        style={{ backgroundColor: `${estatusColor}22`, borderColor: estatusColor, color: estatusText === '#78350F' ? '#EAB308' : estatusColor }}>
+                                        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: estatusColor, display: 'inline-block' }} />
+                                        {svcEstatus || 'En Proceso'}
+                                      </span>
+                                      {svcSubdir && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-900/40 text-indigo-300 border border-indigo-700/50">{svcSubdir}</span>
+                                      )}
+                                      {svcGerencia && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-900/40 text-teal-300 border border-teal-700/50">{svcGerencia}</span>
+                                      )}
+                                    </div>
+                                    <h2 className="text-lg font-extrabold text-white leading-snug pr-4">{svcName}</h2>
+                                    <p className="text-slate-400 text-xs mt-1.5">{validPhases.length} fase{validPhases.length !== 1 ? 's' : ''} con fechas · {doDays + daDays} días totales</p>
+                                  </div>
+                                  <button
+                                    onClick={() => setGanttModalService(null)}
+                                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                                  >
+                                    <X className="h-5 w-5" />
+                                  </button>
+                                </div>
+
+                                {/* Body */}
+                                <div className="overflow-y-auto flex-1 px-7 py-6 space-y-6">
+                                  {validPhases.length === 0 ? (
+                                    <div className="text-center py-16">
+                                      <CalendarDays className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+                                      <p className="text-slate-500 font-semibold">Sin fechas capturadas</p>
+                                      <p className="text-slate-400 text-sm mt-1">Agrega fechas en la tabla de Estatus servicios para ver el Gantt.</p>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {/* Area summary pills */}
+                                      <div className="flex gap-3 flex-wrap">
+                                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 bg-slate-50" style={{ borderColor: doAlert.badge !== '#4B5563' && doAlert.badge !== '#10B981' ? doAlert.badge : DO_COLOR, boxShadow: doAlert.glow }}>
+                                          <div className="w-3 h-3 rounded" style={{ backgroundColor: DO_COLOR }} />
+                                          <span className="text-xs font-bold text-slate-700">D.O — Dirección de Operación</span>
+                                          <span className="ml-2 text-xl font-black text-slate-900">{doDays}</span>
+                                          <span className="text-xs text-slate-500">días</span>
+                                          {doAlert.label && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1" style={{ backgroundColor: `${doAlert.badge}22`, color: doAlert.badge, border: `1px solid ${doAlert.badge}55` }}>{doAlert.label}</span>}
+                                        </div>
+                                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 bg-blue-50" style={{ borderColor: daAlert.badge !== '#4B5563' && daAlert.badge !== '#10B981' ? daAlert.badge : DA_COLOR, boxShadow: daAlert.glow }}>
+                                          <div className="w-3 h-3 rounded" style={{ backgroundColor: DA_COLOR }} />
+                                          <span className="text-xs font-bold" style={{ color: DA_COLOR }}>D.A — Dirección de Administración</span>
+                                          <span className="ml-2 text-xl font-black" style={{ color: DA_COLOR }}>{daDays}</span>
+                                          <span className="text-xs text-slate-500">días</span>
+                                          {daAlert.label && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1" style={{ backgroundColor: `${daAlert.badge}22`, color: daAlert.badge, border: `1px solid ${daAlert.badge}55` }}>{daAlert.label}</span>}
+                                        </div>
+                                      </div>
+
+                                      {/* Leyenda de alertas */}
+                                      <div className="flex items-center gap-3 flex-wrap">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Alerta de tiempo:</span>
+                                        {[{ color: '#10B981', label: '≤ 7 días — Rápido' }, { color: '#F59E0B', label: '8–20 días — Normal' }, { color: '#F97316', label: '21–44 días — Lento' }, { color: '#EF4444', label: '45+ días — Crítico' }].map(l => (
+                                          <span key={l.label} className="flex items-center gap-1 text-[10px] font-semibold" style={{ color: l.color }}>
+                                            <span style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: l.color, display: 'inline-block' }} />
+                                            {l.label}
+                                          </span>
+                                        ))}
+                                      </div>
+
+                                      {/* Gantt timeline */}
+                                      <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                                        {/* Month header */}
+                                        <div className="flex" style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                          <div className="flex-shrink-0 w-48 px-4 py-2 bg-slate-100 border-r border-slate-200">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fase</span>
+                                          </div>
+                                          <div className="flex-1 relative h-8 bg-slate-100 overflow-hidden">
+                                            {mSlots.map((m, i) => (
+                                              <div key={i} className="absolute top-0 h-full flex items-center justify-center border-r border-slate-300 overflow-hidden"
+                                                style={{ left: `${m.pct}%`, width: `${m.w}%` }}>
+                                                <span className="text-[11px] font-extrabold text-slate-700 truncate select-none px-1">{m.label}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        {/* Phase rows */}
+                                        {phases.map((p, pi) => {
+                                          const hasData = p.startDate && p.endDate;
+                                          const lPct = hasData ? pct(p.startDate!.getTime()) : 0;
+                                          const wPct = hasData ? (p.endDate!.getTime() - p.startDate!.getTime()) / totalMs * 100 : 0;
+                                          const days = hasData ? Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000) : 0;
+                                          const al = hasData ? alertLevel(days) : alertLevel(0);
+                                          const barColor = p.area === 'DO' ? DO_COLOR : DA_COLOR;
+                                          const isMax = hasData && days === maxPhaseDays && days > 0;
+                                          return (
+                                            <div key={pi} className="flex items-stretch" style={{ borderBottom: pi < phases.length - 1 ? '1px solid #f1f5f9' : undefined, minHeight: 48, backgroundColor: al.rowBg }}>
+                                              <div className="flex-shrink-0 w-48 px-3 py-2 border-r border-slate-100 flex flex-col justify-center bg-slate-50">
+                                                <span className="text-[10px] font-bold leading-tight" style={{ color: hasData ? (al.badge !== '#4B5563' ? al.badge : '#334155') : '#94A3B8' }}>
+                                                  {p.label.replace(/^\d+\.\s+/, '')}
+                                                </span>
+                                                <span className="text-[9px] mt-0.5 font-semibold" style={{ color: p.area === 'DO' ? '#64748B' : '#3B82F6' }}>
+                                                  {p.area === 'DO' ? '■ D.O' : '■ D.A'}
+                                                </span>
+                                              </div>
+                                              <div className="flex-1 relative bg-slate-50 overflow-hidden" style={{ padding: '9px 0' }}>
+                                                {hasData ? (
+                                                  <div
+                                                    className="absolute rounded-lg overflow-hidden"
+                                                    style={{
+                                                      top: 9, height: 30,
+                                                      left: `${lPct}%`,
+                                                      width: `${Math.max(wPct, 1.5)}%`,
+                                                      backgroundColor: barColor,
+                                                      boxShadow: isMax ? al.glow : 'none',
+                                                    }}
+                                                  >
+                                                    {/* Alert stripe at top */}
+                                                    {al.stripe !== 'transparent' && (
+                                                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 5, backgroundColor: al.stripe, opacity: 0.95 }} />
+                                                    )}
+                                                    {/* Duration label */}
+                                                    {wPct > 4 && (
+                                                      <span className="absolute bottom-0 left-0 px-2 text-[11px] font-black select-none" style={{ color: '#fff', lineHeight: '25px', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>
+                                                        {days}d
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                ) : (
+                                                  <div className="absolute inset-0 flex items-center px-3">
+                                                    <span className="text-[10px] text-slate-400 italic">Sin fecha</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                              {hasData ? (
+                                                <div className="flex-shrink-0 w-44 px-3 py-2 border-l border-slate-100 bg-slate-50 flex flex-col justify-center">
+                                                  <span className="text-[10px] text-slate-500">
+                                                    {p.startDate!.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} → {p.endDate!.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: '2-digit' })}
+                                                  </span>
+                                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <span className="text-[12px] font-black" style={{ color: al.badge !== '#4B5563' ? al.badge : '#1E293B' }}>{days} día{days !== 1 ? 's' : ''}</span>
+                                                    {al.label && <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ backgroundColor: `${al.badge}22`, color: al.badge }}>{al.label}</span>}
+                                                  </div>
+                                                </div>
+                                              ) : (
+                                                <div className="flex-shrink-0 w-44 border-l border-slate-100 bg-slate-50" />
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+
+                                {/* Footer */}
+                                <div className="px-7 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between rounded-b-2xl">
+                                  <span className="text-[11px] text-slate-400">Haz clic fuera del modal para cerrar</span>
+                                  <button
+                                    onClick={() => setGanttModalService(null)}
+                                    className="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-700 transition-colors"
+                                  >
+                                    Cerrar
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })(), document.body)}
 
                         {/* Card: Adjudicados */}
                         {selectedResumenCard === 'adjudicados' && (() => {
@@ -9648,8 +9923,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <thead className="bg-[#0F4C3A] text-white">
                                       <tr>
                                         <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Proveedor</th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">No. Contrato</th>
+                                        <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">Proveedor</th>
                                         <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
                                         <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
                                       </tr>
@@ -9659,12 +9933,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         const acento = [['Aeronautica', 'Aeronáutica'], ['Electromecanica', 'Electromecánica'], ['Electromecanico', 'Electromecánico'], ['Ingenieria', 'Ingeniería'], ['Distribucion', 'Distribución'], ['Generacion', 'Generación'], ['Operacion', 'Operación'], ['Administracion', 'Administración'], ['Medico', 'Médico'], ['Tecnico', 'Técnico'], ['Tecnica', 'Técnica'], ['Juridica', 'Jurídica'], ['Juridico', 'Jurídico'], ['Gestion', 'Gestión'], ['Comunicacion', 'Comunicación']];
                                         const fixAccent = (s: string) => acento.reduce((t, [a, b]) => t.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), s);
                                         const proveedorField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('proveedor'));
-                                        const contratoField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('no contrato') || normalizeAnnualKey(c).includes('contrato'));
                                         return (
                                           <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                             <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{proveedorField ? String(row[proveedorField] ?? '—') : '—'}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{contratoField ? String(row[contratoField] ?? '—') : '—'}</td>
+                                            <td className="px-6 py-4 text-sm text-center text-slate-600">{proveedorField ? String(row[proveedorField] ?? '—') : '—'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">{estatus2026SubdirFieldSummary ? fixAccent(String(row[estatus2026SubdirFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
                                             <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">{estatus2026GerenciaFieldSummary ? fixAccent(String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
                                           </tr>
@@ -9794,9 +10066,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <div className="space-y-6">
                         <button
                           onClick={() => setSelectedEstatus2026Estatus(null)}
-                          className="flex items-center text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
                         >
-                          <ArrowLeft className="h-4 w-4 mr-1" />
+                          <ArrowLeft className="h-4 w-4" />
                           Volver al resumen 2026
                         </button>
                         <div>
@@ -9877,7 +10149,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
 
                         {/* KPI Cards */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                           {/* Total Servicios */}
                           <button
                             type="button"
@@ -9934,7 +10206,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">En Proceso</p>
-                                <p className="text-3xl font-bold text-yellow-600 mt-2">{estatus2026KPIs.enProceso}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.enProceso}</p>
                                 <p className="text-xs text-slate-500 mt-2">
                                   {estatus2026KPIs.allUnique > 0
                                     ? `${Math.round((estatus2026KPIs.enProceso / estatus2026KPIs.allUnique) * 100)}% del total`
@@ -9957,7 +10229,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cancelados</p>
-                                <p className="text-3xl font-bold text-red-600 mt-2">{estatus2026KPIs.cancelados}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.cancelados}</p>
                                 <p className="text-xs text-slate-500 mt-2">
                                   {estatus2026KPIs.allUnique > 0
                                     ? `${Math.round((estatus2026KPIs.cancelados / estatus2026KPIs.allUnique) * 100)}% del total`
@@ -9969,25 +10241,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               </span>
                             </div>
                             <p className="text-[10px] text-red-500 font-medium mt-3 group-hover:underline">Ver cancelados →</p>
-                          </button>
-
-                          {/* Total Pagos 2026 */}
-                          <button
-                            type="button"
-                            onClick={() => setSelectedResumenCard('pagos')}
-                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-violet-300 transition-all text-left group"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Pagos 2026</p>
-                                <p className="text-2xl font-bold text-slate-900 mt-2">{formatCurrency(pagos2026TotalAmount)}</p>
-                                <p className="text-xs text-slate-500 mt-2">{pagos2026ServicePaymentProgress.filter(r => r.paid > 0).length} registros de pago</p>
-                              </div>
-                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-violet-50 text-violet-700 border border-white/60 shadow-sm group-hover:bg-violet-100 transition-colors">
-                                <DollarSign className="h-5 w-5" />
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-violet-600 font-medium mt-3 group-hover:underline">Ver desglose de pagos →</p>
                           </button>
                         </div>
 
@@ -10009,7 +10262,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <ResponsiveContainer width="100%" height="100%">
                                 <PieChart margin={{ top: 50, bottom: 20, left: 80, right: 80 }}>
                                   <Pie
-                                    data={estatus2026EstatusDistribution}
+                                    data={estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado')}
                                     dataKey="value"
                                     nameKey="name"
                                     cx="50%"
@@ -10017,29 +10270,57 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     outerRadius={155}
                                     onClick={(data: any) => setSelectedEstatus2026Estatus(data.name)}
                                     className="cursor-pointer"
-                                    label={({ cx, cy, midAngle = 0, outerRadius, percent = 0, index, name = '' }: any) => {
+                                    label={({ cx, cy, outerRadius, percent = 0, index, name = '' }: any) => {
                                       const RADIAN = Math.PI / 180;
-                                      const radius = outerRadius + 78;
-                                      const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                                      const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                                      if ((percent * 100) < 1) return null;
-                                      const sliceColor = ESTATUS_2026_COLOR_MAP[name] ?? '#94A3B8';
-                                      const lightColors = ['#FDE047','#FACC15','#EAB308','#FBBF24','#FFD700','#F59E0B','#F97316','#D97706'];
-                                      const labelColor = lightColors.includes(sliceColor) ? '#78350F' : sliceColor;
+                                      const LBL_R = outerRadius + 90;
+                                      const BOX_H = 20;
+                                      const FONT = 11;
+                                      const CHAR_W = 6.1;
+                                      const PAD = 8;
+                                      const MIN_GAP = BOX_H + 5;
+                                      const SHORT: Record<string, string> = {
+                                        'Elaboración de anexo técnico, administrativo y apéndices': 'Elaboración',
+                                        'Validación de IM por el área técnica': 'Validación de IM',
+                                        'Envío de carpeta validada a RM': 'Envío de carpeta',
+                                        'Documentación actualizada para publicación': 'Doc. para publicación',
+                                        'Atención de observaciones DEFENSA': 'Atención obs.',
+                                      };
+                                      const pieData = estatus2026EstatusDistribution.filter((d: any) => d.name !== 'Cancelado');
+                                      const totalVal = pieData.reduce((s: number, d: any) => s + d.value, 0);
+                                      let acc = 0;
+                                      const positions: Array<{ name: string; x: number; y: number; label: string; boxW: number; pct: number }> = pieData.map((slice: any) => {
+                                        const f = slice.value / totalVal;
+                                        const mid = acc + f * 180;
+                                        acc += f * 360;
+                                        const short = SHORT[slice.name] ?? slice.name;
+                                        const lbl = `${short} (${(f * 100).toFixed(0)}%)`;
+                                        const nx = cx + LBL_R * Math.cos(-mid * RADIAN);
+                                        const ny = cy + LBL_R * Math.sin(-mid * RADIAN);
+                                        return { name: slice.name, x: nx, y: ny, label: lbl, boxW: lbl.length * CHAR_W + PAD * 2, pct: f * 100 };
+                                      });
+                                      const visible = positions.filter(p => p.pct >= 1);
+                                      const right = visible.filter(p => p.x >= cx).sort((a, b) => a.y - b.y);
+                                      const left = visible.filter(p => p.x < cx).sort((a, b) => a.y - b.y);
+                                      [right, left].forEach(group => {
+                                        for (let i = 1; i < group.length; i++) {
+                                          if (group[i].y - group[i - 1].y < MIN_GAP) {
+                                            group[i].y = group[i - 1].y + MIN_GAP;
+                                          }
+                                        }
+                                      });
+                                      const pos = positions[index];
+                                      if (!pos || pos.pct < 1) return null;
+                                      const anchor = pos.x >= cx ? 'start' : 'end';
+                                      const bx = anchor === 'start' ? pos.x : pos.x - pos.boxW;
+                                      const tx = anchor === 'start' ? pos.x + PAD : pos.x - PAD;
                                       return (
-                                        <text
-                                          x={x}
-                                          y={y}
-                                          fill={labelColor}
-                                          stroke="white"
-                                          strokeWidth={3}
-                                          paintOrder="stroke"
-                                          textAnchor={x > cx ? 'start' : 'end'}
-                                          dominantBaseline="central"
-                                          style={{ fontSize: '13px', fontWeight: 700 }}
-                                        >
-                                          {`${name} (${(percent * 100).toFixed(0)}%)`}
-                                        </text>
+                                        <g>
+                                          <rect x={bx} y={pos.y - BOX_H / 2} width={pos.boxW} height={BOX_H} rx={5} ry={5} fill="#111827" opacity={0.88} />
+                                          <text x={tx} y={pos.y} fill="white" textAnchor={anchor} dominantBaseline="central"
+                                            style={{ fontSize: `${FONT}px`, fontWeight: 700 }}>
+                                            {pos.label}
+                                          </text>
+                                        </g>
                                       );
                                     }}
                                     labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
@@ -10061,28 +10342,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     content={(props: any) => {
                                       const { payload } = props;
                                       if (!payload) return null;
+                                      const isLight = (hex: string) => {
+                                        const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+                                        return (0.299*r + 0.587*g + 0.114*b)/255 > 0.55;
+                                      };
                                       return (
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', paddingTop: '20px' }}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', paddingTop: '24px' }}>
                                           {payload.map((entry: any, i: number) => {
                                             const col = entry.color as string;
-                                            const lightColors = ['#FDE047','#FACC15','#EAB308','#FBBF24','#FFD700','#F59E0B','#F97316','#D97706'];
-                                            const textCol = lightColors.includes(col) ? '#78350F' : col;
+                                            const light = isLight(col);
+                                            const textCol  = light ? '#713F12' : '#ffffff';
+                                            const borderCol = light ? '#92400E' : 'rgba(0,0,0,0.25)';
                                             return (
                                               <button
                                                 key={i}
                                                 onClick={() => setSelectedEstatus2026Estatus(entry.value || null)}
                                                 style={{
-                                                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                                                  padding: '5px 12px', borderRadius: 9999,
-                                                  border: `1.5px solid ${col}`,
-                                                  backgroundColor: `${col}1A`,
+                                                  display: 'inline-flex', alignItems: 'center', gap: 7,
+                                                  padding: '6px 14px', borderRadius: 9999,
+                                                  border: `2px solid ${borderCol}`,
+                                                  backgroundColor: col,
                                                   cursor: 'pointer', transition: 'all 0.15s',
+                                                  boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
                                                 }}
-                                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = `${col}30`; }}
-                                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = `${col}1A`; }}
+                                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.85'; }}
+                                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
                                               >
-                                                <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: col, flexShrink: 0, display: 'inline-block' }} />
-                                                <span style={{ fontSize: 11, fontWeight: 700, color: textCol, whiteSpace: 'nowrap' }}>{entry.value}</span>
+                                                <span style={{ fontSize: 13, fontWeight: 700, color: textCol, whiteSpace: 'nowrap', letterSpacing: '0.01em' }}>{entry.value}</span>
                                               </button>
                                             );
                                           })}
@@ -10123,118 +10409,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           )}
                         </div>
 
-                        {/* Pie chart: Distribución por Fase */}
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
-                          <div className="flex items-center justify-between mb-4">
-                            <div>
-                              <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Fase</h3>
-                              <p className="text-xs text-slate-500 mt-1">
-                                Haz clic en una fase para ver los servicios en esa etapa.
-                              </p>
-                            </div>
-                            <span className="text-xs text-slate-400">{estatus2026KPIs.allUnique} servicios</span>
-                          </div>
-                          <div className="h-[460px] w-full">
-                            {loadingData ? (
-                              <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
-                            ) : estatus2026PhaseDistribution.length > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <PieChart margin={{ top: 40, bottom: 40, left: 40, right: 40 }}>
-                                  <Pie
-                                    data={estatus2026PhaseDistribution}
-                                    dataKey="value"
-                                    nameKey="name"
-                                    cx="50%"
-                                    cy="50%"
-                                    outerRadius={100}
-                                    onClick={(data: any) => setSelectedEstatus2026Phase(data.name)}
-                                    className="cursor-pointer"
-                                    label={({ cx, cy, midAngle = 0, outerRadius, percent = 0, index, name = '' }: any) => {
-                                      const RADIAN = Math.PI / 180;
-                                      const radius = outerRadius + 55;
-                                      const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                                      const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                                      if ((percent * 100) < 2) return null;
-                                      return (
-                                        <text
-                                          x={x}
-                                          y={y}
-                                          fill={chartPalette[index % chartPalette.length]}
-                                          textAnchor={x > cx ? 'start' : 'end'}
-                                          dominantBaseline="central"
-                                          className="text-[11px] font-bold"
-                                        >
-                                          {`${name} (${(percent * 100).toFixed(0)}%)`}
-                                        </text>
-                                      );
-                                    }}
-                                    labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
-                                  >
-                                    {estatus2026PhaseDistribution.map((entry, index) => (
-                                      <Cell key={`cell-estatus-${index}`} fill={chartPalette[index % chartPalette.length]} />
-                                    ))}
-                                  </Pie>
-                                  <Tooltip
-                                    formatter={(value: number, name: string, props: any) => {
-                                      const total = estatus2026PhaseDistribution.reduce((a, b) => a + b.value, 0);
-                                      const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
-                                      return [`${value} servicio${value === 1 ? '' : 's'} (${pct}%)`, name];
-                                    }}
-                                  />
-                                  <Legend
-                                    verticalAlign="bottom"
-                                    height={36}
-                                    iconType="circle"
-                                    wrapperStyle={{ fontSize: '12px', paddingTop: '20px', cursor: 'pointer' }}
-                                    onClick={(data: any) => setSelectedEstatus2026Phase(data.value || null)}
-                                  />
-                                </PieChart>
-                              </ResponsiveContainer>
-                            ) : (
-                              <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
-                                No hay datos suficientes. Agrega registros en la tabla de Estatus 2026.
-                              </div>
-                            )}
-                          </div>
-                        </div>
+
 
                         <div className="grid grid-cols-1 gap-6">
-                          {/* Bar chart: Flujo mensual de pagos 2026 */}
-                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
-                            <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-bold text-slate-800">Flujo mensual de pagos 2026</h3>
-                              <span className="text-xs text-slate-400">{formatCurrency(pagos2026TotalAmount)} total</span>
-                            </div>
-                            <div className="h-72">
-                              {loadingData ? (
-                                <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
-                              ) : pagos2026MonthlyFlow.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%">
-                                  <BarChart data={pagos2026MonthlyFlow} margin={{ top: 12, right: 24, left: 8, bottom: 12 }}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                                    <YAxis tickFormatter={(v: number) => formatNumber(v)} tick={{ fontSize: 11 }} />
-                                    <Tooltip
-                                      formatter={(value: number) => {
-                                        const pct = pagos2026TotalAmount > 0 ? ` (${((value / pagos2026TotalAmount) * 100).toFixed(1)}%)` : '';
-                                        return [`${formatCurrency(value)}${pct}`, 'Pagos'];
-                                      }}
-                                    />
-                                    <Bar dataKey="value" name="Pagos" fill="#0F4C3A" radius={[4, 4, 0, 0]}>
-                                      {pagos2026MonthlyFlow.map((entry, index) => (
-                                        <Cell key={`pagos-cell-${index}`} fill={chartPalette[index % chartPalette.length]} />
-                                      ))}
-                                    </Bar>
-                                  </BarChart>
-                                </ResponsiveContainer>
-                              ) : (
-                                <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
-                                  Sin datos de pagos mensuales registrados.
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
                           {/* Bar chart: Servicios por Gerencia – HTML/CSS (no SVG clipping) */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
                             <div className="flex items-center justify-between mb-4">
@@ -10348,86 +10525,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </div>
                         </div>
 
-                        {/* Avance de Requisitos Clave 2026 */}
-                        {estatus2026BooleanCompletion.length > 0 && (
-                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                            <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-bold text-slate-800">Avance de Requisitos Clave</h3>
-                              <span className="text-xs text-slate-400">% de contratos con el requisito completo</span>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              {estatus2026BooleanCompletion.map((item) => (
-                                <div key={item.name} className="flex flex-col gap-1">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-medium text-slate-700">{item.name}</span>
-                                    <span className={`text-xs font-bold ${item.pct >= 80 ? 'text-emerald-600' : item.pct >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
-                                      {item.pct}%
-                                    </span>
-                                  </div>
-                                  <div className="bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                                    <div
-                                      className={`h-2.5 rounded-full transition-all duration-700 ${item.pct >= 80 ? 'bg-emerald-500' : item.pct >= 50 ? 'bg-amber-400' : 'bg-red-400'}`}
-                                      style={{ width: `${item.pct}%` }}
-                                    />
-                                  </div>
-                                  <p className="text-[10px] text-slate-400">{item.done} listos · {item.pending} pendientes</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
 
-                        {/* Resumen por fase (tabla rápida) */}
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-bold text-slate-800">Desglose por fase</h3>
-                            <span className="text-xs text-slate-400">Haz clic en una fila para ver servicios</span>
-                          </div>
-                          <div className="space-y-3">
-                            {estatus2026PhaseDistribution.map((phase, index) => {
-                              const pct = estatus2026KPIs.allUnique > 0
-                                ? Math.round((phase.value / estatus2026KPIs.allUnique) * 100)
-                                : 0;
-                              const color = chartPalette[index % chartPalette.length];
-                              return (
-                                <button
-                                  key={phase.name}
-                                  className="w-full text-left group"
-                                  onClick={() => setSelectedEstatus2026Phase(phase.name)}
-                                >
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors">
-                                      {phase.name}
-                                    </span>
-                                    <span className="text-sm font-bold text-slate-600">
-                                      {phase.value} <span className="text-xs font-normal text-slate-400">({pct}%)</span>
-                                    </span>
-                                  </div>
-                                  <div className="w-full bg-slate-100 rounded-full h-2">
-                                    <div
-                                      className="h-2 rounded-full transition-all"
-                                      style={{ width: `${pct}%`, backgroundColor: color }}
-                                    />
-                                  </div>
-                                </button>
-                              );
-                            })}
-                            {estatus2026PhaseDistribution.length === 0 && !loadingData && (
-                              <p className="text-sm text-slate-400 text-center py-4">Sin datos de estatus.</p>
-                            )}
-                          </div>
-                        </div>
+
+
                       </div>
                     ) : (
                       /* Detail view: services in selected phase */
                       <div className="space-y-6">
                         <button
                           onClick={() => setSelectedEstatus2026Phase(null)}
-                          className="flex items-center text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
                         >
-                          <ArrowLeft className="h-4 w-4 mr-1" />
+                          <ArrowLeft className="h-4 w-4" />
                           Volver al resumen 2026
-
                         </button>
 
                         <div>
@@ -10504,8 +10614,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <button
                             onClick={() => setEstatus2026Tab('tabla')}
                             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${estatus2026Tab === 'tabla'
-                                ? 'bg-[#0F4C3A] text-white shadow-sm'
-                                : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
+                              ? 'bg-[#0F4C3A] text-white shadow-sm'
+                              : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                               }`}
                           >
                             <FileSpreadsheet className="h-3.5 w-3.5" />
@@ -10514,8 +10624,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <button
                             onClick={() => setEstatus2026Tab('calendar')}
                             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${estatus2026Tab === 'calendar'
-                                ? 'bg-[#0F4C3A] text-white shadow-sm'
-                                : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
+                              ? 'bg-[#0F4C3A] text-white shadow-sm'
+                              : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm'
                               }`}
                           >
                             <CalendarDays className="h-3.5 w-3.5" />
@@ -12107,8 +12217,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 {active2026View === 'gantt' && (() => {
                   const DO_COLOR = '#111827';
                   const DA_COLOR = '#60A5FA';
-                  const MONTHS_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-                  const MONTHS_FULL  = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+                  const MONTHS_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+                  const MONTHS_FULL = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
                   const parseGDate = (v: any): Date | null => {
                     if (!v) return null;
@@ -12167,33 +12277,35 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   let minTs = Infinity, maxTs = -Infinity;
                   ganttRows.forEach(r => r.phases.forEach(p => {
                     if (p.startDate) { const t = p.startDate.getTime(); if (t < minTs) minTs = t; if (t > maxTs) maxTs = t; }
-                    if (p.endDate)   { const t = p.endDate.getTime();   if (t < minTs) minTs = t; if (t > maxTs) maxTs = t; }
+                    if (p.endDate) { const t = p.endDate.getTime(); if (t < minTs) minTs = t; if (t > maxTs) maxTs = t; }
                   }));
                   const padMs = Math.max((maxTs - minTs) * 0.02, 86400000 * 3);
                   const rangeMin = minTs - padMs;
                   const rangeMax = maxTs + padMs;
-                  const totalMs  = rangeMax - rangeMin || 1;
+                  const totalMs = rangeMax - rangeMin || 1;
                   const pct = (ts: number) => Math.max(0, Math.min(100, (ts - rangeMin) / totalMs * 100));
 
                   // Build month + week slots
-                  const monthSlots: { name: string; short: string; pct: number; w: number;
-                    weeks: { label: string; short: string; pct: number; w: number }[] }[] = [];
+                  const monthSlots: {
+                    name: string; short: string; pct: number; w: number;
+                    weeks: { label: string; short: string; pct: number; w: number }[]
+                  }[] = [];
                   const mCur = new Date(new Date(minTs).getFullYear(), new Date(minTs).getMonth(), 1);
                   while (mCur.getTime() <= maxTs) {
                     const mStart = mCur.getTime();
-                    const nextM  = new Date(mCur.getFullYear(), mCur.getMonth() + 1, 1);
-                    const mEnd   = nextM.getTime() - 1;
-                    const mPct   = pct(mStart);
-                    const mW     = pct(mEnd) - mPct;
+                    const nextM = new Date(mCur.getFullYear(), mCur.getMonth() + 1, 1);
+                    const mEnd = nextM.getTime() - 1;
+                    const mPct = pct(mStart);
+                    const mW = pct(mEnd) - mPct;
                     if (mW > 0) {
                       const dim = new Date(mCur.getFullYear(), mCur.getMonth() + 1, 0).getDate();
-                      const bounds = [[1,7],[8,14],[15,21],[22,28],[29,dim]].filter(b => b[0] <= dim);
+                      const bounds = [[1, 7], [8, 14], [15, 21], [22, 28], [29, dim]].filter(b => b[0] <= dim);
                       const weeks = bounds.map((b, wi) => {
                         const ws = new Date(mCur.getFullYear(), mCur.getMonth(), b[0]).getTime();
                         const we = new Date(mCur.getFullYear(), mCur.getMonth(), b[1], 23, 59, 59).getTime();
                         const wPct = Math.max(mPct, pct(ws));
-                        const wW   = Math.min(mPct + mW, pct(we)) - wPct;
-                        return { label: `Sem ${wi+1}: ${b[0]}–${b[1]} ${MONTHS_SHORT[mCur.getMonth()]}`, short: `S${wi+1}`, pct: wPct, w: wW };
+                        const wW = Math.min(mPct + mW, pct(we)) - wPct;
+                        return { label: `Sem ${wi + 1}: ${b[0]}–${b[1]} ${MONTHS_SHORT[mCur.getMonth()]}`, short: `S${wi + 1}`, pct: wPct, w: wW };
                       }).filter(w => w.w > 0.3);
                       monthSlots.push({
                         name: `${MONTHS_FULL[mCur.getMonth()]} ${mCur.getFullYear()}`,
@@ -12280,221 +12392,221 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       )}
                       <div className="space-y-6">
                         {/* Title */}
-                      <div>
-                        <h2 className="text-2xl font-bold text-slate-800 mb-1">Diagrama de Gantt 2026</h2>
-                        <p className="text-slate-500 text-sm">Progreso por fase del proceso de contratación — {ganttRows.length} servicio{ganttRows.length !== 1 ? 's' : ''} con fechas capturadas</p>
-                      </div>
+                        <div>
+                          <h2 className="text-2xl font-bold text-slate-800 mb-1">Diagrama de Gantt 2026</h2>
+                          <p className="text-slate-500 text-sm">Progreso por fase del proceso de contratación — {ganttRows.length} servicio{ganttRows.length !== 1 ? 's' : ''} con fechas capturadas</p>
+                        </div>
 
-                      {/* Legend (collapsible) */}
-                      <div className="flex items-center gap-3">
+                        {/* Legend (collapsible) */}
                         <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-4 h-4 rounded" style={{ backgroundColor: DO_COLOR }} />
-                            <span className="text-sm font-semibold text-slate-700">D.O — Dirección de Operación</span>
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-4 h-4 rounded" style={{ backgroundColor: DO_COLOR }} />
+                              <span className="text-sm font-semibold text-slate-700">D.O — Dirección de Operación</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-4 h-4 rounded" style={{ backgroundColor: DA_COLOR }} />
+                              <span className="text-sm font-semibold text-slate-700">D.A — Dirección de Administración</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-4 h-4 rounded" style={{ backgroundColor: DA_COLOR }} />
-                            <span className="text-sm font-semibold text-slate-700">D.A — Dirección de Administración</span>
+                          <button
+                            onClick={() => setShowGanttLegend(v => !v)}
+                            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 text-xs font-semibold transition-colors shadow-sm"
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                            {showGanttLegend ? 'Ocultar leyenda' : 'Ver leyenda de fases'}
+                          </button>
+                        </div>
+                        {showGanttLegend && (
+                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="rounded-xl p-3 border-l-4" style={{ borderColor: DO_COLOR, backgroundColor: '#F9FAFB' }}>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-4 h-4 rounded" style={{ backgroundColor: DO_COLOR }} />
+                                  <span className="text-sm font-bold text-slate-800">D.O — Dirección de Operación</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {GANTT_DATE_GROUPS.filter(g => g.area === 'DO').map((g, i) => (
+                                    <span key={i} className="text-[10px] bg-gray-200 text-gray-800 rounded-full px-2 py-0.5">{g.label}</span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="rounded-xl p-3 border-l-4" style={{ borderColor: DA_COLOR, backgroundColor: '#EFF6FF' }}>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-4 h-4 rounded" style={{ backgroundColor: DA_COLOR }} />
+                                  <span className="text-sm font-bold text-blue-700">D.A — Dirección de Administración</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {GANTT_DATE_GROUPS.filter(g => g.area === 'DA').map((g, i) => (
+                                    <span key={i} className="text-[10px] bg-blue-100 text-blue-800 rounded-full px-2 py-0.5">{g.label}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Gantt chart */}
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <div style={{ minWidth: 1050 }}>
+                              {/* Month header */}
+                              <div className="flex">
+                                <div className="w-80 flex-shrink-0 bg-slate-100 border-r border-b border-slate-300 px-4 py-2 flex items-end">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Servicio</span>
+                                </div>
+                                <div className="flex-1 relative h-11 bg-gradient-to-b from-slate-100 to-slate-200 border-b border-slate-300 overflow-hidden">
+                                  {monthSlots.map((m, i) => (
+                                    <div key={i} className="absolute top-0 h-full flex items-center justify-center border-r border-slate-400 overflow-hidden"
+                                      style={{ left: `${m.pct}%`, width: `${m.w}%` }}>
+                                      <span className="text-[13px] font-extrabold text-slate-800 truncate select-none tracking-wide">
+                                        {m.w > 6 ? m.name : m.short}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              {/* Week header */}
+                              <div className="flex">
+                                <div className="w-80 flex-shrink-0 bg-slate-50 border-r border-b border-slate-200" />
+                                <div className="flex-1 relative h-8 bg-white border-b border-slate-200 overflow-hidden">
+                                  {monthSlots.flatMap((m, mi) => m.weeks.map((wk, wi) => (
+                                    <div key={`${mi}-${wi}`}
+                                      className="absolute top-0 h-full flex items-center justify-center border-r border-slate-200 overflow-hidden"
+                                      style={{ left: `${wk.pct}%`, width: `${wk.w}%` }}>
+                                      <span className="text-[10px] font-semibold text-slate-600 whitespace-nowrap select-none truncate">
+                                        {wk.w > 5 ? wk.label : wk.short}
+                                      </span>
+                                    </div>
+                                  )))}
+                                </div>
+                              </div>
+                              {/* Service rows */}
+                              {ganttRows.map((row, ri) => (
+                                <div key={ri}
+                                  className={`flex items-stretch ${ri < ganttRows.length - 1 ? 'border-b border-slate-100' : ''} hover:bg-blue-50/20 transition-colors`}
+                                  style={{ minHeight: 60 }}>
+                                  <div className="w-80 flex-shrink-0 px-4 py-3 border-r border-slate-100 flex flex-col justify-center">
+                                    <div className="text-sm font-semibold text-slate-700 leading-snug">
+                                      {row.label || `Servicio ${ri + 1}`}
+                                    </div>
+                                    {row.gerencia && <div className="text-xs text-slate-400 truncate mt-0.5">{row.gerencia}</div>}
+                                  </div>
+                                  <div className="flex-1 relative overflow-hidden" style={{ padding: '10px 0' }}>
+                                    {row.phases.map((p, pi) => {
+                                      if (!p.startDate || !p.endDate) return null;
+                                      const lPct = pct(p.startDate.getTime());
+                                      const wPct = (p.endDate.getTime() - p.startDate.getTime()) / totalMs * 100;
+                                      if (wPct <= 0) return null;
+                                      const bc = p.area === 'DO' ? DO_COLOR : DA_COLOR;
+                                      const days = Math.round((p.endDate.getTime() - p.startDate.getTime()) / 86400000);
+                                      return (
+                                        <div key={pi}
+                                          className="absolute rounded flex items-center overflow-hidden cursor-pointer shadow-sm transition-all hover:brightness-110 hover:shadow-lg"
+                                          style={{ top: 10, height: 32, left: `${lPct}%`, width: `${Math.max(wPct, 0.8)}%`, backgroundColor: bc }}
+                                          onMouseEnter={(e) => setGanttTooltip({ x: e.clientX, y: e.clientY, service: row.label, gerencia: row.gerencia, phaseName: p.label, area: p.area, start: p.startDate!, end: p.endDate!, days, phaseIdx: pi })}
+                                          onMouseLeave={() => setGanttTooltip(null)}
+                                          onMouseMove={(e) => setGanttTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}>
+                                          {wPct > 3.5 && (
+                                            <span className="text-[11px] font-bold px-2 truncate leading-none select-none text-white drop-shadow">
+                                              {p.label.replace(/^\d+\.\s+/, '')}
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </div>
-                        <button
-                          onClick={() => setShowGanttLegend(v => !v)}
-                          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 text-xs font-semibold transition-colors shadow-sm"
-                        >
-                          <Info className="h-3.5 w-3.5" />
-                          {showGanttLegend ? 'Ocultar leyenda' : 'Ver leyenda de fases'}
-                        </button>
-                      </div>
-                      {showGanttLegend && (
-                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="rounded-xl p-3 border-l-4" style={{ borderColor: DO_COLOR, backgroundColor: '#F9FAFB' }}>
+
+                        {/* Summary */}
+                        <div>
+                          <h3 className="text-base font-bold text-slate-800 mb-1">Resumen de días acumulados por dirección</h3>
+                          <p className="text-xs text-slate-500 mb-4">Suma de días por dirección responsable en cada fase — identifica cuellos de botella en el proceso</p>
+
+                          {/* Total cards */}
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div className="rounded-2xl border-2 p-5" style={{ borderColor: DO_COLOR, backgroundColor: '#F9FAFB' }}>
                               <div className="flex items-center gap-2 mb-2">
                                 <div className="w-4 h-4 rounded" style={{ backgroundColor: DO_COLOR }} />
-                                <span className="text-sm font-bold text-slate-800">D.O — Dirección de Operación</span>
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">D.O — Dirección de Operación</span>
                               </div>
-                              <div className="flex flex-wrap gap-1">
-                                {GANTT_DATE_GROUPS.filter(g => g.area === 'DO').map((g, i) => (
-                                  <span key={i} className="text-[10px] bg-gray-200 text-gray-800 rounded-full px-2 py-0.5">{g.label}</span>
-                                ))}
-                              </div>
+                              <div className="text-3xl font-black text-slate-900">{totalDO} <span className="text-base font-semibold">días</span></div>
+                              <div className="text-xs text-slate-500 mt-1">Promedio por servicio: {ganttRows.length ? Math.round(totalDO / ganttRows.length) : 0} días</div>
                             </div>
-                            <div className="rounded-xl p-3 border-l-4" style={{ borderColor: DA_COLOR, backgroundColor: '#EFF6FF' }}>
+                            <div className="rounded-2xl border-2 p-5" style={{ borderColor: DA_COLOR, backgroundColor: '#EFF6FF' }}>
                               <div className="flex items-center gap-2 mb-2">
                                 <div className="w-4 h-4 rounded" style={{ backgroundColor: DA_COLOR }} />
-                                <span className="text-sm font-bold text-blue-700">D.A — Dirección de Administración</span>
+                                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: DA_COLOR }}>D.A — Dirección de Administración</span>
                               </div>
-                              <div className="flex flex-wrap gap-1">
-                                {GANTT_DATE_GROUPS.filter(g => g.area === 'DA').map((g, i) => (
-                                  <span key={i} className="text-[10px] bg-blue-100 text-blue-800 rounded-full px-2 py-0.5">{g.label}</span>
-                                ))}
-                              </div>
+                              <div className="text-3xl font-black" style={{ color: DA_COLOR }}>{totalDA} <span className="text-base font-semibold">días</span></div>
+                              <div className="text-xs text-slate-500 mt-1">Promedio por servicio: {ganttRows.length ? Math.round(totalDA / ganttRows.length) : 0} días</div>
                             </div>
                           </div>
-                        </div>
-                      )}
 
-                      {/* Gantt chart */}
-                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="overflow-x-auto">
-                          <div style={{ minWidth: 1050 }}>
-                            {/* Month header */}
-                            <div className="flex">
-                              <div className="w-80 flex-shrink-0 bg-slate-100 border-r border-b border-slate-300 px-4 py-2 flex items-end">
-                                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Servicio</span>
-                              </div>
-                              <div className="flex-1 relative h-11 bg-gradient-to-b from-slate-100 to-slate-200 border-b border-slate-300 overflow-hidden">
-                                {monthSlots.map((m, i) => (
-                                  <div key={i} className="absolute top-0 h-full flex items-center justify-center border-r border-slate-400 overflow-hidden"
-                                    style={{ left: `${m.pct}%`, width: `${m.w}%` }}>
-                                    <span className="text-[13px] font-extrabold text-slate-800 truncate select-none tracking-wide">
-                                      {m.w > 6 ? m.name : m.short}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
+                          {/* Per-service table */}
+                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+                              <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Detalle por servicio</p>
                             </div>
-                            {/* Week header */}
-                            <div className="flex">
-                              <div className="w-80 flex-shrink-0 bg-slate-50 border-r border-b border-slate-200" />
-                              <div className="flex-1 relative h-8 bg-white border-b border-slate-200 overflow-hidden">
-                                {monthSlots.flatMap((m, mi) => m.weeks.map((wk, wi) => (
-                                  <div key={`${mi}-${wi}`}
-                                    className="absolute top-0 h-full flex items-center justify-center border-r border-slate-200 overflow-hidden"
-                                    style={{ left: `${wk.pct}%`, width: `${wk.w}%` }}>
-                                    <span className="text-[10px] font-semibold text-slate-600 whitespace-nowrap select-none truncate">
-                                      {wk.w > 5 ? wk.label : wk.short}
-                                    </span>
-                                  </div>
-                                )))}
-                              </div>
-                            </div>
-                            {/* Service rows */}
-                            {ganttRows.map((row, ri) => (
-                              <div key={ri}
-                                className={`flex items-stretch ${ri < ganttRows.length - 1 ? 'border-b border-slate-100' : ''} hover:bg-blue-50/20 transition-colors`}
-                                style={{ minHeight: 60 }}>
-                                <div className="w-80 flex-shrink-0 px-4 py-3 border-r border-slate-100 flex flex-col justify-center">
-                                  <div className="text-sm font-semibold text-slate-700 leading-snug">
-                                    {row.label || `Servicio ${ri + 1}`}
-                                  </div>
-                                  {row.gerencia && <div className="text-xs text-slate-400 truncate mt-0.5">{row.gerencia}</div>}
-                                </div>
-                                <div className="flex-1 relative overflow-hidden" style={{ padding: '10px 0' }}>
-                                  {row.phases.map((p, pi) => {
-                                    if (!p.startDate || !p.endDate) return null;
-                                    const lPct = pct(p.startDate.getTime());
-                                    const wPct = (p.endDate.getTime() - p.startDate.getTime()) / totalMs * 100;
-                                    if (wPct <= 0) return null;
-                                    const bc = p.area === 'DO' ? DO_COLOR : DA_COLOR;
-                                    const days = Math.round((p.endDate.getTime() - p.startDate.getTime()) / 86400000);
-                                    return (
-                                      <div key={pi}
-                                        className="absolute rounded flex items-center overflow-hidden cursor-pointer shadow-sm transition-all hover:brightness-110 hover:shadow-lg"
-                                        style={{ top: 10, height: 32, left: `${lPct}%`, width: `${Math.max(wPct, 0.8)}%`, backgroundColor: bc }}
-                                        onMouseEnter={(e) => setGanttTooltip({ x: e.clientX, y: e.clientY, service: row.label, gerencia: row.gerencia, phaseName: p.label, area: p.area, start: p.startDate!, end: p.endDate!, days, phaseIdx: pi })}
-                                        onMouseLeave={() => setGanttTooltip(null)}
-                                        onMouseMove={(e) => setGanttTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}>
-                                        {wPct > 3.5 && (
-                                          <span className="text-[11px] font-bold px-2 truncate leading-none select-none text-white drop-shadow">
-                                            {p.label.replace(/^\d+\.\s+/, '')}
-                                          </span>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-slate-100 bg-slate-50">
+                                    <th className="text-left px-4 py-2 text-slate-500 font-semibold">Servicio</th>
+                                    <th className="text-center px-3 py-2 font-bold" style={{ color: DO_COLOR }}>D.O (días)</th>
+                                    <th className="text-center px-3 py-2 font-bold" style={{ color: DA_COLOR }}>D.A (días)</th>
+                                    <th className="text-center px-3 py-2 text-slate-500 font-semibold">Total</th>
+                                    <th className="px-4 py-2 text-slate-400 font-semibold w-36">Proporción</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {summaryRows.map((r, i) => (
+                                    <tr key={i} className={`border-b border-slate-50 hover:bg-slate-50 ${i === summaryRows.length - 1 ? 'border-b-0' : ''}`}>
+                                      <td className="px-4 py-2.5">
+                                        <div className="font-medium text-slate-700 leading-snug">{r.label || `Servicio ${i + 1}`}</div>
+                                        {r.gerencia && <div className="text-[10px] text-slate-400">{r.gerencia}</div>}
+                                      </td>
+                                      <td className="text-center px-3 py-2.5">
+                                        <span className="font-bold text-sm" style={{ color: DO_COLOR }}>{r.doDays}</span>
+                                      </td>
+                                      <td className="text-center px-3 py-2.5">
+                                        <span className="font-bold text-sm" style={{ color: DA_COLOR }}>{r.daDays}</span>
+                                      </td>
+                                      <td className="text-center px-3 py-2.5 font-semibold text-slate-700">{r.total}</td>
+                                      <td className="px-4 py-2.5">
+                                        {r.total > 0 && (
+                                          <div className="flex h-3 rounded overflow-hidden w-28">
+                                            <div style={{ width: `${r.doDays / r.total * 100}%`, backgroundColor: DO_COLOR }} title={`D.O: ${Math.round(r.doDays / r.total * 100)}%`} />
+                                            <div style={{ width: `${r.daDays / r.total * 100}%`, backgroundColor: DA_COLOR }} title={`D.A: ${Math.round(r.daDays / r.total * 100)}%`} />
+                                          </div>
                                         )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Summary */}
-                      <div>
-                        <h3 className="text-base font-bold text-slate-800 mb-1">Resumen de días acumulados por dirección</h3>
-                        <p className="text-xs text-slate-500 mb-4">Suma de días por dirección responsable en cada fase — identifica cuellos de botella en el proceso</p>
-
-                        {/* Total cards */}
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                          <div className="rounded-2xl border-2 p-5" style={{ borderColor: DO_COLOR, backgroundColor: '#F9FAFB' }}>
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className="w-4 h-4 rounded" style={{ backgroundColor: DO_COLOR }} />
-                              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">D.O — Dirección de Operación</span>
-                            </div>
-                            <div className="text-3xl font-black text-slate-900">{totalDO} <span className="text-base font-semibold">días</span></div>
-                            <div className="text-xs text-slate-500 mt-1">Promedio por servicio: {ganttRows.length ? Math.round(totalDO / ganttRows.length) : 0} días</div>
-                          </div>
-                          <div className="rounded-2xl border-2 p-5" style={{ borderColor: DA_COLOR, backgroundColor: '#EFF6FF' }}>
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className="w-4 h-4 rounded" style={{ backgroundColor: DA_COLOR }} />
-                              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: DA_COLOR }}>D.A — Dirección de Administración</span>
-                            </div>
-                            <div className="text-3xl font-black" style={{ color: DA_COLOR }}>{totalDA} <span className="text-base font-semibold">días</span></div>
-                            <div className="text-xs text-slate-500 mt-1">Promedio por servicio: {ganttRows.length ? Math.round(totalDA / ganttRows.length) : 0} días</div>
-                          </div>
-                        </div>
-
-                        {/* Per-service table */}
-                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-                            <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Detalle por servicio</p>
-                          </div>
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b border-slate-100 bg-slate-50">
-                                  <th className="text-left px-4 py-2 text-slate-500 font-semibold">Servicio</th>
-                                  <th className="text-center px-3 py-2 font-bold" style={{ color: DO_COLOR }}>D.O (días)</th>
-                                  <th className="text-center px-3 py-2 font-bold" style={{ color: DA_COLOR }}>D.A (días)</th>
-                                  <th className="text-center px-3 py-2 text-slate-500 font-semibold">Total</th>
-                                  <th className="px-4 py-2 text-slate-400 font-semibold w-36">Proporción</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {summaryRows.map((r, i) => (
-                                  <tr key={i} className={`border-b border-slate-50 hover:bg-slate-50 ${i === summaryRows.length - 1 ? 'border-b-0' : ''}`}>
-                                    <td className="px-4 py-2.5">
-                                      <div className="font-medium text-slate-700 leading-snug">{r.label || `Servicio ${i + 1}`}</div>
-                                      {r.gerencia && <div className="text-[10px] text-slate-400">{r.gerencia}</div>}
-                                    </td>
-                                    <td className="text-center px-3 py-2.5">
-                                      <span className="font-bold text-sm" style={{ color: DO_COLOR }}>{r.doDays}</span>
-                                    </td>
-                                    <td className="text-center px-3 py-2.5">
-                                      <span className="font-bold text-sm" style={{ color: DA_COLOR }}>{r.daDays}</span>
-                                    </td>
-                                    <td className="text-center px-3 py-2.5 font-semibold text-slate-700">{r.total}</td>
-                                    <td className="px-4 py-2.5">
-                                      {r.total > 0 && (
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  <tr className="bg-slate-50 border-t-2 border-slate-200">
+                                    <td className="px-4 py-3 text-slate-700 font-bold">Total acumulado</td>
+                                    <td className="text-center px-3 py-3 text-base font-black" style={{ color: DO_COLOR }}>{totalDO}</td>
+                                    <td className="text-center px-3 py-3 text-base font-black" style={{ color: DA_COLOR }}>{totalDA}</td>
+                                    <td className="text-center px-3 py-3 text-slate-700 text-base font-bold">{totalDO + totalDA}</td>
+                                    <td className="px-4 py-3">
+                                      {(totalDO + totalDA) > 0 && (
                                         <div className="flex h-3 rounded overflow-hidden w-28">
-                                          <div style={{ width: `${r.doDays / r.total * 100}%`, backgroundColor: DO_COLOR }} title={`D.O: ${Math.round(r.doDays / r.total * 100)}%`} />
-                                          <div style={{ width: `${r.daDays / r.total * 100}%`, backgroundColor: DA_COLOR }} title={`D.A: ${Math.round(r.daDays / r.total * 100)}%`} />
+                                          <div style={{ width: `${totalDO / (totalDO + totalDA) * 100}%`, backgroundColor: DO_COLOR }} title={`D.O: ${Math.round(totalDO / (totalDO + totalDA) * 100)}%`} />
+                                          <div style={{ width: `${totalDA / (totalDO + totalDA) * 100}%`, backgroundColor: DA_COLOR }} title={`D.A: ${Math.round(totalDA / (totalDO + totalDA) * 100)}%`} />
                                         </div>
                                       )}
                                     </td>
                                   </tr>
-                                ))}
-                                <tr className="bg-slate-50 border-t-2 border-slate-200">
-                                  <td className="px-4 py-3 text-slate-700 font-bold">Total acumulado</td>
-                                  <td className="text-center px-3 py-3 text-base font-black" style={{ color: DO_COLOR }}>{totalDO}</td>
-                                  <td className="text-center px-3 py-3 text-base font-black" style={{ color: DA_COLOR }}>{totalDA}</td>
-                                  <td className="text-center px-3 py-3 text-slate-700 text-base font-bold">{totalDO + totalDA}</td>
-                                  <td className="px-4 py-3">
-                                    {(totalDO + totalDA) > 0 && (
-                                      <div className="flex h-3 rounded overflow-hidden w-28">
-                                        <div style={{ width: `${totalDO / (totalDO + totalDA) * 100}%`, backgroundColor: DO_COLOR }} title={`D.O: ${Math.round(totalDO / (totalDO + totalDA) * 100)}%`} />
-                                        <div style={{ width: `${totalDA / (totalDO + totalDA) * 100}%`, backgroundColor: DA_COLOR }} title={`D.A: ${Math.round(totalDA / (totalDO + totalDA) * 100)}%`} />
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
                     </>
                   );
                 })()}
@@ -12523,8 +12635,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         key={id}
                         onClick={() => setActiveReportesView(id)}
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm whitespace-nowrap transition-all ${activeReportesView === id
-                            ? 'bg-white text-[#0F4C3A] shadow-sm font-bold ring-1 ring-slate-200'
-                            : 'text-slate-500 font-medium hover:bg-white/70 hover:text-slate-800'
+                          ? 'bg-white text-[#0F4C3A] shadow-sm font-bold ring-1 ring-slate-200'
+                          : 'text-slate-500 font-medium hover:bg-white/70 hover:text-slate-800'
                           }`}
                       >
                         <Icon className={`h-4 w-4 flex-shrink-0 ${activeReportesView === id ? 'text-[#B38E5D]' : ''}`} />
@@ -12556,8 +12668,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <button
                           onClick={() => setShowGastoCharts(v => !v)}
                           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all shadow-sm ${showGastoCharts
-                              ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
-                              : 'bg-white text-[#0F4C3A] border-[#0F4C3A] hover:bg-[#0F4C3A] hover:text-white'
+                            ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
+                            : 'bg-white text-[#0F4C3A] border-[#0F4C3A] hover:bg-[#0F4C3A] hover:text-white'
                             }`}
                         >
                           <BarChart2 className="h-4 w-4" />
@@ -12926,8 +13038,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             key={year}
                             onClick={() => setSelectedHistoricoYear(year)}
                             className={`px-4 py-1.5 rounded-full text-sm font-bold border transition-colors ${selectedHistoricoYear === year
-                                ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
-                                : 'bg-white text-slate-600 border-slate-300 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'
+                              ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
+                              : 'bg-white text-slate-600 border-slate-300 hover:border-[#0F4C3A] hover:text-[#0F4C3A]'
                               }`}
                           >
                             {year}
