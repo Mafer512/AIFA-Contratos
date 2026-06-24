@@ -10185,8 +10185,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Adjudicados</p>
                                 <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.adjudicados}</p>
                                 <p className="text-xs text-slate-500 mt-2">
-                                  {estatus2026KPIs.allUnique > 0
-                                    ? `${Math.round((estatus2026KPIs.adjudicados / estatus2026KPIs.allUnique) * 100)}% del total`
+                                  {estatus2026KPIs.total > 0
+                                    ? `${Math.round((estatus2026KPIs.adjudicados / estatus2026KPIs.total) * 100)}% del total activos`
                                     : 'Sin datos'}
                                 </p>
                               </div>
@@ -10208,8 +10208,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">En Proceso</p>
                                 <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.enProceso}</p>
                                 <p className="text-xs text-slate-500 mt-2">
-                                  {estatus2026KPIs.allUnique > 0
-                                    ? `${Math.round((estatus2026KPIs.enProceso / estatus2026KPIs.allUnique) * 100)}% del total`
+                                  {estatus2026KPIs.total > 0
+                                    ? `${Math.round((estatus2026KPIs.enProceso / estatus2026KPIs.total) * 100)}% del total activos`
                                     : 'Sin datos'}
                                 </p>
                               </div>
@@ -10230,11 +10230,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cancelados</p>
                                 <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.cancelados}</p>
-                                <p className="text-xs text-slate-500 mt-2">
-                                  {estatus2026KPIs.allUnique > 0
-                                    ? `${Math.round((estatus2026KPIs.cancelados / estatus2026KPIs.allUnique) * 100)}% del total`
-                                    : 'Sin datos'}
-                                </p>
+                                <p className="text-xs text-slate-500 mt-2">No incluidos en el total</p>
                               </div>
                               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-red-600 border border-white/60 shadow-sm group-hover:bg-red-100 transition-colors">
                                 <XCircle className="h-5 w-5" />
