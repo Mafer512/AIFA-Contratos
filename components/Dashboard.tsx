@@ -9,7 +9,7 @@ import {
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
   CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
   Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, RefreshCw,
-  Users, Plane, Activity, Info, XCircle, Clock
+  Users, Plane, Activity, Info, XCircle, Clock, Globe
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
@@ -1018,7 +1018,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [showGastoCharts, setShowGastoCharts] = useState(false);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
-  const [selectedResumenCard, setSelectedResumenCard] = useState<'total' | 'adjudicados' | 'pagos' | 'cancelados' | 'en-proceso' | null>(null);
+  const [selectedResumenCard, setSelectedResumenCard] = useState<'total' | 'adjudicados' | 'pagos' | 'cancelados' | 'en-proceso' | 'responsables' | null>(null);
+  const [respSearch, setRespSearch] = useState('');
+  const [viewAllServices, setViewAllServices] = useState(false);
   const [ganttModalService, setGanttModalService] = useState<Record<string, any> | null>(null);
   const [showResponsableAdmin, setShowResponsableAdmin] = useState(false);
   const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null}[]>([]);
@@ -2450,11 +2452,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const hasColumnFilters = Object.keys(columnMap ?? {}).length > 0;
     const hasSearchFilters = estatus2026ActiveColumnSearch.length > 0;
 
-    // Responsable filter: if user has a responsable assigned, only show their services
+    // Responsable filter: si el usuario tiene responsable asignado y no activó "ver todo", solo ve sus servicios.
     const userResponsable = user.responsable ?? null;
-    const baseData = userResponsable
-      ? estatus2026Data.filter(row => String(row['Responsable'] ?? '').trim() === userResponsable)
-      : estatus2026Data;
+    const isSuperAdminView = !userResponsable || (user.role === UserRole.ADMIN && viewAllServices);
+    const baseData = isSuperAdminView
+      ? estatus2026Data
+      : estatus2026Data.filter(row => String(row['Responsable'] ?? '').trim() === userResponsable);
 
     if (!query && !hasColumnFilters && !hasSearchFilters) return baseData;
     return baseData.filter((row) => {
@@ -8144,7 +8147,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   <span className="text-[9px] text-slate-400 truncate max-w-[140px]" title={user.responsable}>{user.responsable}</span>
                 )}
               </div>
-              {!user.responsable && (
+              {user.role === UserRole.ADMIN && user.responsable && (
+                <button
+                  onClick={() => setViewAllServices(v => !v)}
+                  title={viewAllServices ? 'Ver solo mis servicios' : 'Ver todos los servicios'}
+                  className={`ml-1 p-1.5 rounded-full transition-colors border ${
+                    viewAllServices
+                      ? 'bg-[#0F4C3A] text-white border-[#0F4C3A] hover:bg-[#0a3528]'
+                      : 'hover:bg-slate-100 text-slate-400 hover:text-[#0F4C3A] border-transparent'
+                  }`}
+                >
+                  <Globe className="h-4 w-4" />
+                </button>
+              )}
+              {user.role === UserRole.ADMIN && (
                 <button
                   onClick={() => { setShowResponsableAdmin(true); fetchResponsableAdmin(); }}
                   className="ml-1 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-[#0F4C3A] transition-colors"
@@ -10093,6 +10109,103 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           );
                         })()}
 
+                        {/* Card: Responsables */}
+                        {selectedResumenCard === 'responsables' && (() => {
+                          const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
+                          const grouped = new Map<string, { name: string; estatus: string }[]>();
+                          estatus2026Data.forEach(row => {
+                            const resp = responsableCol ? String(row[responsableCol] ?? '').trim() : '';
+                            const label = resp || '— Sin asignar —';
+                            const svcName = estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—';
+                            const estatusVal = estatus2026EstatusColumnField ? String(row[estatus2026EstatusColumnField] ?? '—') : '—';
+                            if (!grouped.has(label)) grouped.set(label, []);
+                            grouped.get(label)!.push({ name: svcName, estatus: estatusVal });
+                          });
+                          const sortedGroups = Array.from(grouped.entries()).sort(([a], [b]) => {
+                            if (a === '— Sin asignar —') return 1;
+                            if (b === '— Sin asignar —') return -1;
+                            return a.localeCompare(b, 'es');
+                          });
+                          const q = respSearch.trim().toLowerCase();
+                          const filteredGroups = q
+                            ? sortedGroups.map(([resp, svcs]) => {
+                                const filtered = svcs.filter(s => s.name.toLowerCase().includes(q) || s.estatus.toLowerCase().includes(q));
+                                return filtered.length > 0 ? [resp, filtered] as [string, { name: string; estatus: string }[]] : null;
+                              }).filter((x): x is [string, { name: string; estatus: string }[]] => x !== null)
+                            : sortedGroups;
+                          return (
+                            <div className="space-y-4">
+                              <div>
+                                <h2 className="text-2xl font-bold text-slate-900">Responsables de Servicios</h2>
+                                <p className="text-slate-500 mt-1 mb-3">{sortedGroups.length} responsable{sortedGroups.length !== 1 ? 's' : ''} · {estatus2026Data.length} servicio{estatus2026Data.length !== 1 ? 's' : ''} en total.</p>
+                                <div className="relative max-w-sm">
+                                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                                  <input
+                                    type="text"
+                                    placeholder="Buscar servicio o estatus..."
+                                    value={respSearch}
+                                    onChange={e => setRespSearch(e.target.value)}
+                                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white text-slate-800 shadow-sm"
+                                  />
+                                </div>
+                              </div>
+                              {filteredGroups.length === 0 && (
+                                <p className="text-slate-400 text-sm py-6 text-center">Sin resultados para "{respSearch}"</p>
+                              )}
+                              {filteredGroups.map(([resp, services]) => (
+                                <div key={resp} className="bg-white rounded-xl border border-purple-100 shadow-sm overflow-hidden">
+                                  <div className="bg-[#0F4C3A] px-6 py-3 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <Users className="h-4 w-4 text-white/70" />
+                                      <span className="text-sm font-bold text-white">{resp}</span>
+                                    </div>
+                                    <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-medium">{services.length} servicio{services.length !== 1 ? 's' : ''}</span>
+                                  </div>
+                                  <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-slate-200">
+                                      <thead className="bg-slate-50">
+                                        <tr>
+                                          <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">#</th>
+                                          <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Nombre del Servicio</th>
+                                          <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Estatus</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="bg-white divide-y divide-slate-100">
+                                        {services.map((svc, idx) => {
+                                          const bgColor = (ESTATUS_2026_COLOR_MAP as Record<string, string>)[svc.estatus] ?? '#94A3B8';
+                                          const r = parseInt(bgColor.slice(1,3),16), g2 = parseInt(bgColor.slice(3,5),16), b2 = parseInt(bgColor.slice(5,7),16);
+                                          const light = (0.299*r + 0.587*g2 + 0.114*b2)/255 > 0.55;
+                                          const textCol = light ? '#713F12' : '#ffffff';
+                                          const borderCol = light ? '#92400E' : 'rgba(0,0,0,0.25)';
+                                          return (
+                                            <tr key={idx} className={`hover:bg-purple-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                                              <td className="px-6 py-3 text-xs text-slate-400 font-mono">{idx + 1}</td>
+                                              <td className="px-6 py-3 text-sm text-slate-800">{svc.name}</td>
+                                              <td className="px-6 py-3">
+                                                <span
+                                                  style={{
+                                                    display: 'inline-flex', alignItems: 'center',
+                                                    padding: '4px 12px', borderRadius: 9999,
+                                                    border: `2px solid ${borderCol}`,
+                                                    backgroundColor: bgColor,
+                                                    boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+                                                    fontSize: 12, fontWeight: 700,
+                                                    color: textCol, whiteSpace: 'nowrap',
+                                                  }}
+                                                >{svc.estatus}</span>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+
                         {/* Card: Pagos 2026 */}
                         {selectedResumenCard === 'pagos' && (() => {
                           // Use pre-computed progress data (same logic as the main Pagos table)
@@ -10241,7 +10354,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
 
                         {/* KPI Cards */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                           {/* Total Servicios */}
                           <button
                             type="button"
@@ -10329,6 +10442,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               </span>
                             </div>
                             <p className="text-[10px] text-red-500 font-medium mt-3 group-hover:underline">Ver cancelados →</p>
+                          </button>
+
+                          {/* Responsables */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedResumenCard('responsables')}
+                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-purple-300 transition-all text-left group"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Responsables</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">
+                                  {(() => {
+                                    const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
+                                    if (!responsableCol) return estatus2026Data.length;
+                                    return new Set(estatus2026Data.map(r => String(r[responsableCol] ?? '').trim()).filter(Boolean)).size;
+                                  })()}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-2">Responsables únicos asignados</p>
+                              </div>
+                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-purple-50 text-purple-600 border border-purple-100 shadow-sm group-hover:bg-purple-100 transition-colors">
+                                <Users className="h-5 w-5" />
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-purple-600 font-medium mt-3 group-hover:underline">Ver por responsable →</p>
                           </button>
                         </div>
 
@@ -11250,16 +11388,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                     <ColumnInfoTooltip label={humanizeKey(key)} tooltip={colTooltip} />
                                                   ) : null;
                                                 })()}
-                                                {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data, key === estatus2026StatusFieldSummary ? ESTATUS_2026_OPTIONS : undefined)}
+                                                {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data, key === estatus2026StatusFieldSummary ? ESTATUS_2026_OPTIONS : normalizeAnnualKey(key) === 'responsable' ? RESPONSABLES : undefined)}
                                               </div>
-                                              {!VIRTUAL_COLUMN_LABELS[key] && <input
-                                                type="text"
-                                                placeholder="Buscar..."
-                                                className="w-full px-2 py-1 text-xs text-slate-800 rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-normal"
-                                                value={estatus2026ColumnSearch[key] || ''}
-                                                onChange={(e) => setEstatus2026ColumnSearch(prev => ({ ...prev, [key]: e.target.value }))}
-                                                onClick={(e) => e.stopPropagation()}
-                                              />}
+                                              {!VIRTUAL_COLUMN_LABELS[key] && (normalizeAnnualKey(key) === 'responsable' ? (
+                                                <select
+                                                  className="w-full px-2 py-1 text-xs text-slate-800 rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-normal bg-white"
+                                                  value={estatus2026ColumnSearch[key] || ''}
+                                                  onChange={(e) => setEstatus2026ColumnSearch(prev => ({ ...prev, [key]: e.target.value }))}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                >
+                                                  <option value="">Todos</option>
+                                                  {RESPONSABLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                                </select>
+                                              ) : (
+                                                <input
+                                                  type="text"
+                                                  placeholder="Buscar..."
+                                                  className="w-full px-2 py-1 text-xs text-slate-800 rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-normal"
+                                                  value={estatus2026ColumnSearch[key] || ''}
+                                                  onChange={(e) => setEstatus2026ColumnSearch(prev => ({ ...prev, [key]: e.target.value }))}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                />
+                                              ))}
                                             </div>
                                           </th>
                                         )
@@ -11464,7 +11614,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           const isTipoServicioCol = _colNorm === 'tipo_de_servicio' || (_colNorm.includes('tipo') && _colNorm.includes('servicio'));
                                           const _colNormFull = normalizeAnnualKey(column);
                                           const isEstatusStatusCol = _colNormFull === 'estatus' || _colNormFull === 'status';
-                                          const isResponsableCol = column === 'Responsable';
+                                          const isResponsableCol = normalizeAnnualKey(column) === 'responsable';
 
                                           return (
                                             <td key={column} className={finalCellClasses} title={String(editingValue || isChecked)} style={stickyCellStyle}>
