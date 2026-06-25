@@ -527,6 +527,17 @@ const ESTATUS_2026_OPTIONS = [
 ] as const;
 
 // Hex colors for each canonical status — used in the pie chart and legend
+const RESPONSABLES = [
+  'ADRIANA PEREZ MALDONADO',
+  'LILIÁN ELIZABETH PÉREZ GONZÁLEZ',
+  'GILBERTO AYALA RAMÍREZ',
+  'SANDY OSIRIS MENDONZA LEONÍDEZ',
+  'DAYREN FLORICELA DE LEÓN GONZÁLEZ',
+  'ESMERALDA EMILY RODRÍGUEZ MARTÍNEZ',
+  'IRMA KARINA VARGAS GARCÍA',
+  'MONSERRAT ALONSO MARTÍNEZ',
+] as const;
+
 const ESTATUS_2026_COLOR_MAP: Record<string, string> = {
   'Elaboración de anexo técnico, administrativo y apéndices': '#dbdb00', // amber-700
   'En IM': '#FDE047', // yellow-300
@@ -1009,6 +1020,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
   const [selectedResumenCard, setSelectedResumenCard] = useState<'total' | 'adjudicados' | 'pagos' | 'cancelados' | 'en-proceso' | null>(null);
   const [ganttModalService, setGanttModalService] = useState<Record<string, any> | null>(null);
+  const [showResponsableAdmin, setShowResponsableAdmin] = useState(false);
+  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null}[]>([]);
+  const [savingResponsable, setSavingResponsable] = useState<string | null>(null);
 
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [expandedServiciosConvenio, setExpandedServiciosConvenio] = useState<Record<string, boolean>>({});
@@ -2105,6 +2119,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   };
 
+  const fetchResponsableAdmin = async () => {
+    const { data } = await supabase.schema('public').from('profiles').select('id, full_name, responsable').order('full_name');
+    if (data) setResponsableAdminData(data as any);
+  };
+
+  const saveResponsable = async (userId: string, newResponsable: string | null) => {
+    setSavingResponsable(userId);
+    await supabase.schema('public').from('profiles').update({ responsable: newResponsable }).eq('id', userId);
+    setResponsableAdminData(prev => prev.map(u => u.id === userId ? { ...u, responsable: newResponsable } : u));
+    setSavingResponsable(null);
+  };
+
   const fetchPagos2026Data = async () => {
     try {
       const { data, error } = await supabase
@@ -2424,8 +2450,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const hasColumnFilters = Object.keys(columnMap ?? {}).length > 0;
     const hasSearchFilters = estatus2026ActiveColumnSearch.length > 0;
 
-    if (!query && !hasColumnFilters && !hasSearchFilters) return estatus2026Data;
-    return estatus2026Data.filter((row) => {
+    // Responsable filter: if user has a responsable assigned, only show their services
+    const userResponsable = user.responsable ?? null;
+    const baseData = userResponsable
+      ? estatus2026Data.filter(row => String(row['Responsable'] ?? '').trim() === userResponsable)
+      : estatus2026Data;
+
+    if (!query && !hasColumnFilters && !hasSearchFilters) return baseData;
+    return baseData.filter((row) => {
       if (query && !rowMatchesFilter(row as Record<string, any>, query)) return false;
       if (hasColumnFilters && !rowMatchesColumnFilters(row as Record<string, any>, columnMap)) return false;
       if (hasSearchFilters) {
@@ -2436,7 +2468,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
       return true;
     });
-  }, [estatus2026Data, tableFilters.estatus2026, columnFilters.estatus2026, estatus2026ActiveColumnSearch]);
+  }, [estatus2026Data, tableFilters.estatus2026, columnFilters.estatus2026, estatus2026ActiveColumnSearch, user.responsable]);
 
   const filteredPagos2026Data = useMemo(() => {
     const query = tableFilters.pagos2026.trim();
@@ -8108,8 +8140,68 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 <span className={`inline-flex items-center justify-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded-full ${userRoleMeta.badgeClass}`}>
                   {userRoleMeta.label}
                 </span>
+                {user.responsable && (
+                  <span className="text-[9px] text-slate-400 truncate max-w-[140px]" title={user.responsable}>{user.responsable}</span>
+                )}
               </div>
+              {!user.responsable && (
+                <button
+                  onClick={() => { setShowResponsableAdmin(true); fetchResponsableAdmin(); }}
+                  className="ml-1 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-[#0F4C3A] transition-colors"
+                  title="Gestionar responsables de usuarios"
+                >
+                  <Users className="h-4 w-4" />
+                </button>
+              )}
             </div>
+
+            {/* Modal: Gestión de Responsables (super admin) */}
+            {showResponsableAdmin && createPortal(
+              <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)' }}
+                onClick={() => setShowResponsableAdmin(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between px-6 py-4 bg-[#0F4C3A] rounded-t-2xl">
+                    <div>
+                      <h2 className="text-base font-bold text-white">Gestión de Responsables</h2>
+                      <p className="text-xs text-emerald-200 mt-0.5">Asigna qué servicios ve cada usuario</p>
+                    </div>
+                    <button onClick={() => setShowResponsableAdmin(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
+                    <p className="text-xs text-slate-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <strong>Sin asignar (—)</strong> = el usuario ve <strong>todos</strong> los servicios (super admin).
+                      Asigna un responsable para limitar la vista.
+                    </p>
+                    {responsableAdminData.map(u => (
+                      <div key={u.id} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+                        <div className="h-8 w-8 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-bold flex items-center justify-center text-xs uppercase flex-shrink-0">
+                          {u.full_name?.split(' ').slice(0,2).map((n:string) => n[0]).join('') ?? '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-700 truncate">{u.full_name}</p>
+                          <select
+                            className="mt-1 w-full text-xs border border-slate-200 rounded-lg px-2 py-1 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30"
+                            value={u.responsable ?? ''}
+                            disabled={savingResponsable === u.id}
+                            onChange={e => saveResponsable(u.id, e.target.value || null)}
+                          >
+                            <option value="">— Sin asignar (ve todo) —</option>
+                            {RESPONSABLES.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                        {savingResponsable === u.id && <Loader2 className="h-4 w-4 animate-spin text-[#0F4C3A] flex-shrink-0" />}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
+                    <p className="text-[11px] text-slate-400">Los cambios aplican en el próximo inicio de sesión del usuario.</p>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
           </div>
         </header>
 
@@ -11372,6 +11464,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           const isTipoServicioCol = _colNorm === 'tipo_de_servicio' || (_colNorm.includes('tipo') && _colNorm.includes('servicio'));
                                           const _colNormFull = normalizeAnnualKey(column);
                                           const isEstatusStatusCol = _colNormFull === 'estatus' || _colNormFull === 'status';
+                                          const isResponsableCol = column === 'Responsable';
 
                                           return (
                                             <td key={column} className={finalCellClasses} title={String(editingValue || isChecked)} style={stickyCellStyle}>
@@ -11382,6 +11475,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                       value={rawValue ? String(rawValue) : ''}
                                                       onChange={(nextValue) => handleEstatus2026CellEdit(row, column, nextValue)}
                                                     />
+                                                  ) : isResponsableCol ? (
+                                                    <select
+                                                      className="w-full text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
+                                                      value={rawValue ? String(rawValue) : ''}
+                                                      onChange={(e) => handleEstatus2026CellEdit(row, column, e.target.value)}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                      <option value="">— Sin asignar —</option>
+                                                      {RESPONSABLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                                    </select>
                                                   ) : isEstatusStatusCol ? (
                                                     <EstatusStatusPicker
                                                       value={rawValue ? String(rawValue) : ''}

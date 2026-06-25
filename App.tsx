@@ -251,12 +251,13 @@ const App: React.FC = () => {
 
     let fullName = meta.full_name || user.email?.split('@')[0] || 'Usuario';
     let role: UserRole = (meta.role as UserRole) || UserRole.OPERATOR;
+    let responsable: string | null = null;
 
     try {
       const { data: profile, error } = await supabase
         .schema('public')
         .from('profiles')
-        .select('full_name, role')
+        .select('full_name, role, responsable')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -276,6 +277,8 @@ const App: React.FC = () => {
             role = normalizedRole as UserRole;
           }
         }
+
+        responsable = profile.responsable ?? null;
       }
     } catch (error) {
       console.error('Unexpected error fetching profile:', error);
@@ -286,6 +289,7 @@ const App: React.FC = () => {
       email: user.email || '',
       name: fullName,
       role,
+      responsable,
     };
 
     setCurrentUser(appUser);
