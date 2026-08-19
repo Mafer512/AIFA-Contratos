@@ -10135,13 +10135,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                         {/* Card: Responsables */}
                         {selectedResumenCard === 'responsables' && (() => {
-                          const responsableCol = serviciosTableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
+                          // El campo "Responsable" vive en estatus_2026 (no en estatus_servicios_2026),
+                          // por eso el agrupamiento se hace sobre estatus2026Data.
+                          const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
+                          // "Estatus" explícito: estatus2026StatusFieldSummary resuelve a "Fase"
+                          // (Ordinaria / Trámite autorizado) y esos valores no existen en
+                          // ESTATUS_2026_COLOR_MAP, que está indexado por los valores de "Estatus".
+                          const estatusCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'estatus')
+                            ?? estatus2026StatusFieldSummary;
                           const grouped = new Map<string, { name: string; estatus: string }[]>();
-                          servicios2026Data.forEach(row => {
+                          estatus2026Data.forEach(row => {
                             const resp = responsableCol ? String(row[responsableCol] ?? '').trim() : '';
                             const label = resp || '— Sin asignar —';
-                            const svcName = serviciosServiceNameField ? String(row[serviciosServiceNameField] ?? '—') : '—';
-                            const estatusVal = serviciosStatusField ? String(row[serviciosStatusField] ?? '—') : '—';
+                            const svcName = estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—';
+                            const estatusVal = estatusCol ? String(row[estatusCol] ?? '—') : '—';
                             if (!grouped.has(label)) grouped.set(label, []);
                             grouped.get(label)!.push({ name: svcName, estatus: estatusVal });
                           });
