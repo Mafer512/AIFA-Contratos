@@ -1018,9 +1018,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [savingHistoricoRow, setSavingHistoricoRow] = useState(false);
   const [historicoForm, setHistoricoForm] = useState<Record<string, string>>({});
   const [showGastoCharts, setShowGastoCharts] = useState(false);
+  const [gastoVistaColumnas, setGastoVistaColumnas] = useState<'mensual' | 'trimestral'>('mensual');
+  const [selectedGastoQuarter, setSelectedGastoQuarter] = useState<'Q1' | 'Q2' | 'Q3' | 'Q4' | null>(null);
   const [selectedEstatus2026Phase, setSelectedEstatus2026Phase] = useState<string | null>(null);
   const [selectedEstatus2026Estatus, setSelectedEstatus2026Estatus] = useState<string | null>(null);
   const [selectedResumenCard, setSelectedResumenCard] = useState<'total' | 'adjudicados' | 'pagos' | 'cancelados' | 'en-proceso' | 'responsables' | null>(null);
+  const [resumenPeriodMode, setResumenPeriodMode] = useState<'total' | 'mensual' | 'trimestral'>('total');
+  const [resumenSelectedMonth, setResumenSelectedMonth] = useState<number | null>(null);
+  const [resumenSelectedQuarter, setResumenSelectedQuarter] = useState<'Q1' | 'Q2' | 'Q3' | 'Q4' | null>(null);
+  const [selectedResumenDetailQuarter, setSelectedResumenDetailQuarter] = useState<'all' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('all');
   const [respSearch, setRespSearch] = useState('');
   const [viewAllServices, setViewAllServices] = useState(false);
   const [ganttModalService, setGanttModalService] = useState<Record<string, any> | null>(null);
@@ -4958,6 +4964,71 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return 'Sin estatus';
   };
 
+  // Classify a servicio into a 2026 quarter using the Gantt start/end date that
+  // corresponds to its current status (same phase dates shown in the Gantt view).
+  // Falls back to the latest known Gantt date on the row when the current status
+  // has no dedicated date column (e.g. Cancelado), so it can still be placed.
+  const getEstatus2026RowQuarter = (row: Record<string, any>): 'Q1' | 'Q2' | 'Q3' | 'Q4' | null => {
+    if (!estatus2026EstatusColumnField) return null;
+    const label = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
+    let dateStr: string | null = null;
+    if (label === 'Adjudicado') {
+      dateStr = row['Fecha fallo'] ?? null;
+    } else {
+      const idx = ESTATUS_2026_OPTIONS.indexOf(label as any);
+      if (idx >= 0 && idx < GANTT_DATE_GROUPS.length) {
+        const group = GANTT_DATE_GROUPS[idx];
+        dateStr = row[group.start] ?? row[group.end] ?? null;
+      }
+    }
+    if (!dateStr) {
+      let latest: string | null = null;
+      GANTT_DATE_GROUPS.forEach((g) => {
+        [g.start, g.end].forEach((col) => {
+          const v = row[col];
+          if (v && (!latest || new Date(v) > new Date(latest as string))) latest = v;
+        });
+      });
+      dateStr = latest;
+    }
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime()) || d.getUTCFullYear() !== 2026) return null;
+    const QUARTER_KEYS = ['Q1', 'Q2', 'Q3', 'Q4'] as const;
+    return QUARTER_KEYS[Math.floor(d.getUTCMonth() / 3)];
+  };
+
+  // Same classification as getEstatus2026RowQuarter, but returns the exact
+  // month index (0-11) instead of the quarter bucket.
+  const getEstatus2026RowMonth = (row: Record<string, any>): number | null => {
+    if (!estatus2026EstatusColumnField) return null;
+    const label = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
+    let dateStr: string | null = null;
+    if (label === 'Adjudicado') {
+      dateStr = row['Fecha fallo'] ?? null;
+    } else {
+      const idx = ESTATUS_2026_OPTIONS.indexOf(label as any);
+      if (idx >= 0 && idx < GANTT_DATE_GROUPS.length) {
+        const group = GANTT_DATE_GROUPS[idx];
+        dateStr = row[group.start] ?? row[group.end] ?? null;
+      }
+    }
+    if (!dateStr) {
+      let latest: string | null = null;
+      GANTT_DATE_GROUPS.forEach((g) => {
+        [g.start, g.end].forEach((col) => {
+          const v = row[col];
+          if (v && (!latest || new Date(v) > new Date(latest as string))) latest = v;
+        });
+      });
+      dateStr = latest;
+    }
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime()) || d.getUTCFullYear() !== 2026) return null;
+    return d.getUTCMonth();
+  };
+
   const estatus2026EstatusDistribution = useMemo(() => {
     if (!estatus2026Data.length || !estatus2026EstatusColumnField) return [] as { name: string; value: number }[];
     const counts: Record<string, number> = {};
@@ -4989,6 +5060,70 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
       });
   }, [estatus2026Data, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+
+  // Raw (un-sorted, un-filtered) status counts per calendar month of 2026, keyed 0-11.
+  // Used to build the Mensual/Trimestral views of "Distribución de Servicios por Estatus"
+  // by merging one or more months together, so Total/Mensual/Trimestral always agree.
+  const estatus2026EstatusCountsByMonth = useMemo(() => {
+    const empty: Record<number, Record<string, number>> = {};
+    if (!estatus2026Data.length || !estatus2026EstatusColumnField) return empty;
+
+    const seenKeys = new Set<string>();
+    const dedupedRows = estatus2026ServiceNameFieldSummary
+      ? estatus2026Data.filter((row) => {
+        const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary!, estatus2026ClaveFieldSummary);
+        if (seenKeys.has(key)) return false;
+        seenKeys.add(key);
+        return true;
+      })
+      : estatus2026Data;
+
+    const byMonth: Record<number, Record<string, number>> = {};
+    dedupedRows.forEach((row) => {
+      const mi = getEstatus2026RowMonth(row);
+      if (mi === null) return;
+      const raw = row[estatus2026EstatusColumnField];
+      const label = normalizeEstatus2026Value(raw);
+      if (!byMonth[mi]) byMonth[mi] = {};
+      byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
+    });
+    return byMonth;
+  }, [estatus2026Data, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+
+  // Merges the raw per-month count records of the given month indexes into one.
+  const mergeMonthCounts = (byMonth: Record<number, Record<string, number>>, monthIdxs: number[]): Record<string, number> => {
+    const merged: Record<string, number> = {};
+    monthIdxs.forEach((mi) => {
+      const rec = byMonth[mi];
+      if (!rec) return;
+      Object.entries(rec).forEach(([name, value]) => { merged[name] = (merged[name] ?? 0) + value; });
+    });
+    return merged;
+  };
+
+  // null = "Total" (no month/quarter filter) — the untouched, original full-year views.
+  const resumenActiveMonthIdxs = useMemo(() => {
+    if (resumenPeriodMode === 'mensual') return resumenSelectedMonth !== null ? [resumenSelectedMonth] : null;
+    if (resumenPeriodMode === 'trimestral') {
+      const QUARTER_MONTHS: Record<'Q1' | 'Q2' | 'Q3' | 'Q4', number[]> = { Q1: [0, 1, 2], Q2: [3, 4, 5], Q3: [6, 7, 8], Q4: [9, 10, 11] };
+      return resumenSelectedQuarter ? QUARTER_MONTHS[resumenSelectedQuarter] : null;
+    }
+    return null;
+  }, [resumenPeriodMode, resumenSelectedMonth, resumenSelectedQuarter]);
+
+  const activeEstatusPieData = useMemo(() => {
+    if (!resumenActiveMonthIdxs) return estatus2026EstatusDistribution;
+    const merged = mergeMonthCounts(estatus2026EstatusCountsByMonth, resumenActiveMonthIdxs);
+    const ORDER = [...ESTATUS_2026_OPTIONS, 'Sin estatus'];
+    return Object.entries(merged)
+      .filter(([, v]) => v > 0)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => {
+        const ia = ORDER.indexOf(a.name);
+        const ib = ORDER.indexOf(b.name);
+        return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+      });
+  }, [resumenActiveMonthIdxs, estatus2026EstatusCountsByMonth, estatus2026EstatusDistribution]);
 
   const estatus2026TotalMonto = useMemo(() => {
     if (!estatus2026Data.length || !estatus2026MontoFieldSummary) return 0;
@@ -5037,6 +5172,45 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       .slice(0, 8);
   }, [estatus2026Data, estatus2026GerenciaFieldSummary]);
 
+  // Raw (un-sliced) gerencia counts per calendar month of 2026, for the Mensual/Trimestral views.
+  const estatus2026GerenciaCountsByMonth = useMemo(() => {
+    const byMonth: Record<number, Record<string, number>> = {};
+    if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary) return byMonth;
+    const ACCENT_MAP: [RegExp, string][] = [
+      [/\bAeronautica\b/gi, 'Aeronáutica'],
+      [/\bElectromecanica\b/gi, 'Electromecánica'],
+      [/\bElectromecanico\b/gi, 'Electromecánico'],
+      [/\bIngenieria\b/gi, 'Ingeniería'],
+      [/\bGerencia\b/gi, 'Gerencia'],
+      [/\bDistribucion\b/gi, 'Distribución'],
+      [/\bGeneracion\b/gi, 'Generación'],
+      [/\bOperacion\b/gi, 'Operación'],
+      [/\bOperaciones\b/gi, 'Operaciones'],
+      [/\bSeguridad\b/gi, 'Seguridad'],
+      [/\bAdministracion\b/gi, 'Administración'],
+      [/\bMedico\b/gi, 'Médico'],
+      [/\bTecnico\b/gi, 'Técnico'],
+      [/\bTecnica\b/gi, 'Técnica'],
+      [/\bJuridica\b/gi, 'Jurídica'],
+      [/\bJuridico\b/gi, 'Jurídico'],
+      [/\bEconomia\b/gi, 'Economía'],
+      [/\bGestion\b/gi, 'Gestión'],
+      [/\bComunicacion\b/gi, 'Comunicación'],
+    ];
+    estatus2026Data.forEach((row) => {
+      const raw = row[estatus2026GerenciaFieldSummary!];
+      if (!raw) return;
+      const rawLabel = String(raw).trim();
+      if (!rawLabel) return;
+      const mi = getEstatus2026RowMonth(row);
+      if (mi === null) return;
+      const label = ACCENT_MAP.reduce((s, [re, rep]) => s.replace(re, rep), rawLabel);
+      if (!byMonth[mi]) byMonth[mi] = {};
+      byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
+    });
+    return byMonth;
+  }, [estatus2026Data, estatus2026GerenciaFieldSummary]);
+
   const estatus2026KPIs = useMemo(() => {
     // uniqueTotal = distinct service groups (same collapsing logic as the table)
     const uniqueTotal = (() => {
@@ -5063,6 +5237,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const total = uniqueTotal - cancelados;
     return { total, dbTotal, uniqueStatuses, adjudicados, procedimiento, cancelados, enProceso, allUnique: uniqueTotal };
   }, [estatus2026Data, estatus2026EstatusDistribution, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+
+  const activeEstatusTotalCount = useMemo(() => (
+    !resumenActiveMonthIdxs ? estatus2026KPIs.allUnique : activeEstatusPieData.reduce((s, d) => s + d.value, 0)
+  ), [resumenActiveMonthIdxs, estatus2026KPIs.allUnique, activeEstatusPieData]);
 
   const pagos2026MonthlyFlow = useMemo(() => {
     if (!pagos2026Data.length) return [] as { name: string; value: number }[];
@@ -5116,6 +5294,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return Object.entries(counts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [estatus2026Data, estatus2026SubdirFieldSummary]);
 
+  // Raw subdirección counts per calendar month of 2026, for the Mensual/Trimestral views.
+  const estatus2026SubdirCountsByMonth = useMemo(() => {
+    const byMonth: Record<number, Record<string, number>> = {};
+    if (!estatus2026Data.length || !estatus2026SubdirFieldSummary) return byMonth;
+    estatus2026Data.forEach((row) => {
+      const raw = row[estatus2026SubdirFieldSummary!];
+      if (!raw) return;
+      const label = String(raw).trim();
+      if (!label) return;
+      const mi = getEstatus2026RowMonth(row);
+      if (mi === null) return;
+      if (!byMonth[mi]) byMonth[mi] = {};
+      byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
+    });
+    return byMonth;
+  }, [estatus2026Data, estatus2026SubdirFieldSummary]);
+
   // 2026 estatus_2026 — monto (presupuesto) by gerencia
   const estatus2026MontoByGerencia = useMemo(() => {
     if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary || !estatus2026MontoFieldSummary) return [] as { name: string; value: number }[];
@@ -5139,6 +5334,76 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
     return Object.entries(totals).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
   }, [estatus2026Data, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
+
+  // Raw monto-by-gerencia totals per calendar month of 2026, for the Mensual/Trimestral views.
+  const estatus2026MontoByGerenciaCountsByMonth = useMemo(() => {
+    const byMonth: Record<number, Record<string, number>> = {};
+    if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary || !estatus2026MontoFieldSummary) return byMonth;
+    const ACCENTS: [RegExp, string][] = [
+      [/\bAeronautica\b/gi, 'Aeronáutica'], [/\bElectromecanica\b/gi, 'Electromecánica'],
+      [/\bIngenieria\b/gi, 'Ingeniería'], [/\bDistribucion\b/gi, 'Distribución'],
+      [/\bGeneracion\b/gi, 'Generación'], [/\bOperacion\b/gi, 'Operación'],
+      [/\bAdministracion\b/gi, 'Administración'], [/\bTecnico\b/gi, 'Técnico'],
+      [/\bTecnica\b/gi, 'Técnica'], [/\bJuridica\b/gi, 'Jurídica'],
+      [/\bGestion\b/gi, 'Gestión'], [/\bComunicacion\b/gi, 'Comunicación'],
+    ];
+    estatus2026Data.forEach((row) => {
+      const rawG = row[estatus2026GerenciaFieldSummary!];
+      if (!rawG) return;
+      const monto = parseNumericValue(row[estatus2026MontoFieldSummary!]);
+      if (!Number.isFinite(monto) || monto <= 0) return;
+      const mi = getEstatus2026RowMonth(row);
+      if (mi === null) return;
+      const label = ACCENTS.reduce((s, [re, rep]) => s.replace(re, rep), String(rawG).trim());
+      if (!byMonth[mi]) byMonth[mi] = {};
+      byMonth[mi][label] = (byMonth[mi][label] ?? 0) + monto;
+    });
+    return byMonth;
+  }, [estatus2026Data, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
+
+  const activeGerenciaData = useMemo(() => {
+    if (!resumenActiveMonthIdxs) return estatus2026GerenciaDistribution;
+    const merged = mergeMonthCounts(estatus2026GerenciaCountsByMonth, resumenActiveMonthIdxs);
+    return Object.entries(merged).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
+  }, [resumenActiveMonthIdxs, estatus2026GerenciaCountsByMonth, estatus2026GerenciaDistribution]);
+
+  const activeGerenciaTotal = useMemo(() => {
+    if (!resumenActiveMonthIdxs) return estatus2026KPIs.allUnique;
+    const merged = mergeMonthCounts(estatus2026GerenciaCountsByMonth, resumenActiveMonthIdxs);
+    return Object.values(merged).reduce((a, b) => a + b, 0);
+  }, [resumenActiveMonthIdxs, estatus2026GerenciaCountsByMonth, estatus2026KPIs.allUnique]);
+
+  const activeSubdirData = useMemo(() => {
+    if (!resumenActiveMonthIdxs) return estatus2026SubdirDistribution;
+    const merged = mergeMonthCounts(estatus2026SubdirCountsByMonth, resumenActiveMonthIdxs);
+    return Object.entries(merged).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [resumenActiveMonthIdxs, estatus2026SubdirCountsByMonth, estatus2026SubdirDistribution]);
+
+  const activeSubdirTotal = useMemo(() => {
+    if (!resumenActiveMonthIdxs) return estatus2026KPIs.allUnique;
+    const merged = mergeMonthCounts(estatus2026SubdirCountsByMonth, resumenActiveMonthIdxs);
+    return Object.values(merged).reduce((a, b) => a + b, 0);
+  }, [resumenActiveMonthIdxs, estatus2026SubdirCountsByMonth, estatus2026KPIs.allUnique]);
+
+  const activeMontoByGerenciaData = useMemo(() => {
+    if (!resumenActiveMonthIdxs) return estatus2026MontoByGerencia;
+    const merged = mergeMonthCounts(estatus2026MontoByGerenciaCountsByMonth, resumenActiveMonthIdxs);
+    return Object.entries(merged).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
+  }, [resumenActiveMonthIdxs, estatus2026MontoByGerenciaCountsByMonth, estatus2026MontoByGerencia]);
+
+  // Period-aware equivalents of estatus2026KPIs (total/adjudicados/enProceso/cancelados),
+  // derived from activeEstatusPieData so they always agree with the pie/desglose above.
+  const activeEstatusKPIs = useMemo(() => {
+    const adjudicados = activeEstatusPieData.find(d =>
+      d.name.toLowerCase().includes('adjudicad') || d.name.toLowerCase().includes('contratad')
+    )?.value ?? 0;
+    const cancelados = activeEstatusPieData.find(d => d.name === 'Cancelado')?.value ?? 0;
+    const EN_PROCESO_STATUSES = ESTATUS_2026_OPTIONS.filter(s => s !== 'Adjudicado' && s !== 'Cancelado');
+    const enProceso = EN_PROCESO_STATUSES.reduce((sum, s) => sum + (activeEstatusPieData.find(d => d.name === s)?.value ?? 0), 0);
+    const allUnique = activeEstatusPieData.reduce((a, d) => a + d.value, 0);
+    const total = allUnique - cancelados;
+    return { total, adjudicados, cancelados, enProceso, allUnique };
+  }, [activeEstatusPieData]);
 
   // 2026 estatus_2026 — completion rate of key boolean columns
   const estatus2026BooleanCompletion = useMemo(() => {
@@ -5505,6 +5770,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     { label: 'Dic', frags: ['dic.', 'diciembre'] },
   ] as const;
 
+  const REPORTE_QUARTER_DEFS = [
+    { label: 'Q1', sublabel: 'Ene–Mar', monthIdx: [0, 1, 2] as const },
+    { label: 'Q2', sublabel: 'Abr–Jun', monthIdx: [3, 4, 5] as const },
+    { label: 'Q3', sublabel: 'Jul–Sep', monthIdx: [6, 7, 8] as const },
+    { label: 'Q4', sublabel: 'Oct–Dic', monthIdx: [9, 10, 11] as const },
+  ] as const;
+
   const gastoEfectuado2026Data = useMemo(() => {
     if (!pagos2026Data.length) return [] as Array<{
       key: string; noContrato: string; objeto: string; proveedor: string;
@@ -5573,6 +5845,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       };
     });
   }, [pagos2026Data, pagos2026MontoMaxFieldSummary, pagos2026ServiceFieldSummary]);
+
+  const gastoEfectuadoQuarterly = useMemo(() => {
+    return gastoEfectuado2026Data.map(row => {
+      const quarters = REPORTE_QUARTER_DEFS.map(({ label, monthIdx }) => {
+        const amount = monthIdx.reduce((sum: number, mi) => sum + (row.monthly[mi]?.amount ?? 0), 0);
+        const pctTrimestral = row.montMax > 0 ? (amount / row.montMax) * 100 : 0;
+        const lastIdx = monthIdx[monthIdx.length - 1];
+        const pctAcum = row.monthly[lastIdx]?.pctAcum ?? 0;
+        return { label, amount, pctTrimestral, pctAcum };
+      });
+      return { key: row.key, quarters };
+    });
+  }, [gastoEfectuado2026Data]);
   // ── END REPORTES ──────────────────────────────────────────────────────────
 
   const serviciosStickyDefinitions = [
@@ -5614,7 +5899,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
   }, [servicios2026Data]);
 
-
+  // Period-aware "Responsables" count for the KPI card. Total mode keeps the original
+  // servicios2026Data-based computation untouched; Mensual/Trimestral derive it from
+  // estatus2026Data (which carries the Responsable column) filtered to the active period.
+  const activeResponsablesCount = useMemo(() => {
+    if (!resumenActiveMonthIdxs) {
+      const responsableCol = serviciosTableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
+      if (!responsableCol) return servicios2026Data.length;
+      return new Set(servicios2026Data.map(r => String(r[responsableCol] ?? '').trim()).filter(Boolean)).size;
+    }
+    const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
+    if (!responsableCol) return 0;
+    const set = new Set<string>();
+    estatus2026Data.forEach((row) => {
+      const mi = getEstatus2026RowMonth(row);
+      if (mi === null || !resumenActiveMonthIdxs.includes(mi)) return;
+      const v = String(row[responsableCol] ?? '').trim();
+      if (v) set.add(v);
+    });
+    return set.size;
+  }, [resumenActiveMonthIdxs, serviciosTableColumns, servicios2026Data, estatus2026TableColumns, estatus2026Data]);
 
   const serviciosColumnsToRender = useMemo(() => {
     if (!serviciosTableColumns.length) return [] as string[];
@@ -9647,13 +9951,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {selectedResumenCard === 'total' && (() => {
                           const rows = estatus2026Data.filter((row) => {
                             if (!estatus2026EstatusColumnField) return true;
-                            return normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) !== 'Cancelado';
+                            if (normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) === 'Cancelado') return false;
+                            if (selectedResumenDetailQuarter !== 'all' && getEstatus2026RowQuarter(row) !== selectedResumenDetailQuarter) return false;
+                            return true;
                           });
                           return (
                             <div className="space-y-4">
                               <div>
                                 <h2 className="text-2xl font-bold text-slate-900">Servicios Activos 2026</h2>
                                 <p className="text-slate-500 mt-1">{rows.length} registro{rows.length !== 1 ? 's' : ''} activos.</p>
+                                <div className="flex items-center gap-2 flex-wrap mt-3">
+                                  <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 w-fit">
+                                    {(['all', 'Q1', 'Q2', 'Q3', 'Q4'] as const).map((key) => (
+                                      <button
+                                        key={key}
+                                        onClick={() => setSelectedResumenDetailQuarter(key)}
+                                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${selectedResumenDetailQuarter === key
+                                          ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                          : 'text-slate-500 hover:text-slate-800'
+                                          }`}
+                                      >
+                                        {key === 'all' ? 'Todo 2026' : key}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {selectedResumenDetailQuarter !== 'all' && (
+                                    <span className="text-xs font-semibold text-[#B38E5D]">
+                                      {{
+                                        Q1: 'Enero – Marzo',
+                                        Q2: 'Abril – Junio',
+                                        Q3: 'Julio – Septiembre',
+                                        Q4: 'Octubre – Diciembre',
+                                      }[selectedResumenDetailQuarter]}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                                 <div className="overflow-x-auto">
@@ -9701,6 +10033,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             if (!estatus2026EstatusColumnField) return false;
                             const v = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
                             if (!EN_PROCESO_STATUSES.includes(v)) return false;
+                            if (selectedResumenDetailQuarter !== 'all' && getEstatus2026RowQuarter(row) !== selectedResumenDetailQuarter) return false;
                             if (estatus2026ServiceNameFieldSummary) {
                               const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary);
                               if (seenKeys.has(key)) return false;
@@ -9715,6 +10048,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <div>
                                 <h2 className="text-2xl font-bold text-slate-900">Servicios en Proceso</h2>
                                 <p className="text-slate-500 mt-1">{rows.length} servicio{rows.length !== 1 ? 's' : ''} en proceso de contratación.</p>
+                                <div className="flex items-center gap-2 flex-wrap mt-3">
+                                  <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 w-fit">
+                                    {(['all', 'Q1', 'Q2', 'Q3', 'Q4'] as const).map((key) => (
+                                      <button
+                                        key={key}
+                                        onClick={() => setSelectedResumenDetailQuarter(key)}
+                                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${selectedResumenDetailQuarter === key
+                                          ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                          : 'text-slate-500 hover:text-slate-800'
+                                          }`}
+                                      >
+                                        {key === 'all' ? 'Todo 2026' : key}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {selectedResumenDetailQuarter !== 'all' && (
+                                    <span className="text-xs font-semibold text-[#B38E5D]">
+                                      {{
+                                        Q1: 'Enero – Marzo',
+                                        Q2: 'Abril – Junio',
+                                        Q3: 'Julio – Septiembre',
+                                        Q4: 'Octubre – Diciembre',
+                                      }[selectedResumenDetailQuarter]}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <div className="bg-white rounded-xl border border-yellow-200 shadow-sm overflow-hidden">
                                 <div className="overflow-x-auto">
@@ -10036,6 +10395,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             if (!estatus2026EstatusColumnField) return false;
                             const v = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
                             if (!(v.toLowerCase().includes('adjudicad') || v.toLowerCase().includes('contratad'))) return false;
+                            if (selectedResumenDetailQuarter !== 'all' && getEstatus2026RowQuarter(row) !== selectedResumenDetailQuarter) return false;
                             if (estatus2026ServiceNameFieldSummary) {
                               const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary);
                               if (seenKeys.has(key)) return false;
@@ -10048,6 +10408,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <div>
                                 <h2 className="text-2xl font-bold text-slate-900">Servicios Adjudicados</h2>
                                 <p className="text-slate-500 mt-1">{rows.length} servicio{rows.length !== 1 ? 's' : ''} adjudicado{rows.length !== 1 ? 's' : ''}.</p>
+                                <div className="flex items-center gap-2 flex-wrap mt-3">
+                                  <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 w-fit">
+                                    {(['all', 'Q1', 'Q2', 'Q3', 'Q4'] as const).map((key) => (
+                                      <button
+                                        key={key}
+                                        onClick={() => setSelectedResumenDetailQuarter(key)}
+                                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${selectedResumenDetailQuarter === key
+                                          ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                          : 'text-slate-500 hover:text-slate-800'
+                                          }`}
+                                      >
+                                        {key === 'all' ? 'Todo 2026' : key}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {selectedResumenDetailQuarter !== 'all' && (
+                                    <span className="text-xs font-semibold text-[#B38E5D]">
+                                      {{
+                                        Q1: 'Enero – Marzo',
+                                        Q2: 'Abril – Junio',
+                                        Q3: 'Julio – Septiembre',
+                                        Q4: 'Octubre – Diciembre',
+                                      }[selectedResumenDetailQuarter]}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                                 <div className="overflow-x-auto">
@@ -10088,6 +10474,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           const rows = estatus2026Data.filter((row) => {
                             if (!estatus2026EstatusColumnField) return false;
                             if (normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) !== 'Cancelado') return false;
+                            if (selectedResumenDetailQuarter !== 'all' && getEstatus2026RowQuarter(row) !== selectedResumenDetailQuarter) return false;
                             if (estatus2026ServiceNameFieldSummary) {
                               const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary);
                               if (seenKeys.has(key)) return false;
@@ -10100,6 +10487,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <div>
                                 <h2 className="text-2xl font-bold text-slate-900">Servicios Cancelados</h2>
                                 <p className="text-slate-500 mt-1">{rows.length} servicio{rows.length !== 1 ? 's' : ''} cancelado{rows.length !== 1 ? 's' : ''}.</p>
+                                <div className="flex items-center gap-2 flex-wrap mt-3">
+                                  <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 w-fit">
+                                    {(['all', 'Q1', 'Q2', 'Q3', 'Q4'] as const).map((key) => (
+                                      <button
+                                        key={key}
+                                        onClick={() => setSelectedResumenDetailQuarter(key)}
+                                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${selectedResumenDetailQuarter === key
+                                          ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                          : 'text-slate-500 hover:text-slate-800'
+                                          }`}
+                                      >
+                                        {key === 'all' ? 'Todo 2026' : key}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {selectedResumenDetailQuarter !== 'all' && (
+                                    <span className="text-xs font-semibold text-[#B38E5D]">
+                                      {{
+                                        Q1: 'Enero – Marzo',
+                                        Q2: 'Abril – Junio',
+                                        Q3: 'Julio – Septiembre',
+                                        Q4: 'Octubre – Diciembre',
+                                      }[selectedResumenDetailQuarter]}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <div className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden">
                                 <div className="overflow-x-auto">
@@ -10143,8 +10556,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           // ESTATUS_2026_COLOR_MAP, que está indexado por los valores de "Estatus".
                           const estatusCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'estatus')
                             ?? estatus2026StatusFieldSummary;
+                          const responsablesSourceRows = selectedResumenDetailQuarter === 'all'
+                            ? estatus2026Data
+                            : estatus2026Data.filter(row => getEstatus2026RowQuarter(row) === selectedResumenDetailQuarter);
                           const grouped = new Map<string, { name: string; estatus: string }[]>();
-                          estatus2026Data.forEach(row => {
+                          responsablesSourceRows.forEach(row => {
                             const resp = responsableCol ? String(row[responsableCol] ?? '').trim() : '';
                             const label = resp || '— Sin asignar —';
                             const svcName = estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—';
@@ -10189,7 +10605,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="space-y-4">
                               <div>
                                 <h2 className="text-2xl font-bold text-slate-900">Responsables de Servicios</h2>
-                                <p className="text-slate-500 mt-1 mb-3">{sortedGroups.length} responsable{sortedGroups.length !== 1 ? 's' : ''} · {estatus2026Data.length} servicio{estatus2026Data.length !== 1 ? 's' : ''} en total.</p>
+                                <p className="text-slate-500 mt-1 mb-3">{sortedGroups.length} responsable{sortedGroups.length !== 1 ? 's' : ''} · {responsablesSourceRows.length} servicio{responsablesSourceRows.length !== 1 ? 's' : ''} en total.</p>
+                                <div className="flex items-center gap-2 flex-wrap mb-3">
+                                  <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 w-fit">
+                                    {(['all', 'Q1', 'Q2', 'Q3', 'Q4'] as const).map((key) => (
+                                      <button
+                                        key={key}
+                                        onClick={() => setSelectedResumenDetailQuarter(key)}
+                                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${selectedResumenDetailQuarter === key
+                                          ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                          : 'text-slate-500 hover:text-slate-800'
+                                          }`}
+                                      >
+                                        {key === 'all' ? 'Todo 2026' : key}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {selectedResumenDetailQuarter !== 'all' && (
+                                    <span className="text-xs font-semibold text-[#B38E5D]">
+                                      {{
+                                        Q1: 'Enero – Marzo',
+                                        Q2: 'Abril – Junio',
+                                        Q3: 'Julio – Septiembre',
+                                        Q4: 'Octubre – Diciembre',
+                                      }[selectedResumenDetailQuarter]}
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="relative max-w-sm">
                                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
                                   <input
@@ -10398,11 +10840,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       </div>
                     ) : !selectedEstatus2026Phase ? (
                       <div className="space-y-6">
-                        <div>
-                          <h1 className="text-2xl font-bold text-slate-900">Resumen 2026</h1>
-                          <p className="text-slate-500 mt-1">
-                            Vista consolidada del estatus de servicios y flujo de pagos para el ejercicio 2026.
-                          </p>
+                        <div className="flex items-start justify-between flex-wrap gap-3">
+                          <div>
+                            <h1 className="text-2xl font-bold text-slate-900">Resumen 2026</h1>
+                            <p className="text-slate-500 mt-1">
+                              Vista consolidada del estatus de servicios y flujo de pagos para el ejercicio 2026.
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {([
+                              { key: 'all', label: 'Todo 2026', range: null },
+                              { key: 'Q1', label: 'Q1', range: 'Ene – Mar' },
+                              { key: 'Q2', label: 'Q2', range: 'Abr – Jun' },
+                              { key: 'Q3', label: 'Q3', range: 'Jul – Sep' },
+                              { key: 'Q4', label: 'Q4', range: 'Oct – Dic' },
+                            ] as const).map(({ key, label, range }) => {
+                              const isActive = key === 'all' ? resumenPeriodMode === 'total' : (resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === key);
+                              return (
+                                <button
+                                  key={key}
+                                  onClick={() => {
+                                    if (key === 'all') {
+                                      setResumenPeriodMode('total');
+                                      setResumenSelectedQuarter(null);
+                                    } else {
+                                      setResumenPeriodMode('trimestral');
+                                      setResumenSelectedQuarter(key);
+                                    }
+                                  }}
+                                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${isActive
+                                    ? 'bg-[#B38E5D] border-[#B38E5D] text-white'
+                                    : 'bg-white border-slate-200 text-slate-500 hover:border-[#B38E5D] hover:text-[#B38E5D]'
+                                    }`}
+                                >
+                                  {label} {range && <span className="opacity-70 font-normal">{range}</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
 
                         {/* KPI Cards */}
@@ -10416,10 +10891,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Servicios</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.total}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{resumenActiveMonthIdxs ? activeEstatusKPIs.total : estatus2026KPIs.total}</p>
                                 <p className="text-xs text-slate-500 mt-2">
                                   Servicios activos en 2026
-                                  {estatus2026KPIs.dbTotal > estatus2026KPIs.allUnique && (
+                                  {!resumenActiveMonthIdxs && estatus2026KPIs.dbTotal > estatus2026KPIs.allUnique && (
                                     <span className="text-slate-400 ml-1">({estatus2026KPIs.dbTotal} registros totales)</span>
                                   )}
                                 </p>
@@ -10440,11 +10915,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Adjudicados</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.adjudicados}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{resumenActiveMonthIdxs ? activeEstatusKPIs.adjudicados : estatus2026KPIs.adjudicados}</p>
                                 <p className="text-xs text-slate-500 mt-2">
-                                  {estatus2026KPIs.total > 0
-                                    ? `${Math.round((estatus2026KPIs.adjudicados / estatus2026KPIs.total) * 100)}% del total activos`
-                                    : 'Sin datos'}
+                                  {(() => {
+                                    const t = resumenActiveMonthIdxs ? activeEstatusKPIs.total : estatus2026KPIs.total;
+                                    const a = resumenActiveMonthIdxs ? activeEstatusKPIs.adjudicados : estatus2026KPIs.adjudicados;
+                                    return t > 0 ? `${Math.round((a / t) * 100)}% del total activos` : 'Sin datos';
+                                  })()}
                                 </p>
                               </div>
                               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 shadow-sm group-hover:bg-emerald-100 transition-colors">
@@ -10463,11 +10940,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">En Proceso</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.enProceso}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{resumenActiveMonthIdxs ? activeEstatusKPIs.enProceso : estatus2026KPIs.enProceso}</p>
                                 <p className="text-xs text-slate-500 mt-2">
-                                  {estatus2026KPIs.total > 0
-                                    ? `${Math.round((estatus2026KPIs.enProceso / estatus2026KPIs.total) * 100)}% del total activos`
-                                    : 'Sin datos'}
+                                  {(() => {
+                                    const t = resumenActiveMonthIdxs ? activeEstatusKPIs.total : estatus2026KPIs.total;
+                                    const e = resumenActiveMonthIdxs ? activeEstatusKPIs.enProceso : estatus2026KPIs.enProceso;
+                                    return t > 0 ? `${Math.round((e / t) * 100)}% del total activos` : 'Sin datos';
+                                  })()}
                                 </p>
                               </div>
                               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-yellow-50 text-yellow-500 border border-yellow-100 shadow-sm group-hover:bg-yellow-100 transition-colors">
@@ -10486,7 +10965,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cancelados</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">{estatus2026KPIs.cancelados}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{resumenActiveMonthIdxs ? activeEstatusKPIs.cancelados : estatus2026KPIs.cancelados}</p>
                                 <p className="text-xs text-slate-500 mt-2">No incluidos en el total</p>
                               </div>
                               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-red-600 border border-white/60 shadow-sm group-hover:bg-red-100 transition-colors">
@@ -10505,13 +10984,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Responsables</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">
-                                  {(() => {
-                                    const responsableCol = serviciosTableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
-                                    if (!responsableCol) return servicios2026Data.length;
-                                    return new Set(servicios2026Data.map(r => String(r[responsableCol] ?? '').trim()).filter(Boolean)).size;
-                                  })()}
-                                </p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{activeResponsablesCount}</p>
                                 <p className="text-xs text-slate-500 mt-2">Responsables únicos asignados</p>
                               </div>
                               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-purple-50 text-purple-600 border border-purple-100 shadow-sm group-hover:bg-purple-100 transition-colors">
@@ -10522,25 +10995,86 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </button>
                         </div>
 
+                        {/* Filtro compartido: aplica a Distribución por Estatus, Gerencia, Subdirección y Presupuesto */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col gap-3">
+                          <div className="flex items-center justify-between flex-wrap gap-3">
+                            <div>
+                              <h3 className="text-sm font-bold text-slate-700">Periodo de las gráficas</h3>
+                              <p className="text-xs text-slate-400 mt-0.5">Aplica a Distribución por Estatus, Servicios por Gerencia, Subdirección y Presupuesto.</p>
+                            </div>
+                            <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5">
+                              {(['total', 'mensual', 'trimestral'] as const).map((mode) => (
+                                <button
+                                  key={mode}
+                                  onClick={() => setResumenPeriodMode(mode)}
+                                  className={`px-3.5 py-1.5 rounded-lg text-sm font-bold transition-all ${resumenPeriodMode === mode
+                                    ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                    : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                  {mode === 'total' ? 'Total' : mode === 'mensual' ? 'Mensual' : 'Trimestral'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {resumenPeriodMode === 'mensual' && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {REPORTE_MONTH_DEFS.map(({ label }, idx) => (
+                                <button
+                                  key={label}
+                                  onClick={() => setResumenSelectedMonth(prev => prev === idx ? null : idx)}
+                                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${resumenSelectedMonth === idx
+                                    ? 'bg-[#B38E5D] border-[#B38E5D] text-white'
+                                    : 'bg-white border-slate-200 text-slate-500 hover:border-[#B38E5D] hover:text-[#B38E5D]'
+                                    }`}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {resumenPeriodMode === 'trimestral' && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {([
+                                { key: 'Q1', label: 'Q1', range: 'Ene – Mar' },
+                                { key: 'Q2', label: 'Q2', range: 'Abr – Jun' },
+                                { key: 'Q3', label: 'Q3', range: 'Jul – Sep' },
+                                { key: 'Q4', label: 'Q4', range: 'Oct – Dic' },
+                              ] as const).map(({ key, label, range }) => (
+                                <button
+                                  key={key}
+                                  onClick={() => setResumenSelectedQuarter(prev => prev === key ? null : key)}
+                                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${resumenSelectedQuarter === key
+                                    ? 'bg-[#B38E5D] border-[#B38E5D] text-white'
+                                    : 'bg-white border-slate-200 text-slate-500 hover:border-[#B38E5D] hover:text-[#B38E5D]'
+                                    }`}
+                                >
+                                  {label} <span className="opacity-70 font-normal">{range}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
                         {/* Pie chart: Distribución por Estatus – columna Estatus de la tabla estatus_2026 */}
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
-                          <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
                             <div>
                               <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Estatus</h3>
                               <p className="text-xs text-slate-500 mt-1">
                                 Haz clic en un estatus para ver los servicios en esa categoría.
                               </p>
                             </div>
-                            <span className="text-xs text-slate-400">{estatus2026KPIs.allUnique} servicios</span>
+                            <span className="text-xs text-slate-400">{activeEstatusTotalCount} servicios</span>
                           </div>
                           <div className="h-[640px] w-full">
                             {loadingData ? (
                               <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando información...</div>
-                            ) : estatus2026EstatusDistribution.length > 0 ? (
+                            ) : activeEstatusPieData.length > 0 ? (
                               <ResponsiveContainer width="100%" height="100%">
                                 <PieChart margin={{ top: 50, bottom: 20, left: 80, right: 80 }}>
                                   <Pie
-                                    data={estatus2026EstatusDistribution.filter(d => d.name !== 'Cancelado')}
+                                    data={activeEstatusPieData.filter(d => d.name !== 'Cancelado')}
                                     dataKey="value"
                                     nameKey="name"
                                     cx="50%"
@@ -10563,7 +11097,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         'Documentación actualizada para publicación': 'Doc. para publicación',
                                         'Atención de observaciones DEFENSA': 'Atención obs.',
                                       };
-                                      const pieData = estatus2026EstatusDistribution.filter((d: any) => d.name !== 'Cancelado');
+                                      const pieData = activeEstatusPieData.filter((d: any) => d.name !== 'Cancelado');
                                       const totalVal = pieData.reduce((s: number, d: any) => s + d.value, 0);
                                       let acc = 0;
                                       const positions: Array<{ name: string; x: number; y: number; label: string; boxW: number; pct: number }> = pieData.map((slice: any) => {
@@ -10603,14 +11137,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     }}
                                     labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                                   >
-                                    {estatus2026EstatusDistribution.map((entry, index) => {
+                                    {activeEstatusPieData.map((entry, index) => {
                                       const fill = ESTATUS_2026_COLOR_MAP[entry.name] ?? '#94A3B8';
                                       return <Cell key={`cell-estatus2-${index}`} fill={fill} />;
                                     })}
                                   </Pie>
                                   <Tooltip
                                     formatter={(value: number, name: string) => {
-                                      const total = estatus2026EstatusDistribution.reduce((a, b) => a + b.value, 0);
+                                      const total = activeEstatusPieData.reduce((a, b) => a + b.value, 0);
                                       const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
                                       return [`${value} servicio${value === 1 ? '' : 's'} (${pct}%)`, name];
                                     }}
@@ -10664,12 +11198,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             )}
                           </div>
                           {/* Desglose rápido por estatus */}
-                          {estatus2026EstatusDistribution.length > 0 && (
+                          {activeEstatusPieData.length > 0 && (
                             <div className="mt-6 space-y-3">
                               <h4 className="text-sm font-semibold text-slate-600">Desglose por estatus</h4>
-                              {estatus2026EstatusDistribution.map((item, index) => {
+                              {activeEstatusPieData.map((item, index) => {
                                 const color = ESTATUS_2026_COLOR_MAP[item.name] ?? '#94A3B8';
-                                const total = estatus2026EstatusDistribution.reduce((a, b) => a + b.value, 0);
+                                const total = activeEstatusPieData.reduce((a, b) => a + b.value, 0);
                                 const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
                                 return (
                                   <button key={item.name} className="w-full text-left group" onClick={() => setSelectedEstatus2026Estatus(item.name)}>
@@ -10694,18 +11228,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
                             <div className="flex items-center justify-between mb-4">
                               <h3 className="text-lg font-bold text-slate-800">Servicios por Gerencia</h3>
-                              <span className="text-xs text-slate-400">{estatus2026GerenciaDistribution.length} gerencias</span>
+                              <span className="text-xs text-slate-400">{activeGerenciaData.length} gerencias</span>
                             </div>
                             {loadingData ? (
                               <div className="flex items-center justify-center py-12 text-slate-400 text-sm">Cargando...</div>
-                            ) : estatus2026GerenciaDistribution.length > 0 ? (() => {
-                              const maxVal = Math.max(...estatus2026GerenciaDistribution.map(d => d.value));
+                            ) : activeGerenciaData.length > 0 ? (() => {
+                              const maxVal = Math.max(...activeGerenciaData.map(d => d.value));
                               return (
                                 <div className="space-y-3">
-                                  {estatus2026GerenciaDistribution.map((entry, index) => {
+                                  {activeGerenciaData.map((entry, index) => {
                                     const barWidth = maxVal > 0 ? (entry.value / maxVal) * 100 : 0;
-                                    const pct = estatus2026KPIs.allUnique > 0
-                                      ? ((entry.value / estatus2026KPIs.allUnique) * 100).toFixed(1)
+                                    const pct = activeGerenciaTotal > 0
+                                      ? ((entry.value / activeGerenciaTotal) * 100).toFixed(1)
                                       : '0';
                                     const color = chartPalette[index % chartPalette.length];
                                     return (
@@ -10746,14 +11280,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                             <div className="flex items-center justify-between mb-4">
                               <h3 className="text-lg font-bold text-slate-800">Servicios 2026 por Subdirección</h3>
-                              <span className="text-xs font-medium text-slate-400">{estatus2026KPIs.allUnique} total</span>
+                              <span className="text-xs font-medium text-slate-400">{activeSubdirTotal} total</span>
                             </div>
                             <div className="space-y-3">
-                              {estatus2026SubdirDistribution.length > 0 ? (() => {
-                                const maxVal = Math.max(...estatus2026SubdirDistribution.map(e => e.value), 1);
-                                return estatus2026SubdirDistribution.map((entry, index) => {
+                              {activeSubdirData.length > 0 ? (() => {
+                                const maxVal = Math.max(...activeSubdirData.map(e => e.value), 1);
+                                return activeSubdirData.map((entry, index) => {
                                   const barWidth = Math.round((entry.value / maxVal) * 100);
-                                  const pct = estatus2026KPIs.allUnique > 0 ? Math.round((entry.value / estatus2026KPIs.allUnique) * 100) : 0;
+                                  const pct = activeSubdirTotal > 0 ? Math.round((entry.value / activeSubdirTotal) * 100) : 0;
                                   const color = chartPalette[index % chartPalette.length];
                                   return (
                                     <div key={entry.name} className="space-y-1">
@@ -10779,9 +11313,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <span className="text-xs font-medium text-slate-400">Monto total</span>
                             </div>
                             <div className="space-y-3">
-                              {estatus2026MontoByGerencia.length > 0 ? (() => {
-                                const maxVal = Math.max(...estatus2026MontoByGerencia.map(e => e.value), 1);
-                                return estatus2026MontoByGerencia.map((entry, index) => {
+                              {activeMontoByGerenciaData.length > 0 ? (() => {
+                                const maxVal = Math.max(...activeMontoByGerenciaData.map(e => e.value), 1);
+                                return activeMontoByGerenciaData.map((entry, index) => {
                                   const barWidth = Math.round((entry.value / maxVal) * 100);
                                   const color = chartPalette[index % chartPalette.length];
                                   return (
@@ -12962,16 +13496,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             Haz clic para ver gráficas de avance
                           </span>
                         )}
-                        <button
-                          onClick={() => setShowGastoCharts(v => !v)}
-                          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all shadow-sm ${showGastoCharts
-                            ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
-                            : 'bg-white text-[#0F4C3A] border-[#0F4C3A] hover:bg-[#0F4C3A] hover:text-white'
-                            }`}
-                        >
-                          <BarChart2 className="h-4 w-4" />
-                          {showGastoCharts ? 'Ocultar gráficas' : 'Ver gráficas'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1">
+                            {(['mensual', 'trimestral'] as const).map((v) => (
+                              <button
+                                key={v}
+                                onClick={() => setGastoVistaColumnas(v)}
+                                className={`px-3.5 py-1.5 rounded-lg text-sm font-bold transition-all ${gastoVistaColumnas === v
+                                  ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                  : 'text-slate-500 hover:text-slate-800'
+                                  }`}
+                              >
+                                {v === 'mensual' ? 'Mensual' : 'Trimestral'}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => setShowGastoCharts(v => !v)}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all shadow-sm ${showGastoCharts
+                              ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
+                              : 'bg-white text-[#0F4C3A] border-[#0F4C3A] hover:bg-[#0F4C3A] hover:text-white'
+                              }`}
+                          >
+                            <BarChart2 className="h-4 w-4" />
+                            {showGastoCharts ? 'Ocultar gráficas' : 'Ver gráficas'}
+                          </button>
+                        </div>
+                        {gastoVistaColumnas === 'trimestral' && (
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Ver detalle:</span>
+                            {REPORTE_QUARTER_DEFS.map(({ label, sublabel }) => (
+                              <button
+                                key={label}
+                                onClick={() => setSelectedGastoQuarter(prev => prev === label ? null : label)}
+                                className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${selectedGastoQuarter === label
+                                  ? 'bg-[#B38E5D] border-[#B38E5D] text-white'
+                                  : 'bg-white border-slate-200 text-slate-500 hover:border-[#B38E5D] hover:text-[#B38E5D]'
+                                  }`}
+                                title={`Ver los meses de ${label} (${sublabel})`}
+                              >
+                                {label} <span className="opacity-70 font-normal">{sublabel}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -13127,7 +13695,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <p>No hay datos de pagos disponibles.</p>
                       </div>
                     ) : (
-                      <div className="overflow-x-auto overflow-y-auto max-h-[72vh] rounded-xl border border-slate-200 shadow-sm">
+                      <div className="overflow-x-auto overflow-y-auto max-h-[72vh] rounded-xl border border-slate-200 shadow-sm transition-[width] duration-300 ease-in-out">
                         <table className="min-w-full text-xs border-collapse">
                           <thead className="sticky top-0 z-30">
                             <tr className="bg-[#0F4C3A] text-white text-[11px] uppercase tracking-wide">
@@ -13137,14 +13705,48 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Inicio</th>
                               <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha Término</th>
                               <th className="px-3 py-3 text-right font-bold whitespace-nowrap border-r border-white/20">Mont. Max.</th>
-                              {REPORTE_MONTH_DEFS.map(({ label }) => (
-                                <th key={label} className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[100px] border-l border-white/10">{label}</th>
-                              ))}
-                              <th className="px-3 py-3 text-right font-bold whitespace-nowrap border-l border-white/30 bg-[#0c3b2d] min-w-[120px]">Total / %</th>
+                              {gastoVistaColumnas === 'mensual' ? (
+                                REPORTE_MONTH_DEFS.map(({ label }) => (
+                                  <th key={label} className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[100px] border-l border-white/10">{label}</th>
+                                ))
+                              ) : selectedGastoQuarter ? (
+                                REPORTE_QUARTER_DEFS.find(q => q.label === selectedGastoQuarter)!.monthIdx.map((mi) => (
+                                  <th key={REPORTE_MONTH_DEFS[mi].label} className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[110px] border-l border-white/10">{REPORTE_MONTH_DEFS[mi].label}</th>
+                                ))
+                              ) : (
+                                REPORTE_QUARTER_DEFS.map(({ label, sublabel }, qi) => (
+                                  <th
+                                    key={label}
+                                    className={`px-2 py-3 text-center font-bold whitespace-nowrap min-w-[120px] border-l-2 border-white/30 ${qi % 2 === 0 ? 'bg-[#0F4C3A]' : 'bg-[#0d4433]'}`}
+                                  >
+                                    <div className="flex flex-col items-center leading-tight gap-0.5">
+                                      <span>{label}</span>
+                                      <span className="text-[9px] font-normal normal-case text-white/60">{sublabel}</span>
+                                    </div>
+                                  </th>
+                                ))
+                              )}
+                              <th className="px-3 py-3 text-right font-bold whitespace-nowrap border-l border-white/30 bg-[#0c3b2d] min-w-[120px]">
+                                {gastoVistaColumnas === 'trimestral' && selectedGastoQuarter ? `Total ${selectedGastoQuarter} / %` : 'Total / %'}
+                              </th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {gastoEfectuado2026Data.map((row, rowIdx) => (
+                            {gastoEfectuado2026Data.map((row, rowIdx) => {
+                              const periodCells = gastoVistaColumnas === 'mensual'
+                                ? row.monthly.map(m => ({ key: m.label, amount: m.amount, pct: m.pctMensual, pctAcum: m.pctAcum }))
+                                : selectedGastoQuarter
+                                  ? REPORTE_QUARTER_DEFS.find(q => q.label === selectedGastoQuarter)!.monthIdx.map(mi => {
+                                    const m = row.monthly[mi];
+                                    return { key: m.label, amount: m.amount, pct: m.pctMensual, pctAcum: m.pctAcum };
+                                  })
+                                  : (gastoEfectuadoQuarterly[rowIdx]?.quarters ?? []).map(q => ({ key: q.label, amount: q.amount, pct: q.pctTrimestral, pctAcum: q.pctAcum }));
+                              const selectedQuarterTotal = (gastoVistaColumnas === 'trimestral' && selectedGastoQuarter)
+                                ? gastoEfectuadoQuarterly[rowIdx]?.quarters.find(q => q.label === selectedGastoQuarter)
+                                : null;
+                              const displayTotalAmount = selectedQuarterTotal ? selectedQuarterTotal.amount : row.totalPagado;
+                              const displayTotalPct = selectedQuarterTotal ? selectedQuarterTotal.pctTrimestral : row.pctTotal;
+                              return (
                               <tr
                                 key={row.key}
                                 className={`group hover:bg-amber-50/40 transition-colors ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}
@@ -13168,9 +13770,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <td className="px-3 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap border-r border-slate-200">
                                   {formatCurrency(row.montMax)}
                                 </td>
-                                {/* Month columns */}
-                                {row.monthly.map(({ label, amount, pctMensual, pctAcum }) => (
-                                  <td key={label} className="px-2 py-2 text-center border-l border-slate-100 align-top min-w-[100px]">
+                                {/* Month/Quarter columns */}
+                                {periodCells.map(({ key, amount, pct, pctAcum }, pIdx) => (
+                                  <td
+                                    key={key}
+                                    className={`px-2 py-2 text-center align-top ${(gastoVistaColumnas === 'trimestral' && !selectedGastoQuarter) ? 'min-w-[120px] border-l-2 border-slate-200' : 'min-w-[100px] border-l border-slate-100'} ${(gastoVistaColumnas === 'trimestral' && !selectedGastoQuarter) && pIdx % 2 !== 0 ? 'bg-slate-50/60' : ''}`}
+                                  >
                                     {amount > 0 ? (
                                       <div className="flex flex-col items-center gap-0.5">
                                         <span className="text-slate-700 font-semibold tabular-nums whitespace-nowrap">
@@ -13179,10 +13784,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden my-0.5">
                                           <div
                                             className="h-full rounded-full bg-emerald-500"
-                                            style={{ width: `${Math.min(100, pctMensual)}%` }}
+                                            style={{ width: `${Math.min(100, pct)}%` }}
                                           />
                                         </div>
-                                        <span className="text-[10px] font-bold text-emerald-700 tabular-nums">{pctMensual.toFixed(1)}%</span>
+                                        <span className="text-[10px] font-bold text-emerald-700 tabular-nums">{pct.toFixed(1)}%</span>
                                         <span className="text-[10px] text-blue-600 tabular-nums">Acum: {pctAcum.toFixed(1)}%</span>
                                       </div>
                                     ) : (
@@ -13194,42 +13799,58 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <td className="px-3 py-2.5 text-right border-l border-slate-200 bg-slate-50/80 align-top">
                                   <div className="flex flex-col items-end gap-0.5">
                                     <span className="font-semibold text-slate-700 tabular-nums whitespace-nowrap">
-                                      {formatCurrency(row.totalPagado)}
+                                      {formatCurrency(displayTotalAmount)}
                                     </span>
                                     <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden my-0.5">
                                       <div
-                                        className={`h-full rounded-full ${row.pctTotal >= 90 ? 'bg-emerald-500' : row.pctTotal >= 60 ? 'bg-blue-500' : row.pctTotal >= 30 ? 'bg-amber-500' : 'bg-red-400'}`}
-                                        style={{ width: `${Math.min(100, row.pctTotal)}%` }}
+                                        className={`h-full rounded-full ${displayTotalPct >= 90 ? 'bg-emerald-500' : displayTotalPct >= 60 ? 'bg-blue-500' : displayTotalPct >= 30 ? 'bg-amber-500' : 'bg-red-400'}`}
+                                        style={{ width: `${Math.min(100, displayTotalPct)}%` }}
                                       />
                                     </div>
-                                    <span className={`text-[11px] font-bold tabular-nums ${row.pctTotal >= 90 ? 'text-emerald-600' : row.pctTotal >= 60 ? 'text-blue-600' : row.pctTotal >= 30 ? 'text-amber-600' : 'text-red-500'}`}>
-                                      {row.pctTotal.toFixed(1)}%
+                                    <span className={`text-[11px] font-bold tabular-nums ${displayTotalPct >= 90 ? 'text-emerald-600' : displayTotalPct >= 60 ? 'text-blue-600' : displayTotalPct >= 30 ? 'text-amber-600' : 'text-red-500'}`}>
+                                      {displayTotalPct.toFixed(1)}%
                                     </span>
                                   </div>
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                             {/* Footer totals row */}
                             {(() => {
                               const totMontMax = gastoEfectuado2026Data.reduce((a, r) => a + r.montMax, 0);
-                              const totPagado = gastoEfectuado2026Data.reduce((a, r) => a + r.totalPagado, 0);
+                              const totPagado = gastoVistaColumnas === 'trimestral' && selectedGastoQuarter
+                                ? gastoEfectuadoQuarterly.reduce((a, r) => a + (r.quarters.find(q => q.label === selectedGastoQuarter)?.amount ?? 0), 0)
+                                : gastoEfectuado2026Data.reduce((a, r) => a + r.totalPagado, 0);
                               const totPct = totMontMax > 0 ? (totPagado / totMontMax) * 100 : 0;
-                              const monthTotals = REPORTE_MONTH_DEFS.map(({ label }, mi) => ({
-                                label,
-                                amount: gastoEfectuado2026Data.reduce((a, r) => a + (r.monthly[mi]?.amount ?? 0), 0),
-                              }));
+                              const columnTotals = gastoVistaColumnas === 'mensual'
+                                ? REPORTE_MONTH_DEFS.map(({ label }, mi) => ({
+                                  key: label,
+                                  amount: gastoEfectuado2026Data.reduce((a, r) => a + (r.monthly[mi]?.amount ?? 0), 0),
+                                }))
+                                : selectedGastoQuarter
+                                  ? REPORTE_QUARTER_DEFS.find(q => q.label === selectedGastoQuarter)!.monthIdx.map((mi) => ({
+                                    key: REPORTE_MONTH_DEFS[mi].label,
+                                    amount: gastoEfectuado2026Data.reduce((a, r) => a + (r.monthly[mi]?.amount ?? 0), 0),
+                                  }))
+                                  : REPORTE_QUARTER_DEFS.map(({ label }, qi) => ({
+                                    key: label,
+                                    amount: gastoEfectuadoQuarterly.reduce((a, r) => a + (r.quarters[qi]?.amount ?? 0), 0),
+                                  }));
                               let acumSum = 0;
                               return (
                                 <tr className="bg-[#0F4C3A]/10 font-bold text-xs border-t-2 border-[#0F4C3A]/30">
                                   <td className="px-3 py-3 text-[#0F4C3A] sticky left-0 bg-[#f0f7f4] border-r border-[#0F4C3A]/20 whitespace-nowrap z-10">TOTALES</td>
                                   <td colSpan={4} className="px-3 py-3 text-slate-500 text-center text-[10px]">{gastoEfectuado2026Data.length} contratos</td>
                                   <td className="px-3 py-3 text-right text-[#0F4C3A] whitespace-nowrap border-r border-[#0F4C3A]/20">{formatCurrency(totMontMax)}</td>
-                                  {monthTotals.map(({ label, amount }, mi) => {
+                                  {columnTotals.map(({ key, amount }, pIdx) => {
                                     acumSum += amount;
                                     const pctM = totMontMax > 0 ? (amount / totMontMax) * 100 : 0;
                                     const pctA = totMontMax > 0 ? (acumSum / totMontMax) * 100 : 0;
                                     return (
-                                      <td key={label} className="px-2 py-3 text-center border-l border-[#0F4C3A]/20 min-w-[100px]">
+                                      <td
+                                        key={key}
+                                        className={`px-2 py-3 text-center ${(gastoVistaColumnas === 'trimestral' && !selectedGastoQuarter) ? 'min-w-[120px] border-l-2 border-[#0F4C3A]/30' : 'min-w-[100px] border-l border-[#0F4C3A]/20'} ${(gastoVistaColumnas === 'trimestral' && !selectedGastoQuarter) && pIdx % 2 !== 0 ? 'bg-[#0F4C3A]/5' : ''}`}
+                                      >
                                         {amount > 0 ? (
                                           <div className="flex flex-col items-center gap-0.5">
                                             <span className="text-slate-700 tabular-nums whitespace-nowrap">{formatCurrency(amount)}</span>
