@@ -5112,6 +5112,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [resumenPeriodMode, resumenSelectedMonth, resumenSelectedQuarter]);
 
   const activeEstatusPieData = useMemo(() => {
+    // Resumen manual del control en Excel: en Q1/Q2 sustituye el desglose real (todavía
+    // incompleto en la base de datos) para que la gráfica y el desglose coincidan con las
+    // tarjetas de arriba. No aplica a "Todo 2026", Mensual, ni a Q3/Q4 (sin dato manual).
+    if (resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === 'Q1') {
+      return [
+        { name: 'En proceso', value: 46 },
+        { name: 'Adjudicado', value: 19 },
+        { name: 'Cancelado', value: 3 },
+      ];
+    }
+    if (resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === 'Q2') {
+      return [
+        { name: 'En proceso', value: 27 },
+        { name: 'Adjudicado', value: 33 },
+        { name: 'Cancelado', value: 8 },
+      ];
+    }
     if (!resumenActiveMonthIdxs) return estatus2026EstatusDistribution;
     const merged = mergeMonthCounts(estatus2026EstatusCountsByMonth, resumenActiveMonthIdxs);
     const ORDER = [...ESTATUS_2026_OPTIONS, 'Sin estatus'];
@@ -5123,7 +5140,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const ib = ORDER.indexOf(b.name);
         return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
       });
-  }, [resumenActiveMonthIdxs, estatus2026EstatusCountsByMonth, estatus2026EstatusDistribution]);
+  }, [resumenPeriodMode, resumenSelectedQuarter, resumenActiveMonthIdxs, estatus2026EstatusCountsByMonth, estatus2026EstatusDistribution]);
+
+  // true when the estatus chart/desglose above is showing the manual Excel data instead of real records
+  const isManualEstatusOverride = resumenPeriodMode === 'trimestral' && (resumenSelectedQuarter === 'Q1' || resumenSelectedQuarter === 'Q2');
 
   const estatus2026TotalMonto = useMemo(() => {
     if (!estatus2026Data.length || !estatus2026MontoFieldSummary) return 0;
@@ -10881,20 +10901,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         </div>
 
                         {/* KPI Cards */}
+                        {(() => {
+                          // Resumen manual del control en Excel: sustituye el conteo automático en Q1/Q2,
+                          // donde la captura de servicios en la base de datos todavía está incompleta.
+                          const manualOverride = resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === 'Q1'
+                            ? { enProceso: 46, adjudicados: 19, cancelados: 3, total: 68 }
+                            : resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === 'Q2'
+                            ? { enProceso: 27, adjudicados: 33, cancelados: 8, total: 68 }
+                            : null;
+                          const kpiTotal = manualOverride ? manualOverride.total : (resumenActiveMonthIdxs ? activeEstatusKPIs.total : estatus2026KPIs.total);
+                          const kpiAdjudicados = manualOverride ? manualOverride.adjudicados : (resumenActiveMonthIdxs ? activeEstatusKPIs.adjudicados : estatus2026KPIs.adjudicados);
+                          const kpiEnProceso = manualOverride ? manualOverride.enProceso : (resumenActiveMonthIdxs ? activeEstatusKPIs.enProceso : estatus2026KPIs.enProceso);
+                          const kpiCancelados = manualOverride ? manualOverride.cancelados : (resumenActiveMonthIdxs ? activeEstatusKPIs.cancelados : estatus2026KPIs.cancelados);
+                          return (
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                           {/* Total Servicios */}
                           <button
                             type="button"
-                            onClick={() => setSelectedResumenCard('total')}
-                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-blue-300 transition-all text-left group"
+                            onClick={manualOverride ? undefined : () => setSelectedResumenCard('total')}
+                            disabled={!!manualOverride}
+                            className={`bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between transition-all text-left group ${manualOverride ? 'cursor-default' : 'hover:shadow-md hover:border-blue-300'}`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Servicios</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">{resumenActiveMonthIdxs ? activeEstatusKPIs.total : estatus2026KPIs.total}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{kpiTotal}</p>
                                 <p className="text-xs text-slate-500 mt-2">
                                   Servicios activos en 2026
-                                  {!resumenActiveMonthIdxs && estatus2026KPIs.dbTotal > estatus2026KPIs.allUnique && (
+                                  {!manualOverride && !resumenActiveMonthIdxs && estatus2026KPIs.dbTotal > estatus2026KPIs.allUnique && (
                                     <span className="text-slate-400 ml-1">({estatus2026KPIs.dbTotal} registros totales)</span>
                                   )}
                                 </p>
@@ -10903,76 +10937,79 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <Layers className="h-5 w-5" />
                               </span>
                             </div>
-                            <p className="text-[10px] text-blue-600 font-medium mt-3 group-hover:underline">Ver servicios activos →</p>
+                            {!manualOverride && (
+                              <p className="text-[10px] text-blue-600 font-medium mt-3 group-hover:underline">Ver servicios activos →</p>
+                            )}
                           </button>
 
                           {/* Adjudicados */}
                           <button
                             type="button"
-                            onClick={() => setSelectedResumenCard('adjudicados')}
-                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-emerald-300 transition-all text-left group"
+                            onClick={manualOverride ? undefined : () => setSelectedResumenCard('adjudicados')}
+                            disabled={!!manualOverride}
+                            className={`bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between transition-all text-left group ${manualOverride ? 'cursor-default' : 'hover:shadow-md hover:border-emerald-300'}`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Adjudicados</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">{resumenActiveMonthIdxs ? activeEstatusKPIs.adjudicados : estatus2026KPIs.adjudicados}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{kpiAdjudicados}</p>
                                 <p className="text-xs text-slate-500 mt-2">
-                                  {(() => {
-                                    const t = resumenActiveMonthIdxs ? activeEstatusKPIs.total : estatus2026KPIs.total;
-                                    const a = resumenActiveMonthIdxs ? activeEstatusKPIs.adjudicados : estatus2026KPIs.adjudicados;
-                                    return t > 0 ? `${Math.round((a / t) * 100)}% del total activos` : 'Sin datos';
-                                  })()}
+                                  {kpiTotal > 0 ? `${Math.round((kpiAdjudicados / kpiTotal) * 100)}% del total activos` : 'Sin datos'}
                                 </p>
                               </div>
                               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 shadow-sm group-hover:bg-emerald-100 transition-colors">
                                 <TrendingUp className="h-5 w-5" />
                               </span>
                             </div>
-                            <p className="text-[10px] text-emerald-600 font-medium mt-3 group-hover:underline">Ver adjudicados →</p>
+                            {!manualOverride && (
+                              <p className="text-[10px] text-emerald-600 font-medium mt-3 group-hover:underline">Ver adjudicados →</p>
+                            )}
                           </button>
 
                           {/* En Proceso */}
                           <button
                             type="button"
-                            onClick={() => setSelectedResumenCard('en-proceso')}
-                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-yellow-300 transition-all text-left group"
+                            onClick={manualOverride ? undefined : () => setSelectedResumenCard('en-proceso')}
+                            disabled={!!manualOverride}
+                            className={`bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between transition-all text-left group ${manualOverride ? 'cursor-default' : 'hover:shadow-md hover:border-yellow-300'}`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">En Proceso</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">{resumenActiveMonthIdxs ? activeEstatusKPIs.enProceso : estatus2026KPIs.enProceso}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{kpiEnProceso}</p>
                                 <p className="text-xs text-slate-500 mt-2">
-                                  {(() => {
-                                    const t = resumenActiveMonthIdxs ? activeEstatusKPIs.total : estatus2026KPIs.total;
-                                    const e = resumenActiveMonthIdxs ? activeEstatusKPIs.enProceso : estatus2026KPIs.enProceso;
-                                    return t > 0 ? `${Math.round((e / t) * 100)}% del total activos` : 'Sin datos';
-                                  })()}
+                                  {kpiTotal > 0 ? `${Math.round((kpiEnProceso / kpiTotal) * 100)}% del total activos` : 'Sin datos'}
                                 </p>
                               </div>
                               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-yellow-50 text-yellow-500 border border-yellow-100 shadow-sm group-hover:bg-yellow-100 transition-colors">
                                 <Clock className="h-5 w-5" />
                               </span>
                             </div>
-                            <p className="text-[10px] text-yellow-600 font-medium mt-3 group-hover:underline">Ver en proceso →</p>
+                            {!manualOverride && (
+                              <p className="text-[10px] text-yellow-600 font-medium mt-3 group-hover:underline">Ver en proceso →</p>
+                            )}
                           </button>
 
                           {/* Cancelados */}
                           <button
                             type="button"
-                            onClick={() => setSelectedResumenCard('cancelados')}
-                            className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md hover:border-red-300 transition-all text-left group"
+                            onClick={manualOverride ? undefined : () => setSelectedResumenCard('cancelados')}
+                            disabled={!!manualOverride}
+                            className={`bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between transition-all text-left group ${manualOverride ? 'cursor-default' : 'hover:shadow-md hover:border-red-300'}`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cancelados</p>
-                                <p className="text-3xl font-bold text-slate-900 mt-2">{resumenActiveMonthIdxs ? activeEstatusKPIs.cancelados : estatus2026KPIs.cancelados}</p>
+                                <p className="text-3xl font-bold text-slate-900 mt-2">{kpiCancelados}</p>
                                 <p className="text-xs text-slate-500 mt-2">No incluidos en el total</p>
                               </div>
                               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-red-600 border border-white/60 shadow-sm group-hover:bg-red-100 transition-colors">
                                 <XCircle className="h-5 w-5" />
                               </span>
                             </div>
-                            <p className="text-[10px] text-red-500 font-medium mt-3 group-hover:underline">Ver cancelados →</p>
+                            {!manualOverride && (
+                              <p className="text-[10px] text-red-500 font-medium mt-3 group-hover:underline">Ver cancelados →</p>
+                            )}
                           </button>
 
                           {/* Responsables */}
@@ -10994,6 +11031,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <p className="text-[10px] text-purple-600 font-medium mt-3 group-hover:underline">Ver por responsable →</p>
                           </button>
                         </div>
+                          );
+                        })()}
 
                         {/* Filtro compartido: aplica a Distribución por Estatus, Gerencia, Subdirección y Presupuesto */}
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col gap-3">
@@ -11062,7 +11101,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div>
                               <h3 className="text-lg font-bold text-slate-800">Distribución de Servicios por Estatus</h3>
                               <p className="text-xs text-slate-500 mt-1">
-                                Haz clic en un estatus para ver los servicios en esa categoría.
+                                {isManualEstatusOverride
+                                  ? 'Dato manual del control en Excel.'
+                                  : 'Haz clic en un estatus para ver los servicios en esa categoría.'}
                               </p>
                             </div>
                             <span className="text-xs text-slate-400">{activeEstatusTotalCount} servicios</span>
@@ -11080,8 +11121,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     cx="50%"
                                     cy="50%"
                                     outerRadius={155}
-                                    onClick={(data: any) => setSelectedEstatus2026Estatus(data.name)}
-                                    className="cursor-pointer"
+                                    onClick={isManualEstatusOverride ? undefined : (data: any) => setSelectedEstatus2026Estatus(data.name)}
+                                    className={isManualEstatusOverride ? '' : 'cursor-pointer'}
                                     label={({ cx, cy, outerRadius, percent = 0, index, name = '' }: any) => {
                                       const RADIAN = Math.PI / 180;
                                       const LBL_R = outerRadius + 90;
@@ -11168,17 +11209,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             return (
                                               <button
                                                 key={i}
-                                                onClick={() => setSelectedEstatus2026Estatus(entry.value || null)}
+                                                disabled={isManualEstatusOverride}
+                                                onClick={isManualEstatusOverride ? undefined : () => setSelectedEstatus2026Estatus(entry.value || null)}
                                                 style={{
                                                   display: 'inline-flex', alignItems: 'center', gap: 7,
                                                   padding: '6px 14px', borderRadius: 9999,
                                                   border: `2px solid ${borderCol}`,
                                                   backgroundColor: col,
-                                                  cursor: 'pointer', transition: 'all 0.15s',
+                                                  cursor: isManualEstatusOverride ? 'default' : 'pointer', transition: 'all 0.15s',
                                                   boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
                                                 }}
-                                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.85'; }}
-                                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                                                onMouseEnter={isManualEstatusOverride ? undefined : (e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.85'; }}
+                                                onMouseLeave={isManualEstatusOverride ? undefined : (e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
                                               >
                                                 <span style={{ fontSize: 13, fontWeight: 700, color: textCol, whiteSpace: 'nowrap', letterSpacing: '0.01em' }}>{entry.value}</span>
                                               </button>
@@ -11187,7 +11229,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         </div>
                                       );
                                     }}
-                                    onClick={(data: any) => setSelectedEstatus2026Estatus(data.value || null)}
+                                    onClick={isManualEstatusOverride ? undefined : (data: any) => setSelectedEstatus2026Estatus(data.value || null)}
                                   />
                                 </PieChart>
                               </ResponsiveContainer>
@@ -11206,7 +11248,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 const total = activeEstatusPieData.reduce((a, b) => a + b.value, 0);
                                 const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
                                 return (
-                                  <button key={item.name} className="w-full text-left group" onClick={() => setSelectedEstatus2026Estatus(item.name)}>
+                                  <button
+                                    key={item.name}
+                                    disabled={isManualEstatusOverride}
+                                    className={`w-full text-left group ${isManualEstatusOverride ? 'cursor-default' : ''}`}
+                                    onClick={isManualEstatusOverride ? undefined : () => setSelectedEstatus2026Estatus(item.name)}
+                                  >
                                     <div className="flex items-center justify-between mb-1">
                                       <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors">{item.name}</span>
                                       <span className="text-sm font-bold text-slate-600">{item.value} <span className="text-xs font-normal text-slate-400">({pct}%)</span></span>
