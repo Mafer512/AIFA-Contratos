@@ -9,7 +9,7 @@ import {
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
   CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
   Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, RefreshCw,
-  Users, Plane, Activity, Info, XCircle, Clock, Globe
+  Users, Plane, Activity, Info, XCircle, Clock, Globe, UserPlus
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
@@ -30,8 +30,14 @@ const localizer = dateFnsLocalizer({
 });
 
 import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff } from '../types';
-import { supabase } from '../services/supabaseClient';
+import { supabase, supabaseOperaciones } from '../services/supabaseClient';
 import { formatCurrency, isMonetaryField as shouldFormatAsCurrency } from '../utils/formatters';
+import {
+  RESPONSABLE_PROFILES,
+  getCanonicalResponsableValue,
+  normalizeResponsableKey,
+  type ResponsableProfile,
+} from '../data/responsables';
 
 const chartPalette = ['#B38E5D', '#2563EB', '#0F4C3A', '#9E1B32', '#7C3AED', '#F97316', '#14B8A6', '#64748B'];
 const invoicesPalette = ['#0F4C3A', '#B38E5D', '#2563EB', '#F97316', '#9E1B32', '#7C3AED', '#14B8A6', '#64748B'];
@@ -529,17 +535,6 @@ const ESTATUS_2026_OPTIONS = [
 ] as const;
 
 // Hex colors for each canonical status — used in the pie chart and legend
-const RESPONSABLES = [
-  'ADRIANA PEREZ MALDONADO',
-  'LILIÁN ELIZABETH PÉREZ GONZÁLEZ',
-  'GILBERTO AYALA RAMÍREZ',
-  'SANDY OSIRIS MENDONZA LEONÍDEZ',
-  'DAYREN FLORICELA DE LEÓN GONZÁLEZ',
-  'ESMERALDA EMILY RODRÍGUEZ MARTÍNEZ',
-  'IRMA KARINA VARGAS GARCÍA',
-  'MONSERRAT ALONSO MARTÍNEZ',
-] as const;
-
 const ESTATUS_2026_COLOR_MAP: Record<string, string> = {
   'Elaboración de anexo técnico, administrativo y apéndices': '#dbdb00', // amber-700
   'En IM': '#FDE047', // yellow-300
@@ -553,6 +548,21 @@ const ESTATUS_2026_COLOR_MAP: Record<string, string> = {
   'Adjudicado': '#10B981', // emerald-500
   'Cancelado': '#111827', // gray-900
   'Sin estatus': '#94A3B8', // slate-400
+};
+
+// Campos base de un servicio nuevo en estatus_2026, capturados al darlo de alta
+// desde la tarjeta de un responsable (el resto de columnas —fechas de trámite,
+// garantías, etc.— se van llenando después conforme avanza el proceso).
+const EMPTY_NEW_SERVICE_FORM = {
+  claveCucop: '',
+  observacionGeneral: '',
+  nombreServicio: '',
+  subdireccion: '',
+  gerencia: '',
+  tipoServicio: '',
+  montoSolicitado: '',
+  montoMaximo2024: '',
+  fase: '',
 };
 
 // Groups of Gantt date columns — each pair belongs to one process status.
@@ -879,6 +889,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [pagos2026Data, setPagos2026Data] = useState<Record<string, any>[]>([]);
   const [pagos2026ExpandedMonths, setPagos2026ExpandedMonths] = useState<Set<string>>(new Set());
   const [paasData, setPaasData] = useState<PaasItem[]>([]);
+  const [paaas2026Data, setPaaas2026Data] = useState<Record<string, any>[]>([]);
+  const [paaasSearchTerm, setPaaasSearchTerm] = useState('');
+  const [paaasTipoFilter, setPaaasTipoFilter] = useState<'todos' | 'independiente' | 'grupo'>('todos');
+  const [paaasExpandedGroups, setPaaasExpandedGroups] = useState<Set<number>>(new Set());
   const [paymentsData, setPaymentsData] = useState<PaymentControlItem[]>([]);
   const [invoicesData, setInvoicesData] = useState<Record<string, any>[]>([]);
   const [compranetData, setCompranetData] = useState<Record<string, any>[]>([]);
@@ -995,6 +1009,46 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [calHovEvt, setCalHovEvt] = useState<{ ev: any; x: number; y: number } | null>(null);
   const calDetailRef = useRef<HTMLDivElement>(null);
   const [isAddingEstatus2026Row, setIsAddingEstatus2026Row] = useState(false);
+  const [serviceFormResponsable, setServiceFormResponsable] = useState<string | null>(null);
+  const [newServiceForm, setNewServiceForm] = useState(EMPTY_NEW_SERVICE_FORM);
+  const [isSavingNewService, setIsSavingNewService] = useState(false);
+  const [dbResponsables, setDbResponsables] = useState<ResponsableProfile[]>([]);
+  const [isAddResponsableOpen, setIsAddResponsableOpen] = useState(false);
+  const [newResponsableForm, setNewResponsableForm] = useState({
+    fullName: '',
+    employeeNumber: '',
+    academicDegree: '',
+    aifaTenure: '',
+  });
+  const [isSavingResponsable, setIsSavingResponsable] = useState(false);
+
+  // Responsables dados de alta desde la app (tabla "responsables") se combinan
+  // con el catálogo fijo de data/responsables.ts para que participen en las
+  // mismas tarjetas, selectores y validaciones que los responsables originales.
+  const combinedResponsableProfiles = useMemo(
+    () => [...RESPONSABLE_PROFILES, ...dbResponsables],
+    [dbResponsables]
+  );
+
+  const combinedResponsablesList = useMemo(
+    () => combinedResponsableProfiles.map((p) => p.catalogValue),
+    [combinedResponsableProfiles]
+  );
+
+  const getCombinedResponsableProfile = useCallback((value: unknown) => {
+    const key = normalizeResponsableKey(value);
+    if (!key) return undefined;
+    return combinedResponsableProfiles.find((p) => {
+      if (normalizeResponsableKey(p.catalogValue) === key) return true;
+      if (normalizeResponsableKey(p.fullName) === key) return true;
+      return (p.aliases ?? []).some((alias) => normalizeResponsableKey(alias) === key);
+    });
+  }, [combinedResponsableProfiles]);
+
+  const getCombinedCanonicalResponsableValue = useCallback((value: unknown) => {
+    const raw = String(value ?? '').trim();
+    return getCombinedResponsableProfile(raw)?.catalogValue ?? raw;
+  }, [getCombinedResponsableProfile]);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
   const [deletingRecordKey, setDeletingRecordKey] = useState<string | null>(null);
   const [isPagos2026Editing, setIsPagos2026Editing] = useState(false);
@@ -2353,6 +2407,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (paasError) console.error("Error fetching PAAS:", paasError.message);
   };
 
+  const fetchPaaas2026Data = async () => {
+    // paaas_2026 vive en el proyecto Supabase de AIFA-OPERACIONES (segunda
+    // conexión), no en el de AIFA-Contratos.
+    const { data: paaasResults, error: paaasError } = await supabaseOperaciones
+      .from('paaas_2026')
+      .select('*')
+      .order('id', { ascending: true });
+
+    if (paaasResults) setPaaas2026Data(paaasResults);
+    if (paaasError) console.error('Error fetching paaas_2026:', paaasError.message);
+  };
+
   const fetchPaymentsData = async () => {
     const { data: paymentsResults, error: paymentsError } = await supabase
       .from('control_pagos')
@@ -2383,6 +2449,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (compranetError) console.error('Error fetching procedimientos_compranet:', compranetError.message);
   };
 
+  const fetchResponsablesData = async () => {
+    const { data, error } = await supabase
+      .from('responsables')
+      .select('*')
+      .order('full_name', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching responsables:', error.message);
+      return;
+    }
+    if (data) {
+      setDbResponsables(data.map((r: any) => ({
+        fullName: r.full_name,
+        catalogValue: r.catalog_value,
+        employeeNumber: r.employee_number ?? '',
+        academicDegree: r.academic_degree ?? '',
+        aifaTenure: r.aifa_tenure ?? '',
+        photoUrl: r.photo_url ?? '',
+      })));
+    }
+  };
+
   const fetchProceduresData = async () => {
     const { data: proceduresResults, error: proceduresError } = await supabase
       .from('procedimientos')
@@ -2407,9 +2495,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           fetchPagos2026Data(),
           fetchServiciosHistorico(),
           fetchPaasData(),
+          fetchPaaas2026Data(),
           fetchPaymentsData(),
           fetchInvoicesData(),
           fetchCompranetData(),
+          fetchResponsablesData(),
           fetchProceduresData(),
           fetchProcedureStatusData(),
           fetchChangeHistory(),
@@ -2477,7 +2567,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const isSuperAdminView = !userResponsable || (user.role === UserRole.ADMIN && viewAllServices);
     const baseData = isSuperAdminView
       ? estatus2026Data
-      : estatus2026Data.filter(row => String(row['Responsable'] ?? '').trim() === userResponsable);
+      : estatus2026Data.filter(row =>
+          getCanonicalResponsableValue(row['Responsable']) === getCanonicalResponsableValue(userResponsable)
+        );
 
     if (!query && !hasColumnFilters && !hasSearchFilters) return baseData;
     return baseData.filter((row) => {
@@ -2485,8 +2577,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       if (hasColumnFilters && !rowMatchesColumnFilters(row as Record<string, any>, columnMap)) return false;
       if (hasSearchFilters) {
         for (const [key, term] of estatus2026ActiveColumnSearch) {
-          const val = String(row[key] ?? '').toLowerCase();
-          if (!val.includes(term)) return false;
+          const isResponsable = normalizeAnnualKey(key) === 'responsable';
+          const val = isResponsable
+            ? normalizeResponsableKey(getCanonicalResponsableValue(row[key]))
+            : String(row[key] ?? '').toLowerCase();
+          const expected = isResponsable
+            ? normalizeResponsableKey(getCanonicalResponsableValue(term))
+            : term;
+          if (!val.includes(expected)) return false;
         }
       }
       return true;
@@ -5926,7 +6024,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (!resumenActiveMonthIdxs) {
       const responsableCol = serviciosTableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
       if (!responsableCol) return servicios2026Data.length;
-      return new Set(servicios2026Data.map(r => String(r[responsableCol] ?? '').trim()).filter(Boolean)).size;
+      return new Set(
+        servicios2026Data
+          .map(r => getCanonicalResponsableValue(r[responsableCol]))
+          .filter(Boolean)
+      ).size;
     }
     const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
     if (!responsableCol) return 0;
@@ -5934,7 +6036,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     estatus2026Data.forEach((row) => {
       const mi = getEstatus2026RowMonth(row);
       if (mi === null || !resumenActiveMonthIdxs.includes(mi)) return;
-      const v = String(row[responsableCol] ?? '').trim();
+      const v = getCanonicalResponsableValue(row[responsableCol]);
       if (v) set.add(v);
     });
     return set.size;
@@ -7408,6 +7510,103 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const handlePendingOctCellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('estatus_procedimiento', row, col, val, setProcedureStatuses, procedureStatuses);
   const handleEstatus2026CellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('estatus_2026', row, col, val, setEstatus2026Data, estatus2026Data);
 
+  // paaas_2026 vive en el proyecto Supabase de AIFA-Operaciones (supabaseOperaciones),
+  // no en el de Contratos, así que no puede pasar por handleGenericCellEdit (que
+  // siempre escribe con el cliente `supabase` de este proyecto).
+  const PAAAS_NUMERIC_COLUMNS = new Set([
+    'valor_total_estimado_compra', 'valor_estimado_compras_mipymes', 'cantidad',
+    'unidad_medida', 'entidad_federativa', 't1', 't2', 't3', 't4',
+    'plurianualidad', 'ejercicios_fiscales', 'monto_ejercer_presente_anio',
+  ]);
+
+  // T1–T4 replican las fórmulas del Excel original (hoja "PPP-01"):
+  //   independiente: T1=T2=T3=T4 = $ValorTotal/4
+  //   grupo:         T1 = SUM(valor_total de sus sub-partidas)/4 ; T2=T3=T4=$T1
+  // Por eso no son celdas editables sueltas: se recalculan solas cuando se
+  // edita "Valor total estimado de compra" de la partida o de una sub-partida.
+  const paaasIndependentQuarter = (valorTotal: any) => (Number(valorTotal) || 0) / 4;
+  const paaasGroupQuarter = (groupId: number, dataset: Record<string, any>[]) =>
+    dataset
+      .filter((r) => r.grupo_id === groupId)
+      .reduce((sum, r) => sum + (Number(r.valor_total_estimado_compra) || 0), 0) / 4;
+
+  const handlePaaas2026CellEdit = async (rowRef: Record<string, any>, column: string, rawInput: any) => {
+    if (!requireManagePermission()) return;
+
+    const normalizedInput = (rawInput === null || rawInput === undefined) ? '' : String(rawInput).replace(/\u00A0/g, ' ').trim();
+    const currentValue = rowRef[column] ?? null;
+
+    let nextValue: any;
+    if (!normalizedInput.length) {
+      nextValue = null;
+    } else if (PAAAS_NUMERIC_COLUMNS.has(column)) {
+      const sanitized = normalizedInput.replace(/\$/g, '').replace(/,/g, '').replace(/\s+/g, '');
+      const parsed = Number(sanitized);
+      if (Number.isNaN(parsed)) {
+        alert('Ese valor no es un número válido para esta columna.');
+        return;
+      }
+      nextValue = parsed;
+    } else {
+      nextValue = normalizedInput;
+    }
+
+    if (deepEqual(currentValue, nextValue ?? null)) return;
+
+    const optimisticSnapshot = [...paaas2026Data];
+    const rowPayload: Record<string, any> = { [column]: nextValue };
+    let updatedRecord = { ...rowRef, [column]: nextValue };
+    let groupUpdate: { id: number; q: number } | null = null;
+
+    if (column === 'valor_total_estimado_compra') {
+      if (rowRef.tipo_registro === 'independiente') {
+        const q = paaasIndependentQuarter(nextValue);
+        rowPayload.t1 = q; rowPayload.t2 = q; rowPayload.t3 = q; rowPayload.t4 = q;
+        updatedRecord = { ...updatedRecord, t1: q, t2: q, t3: q, t4: q };
+      } else if (rowRef.tipo_registro === 'subpartida' && rowRef.grupo_id != null) {
+        const draftDataset = optimisticSnapshot.map((r) => (r.id === rowRef.id ? { ...r, valor_total_estimado_compra: nextValue } : r));
+        groupUpdate = { id: rowRef.grupo_id, q: paaasGroupQuarter(rowRef.grupo_id, draftDataset) };
+      }
+    }
+
+    setPaaas2026Data((prev) => prev.map((entry) => {
+      if (entry.id === rowRef.id) return updatedRecord;
+      if (groupUpdate && entry.id === groupUpdate.id) return { ...entry, t1: groupUpdate.q, t2: groupUpdate.q, t3: groupUpdate.q, t4: groupUpdate.q };
+      return entry;
+    }));
+
+    try {
+      const { data: updatedRows, error } = await supabaseOperaciones
+        .from('paaas_2026')
+        .update(rowPayload)
+        .eq('id', rowRef.id)
+        .select();
+
+      if (error) throw error;
+
+      if (!updatedRows || updatedRows.length === 0) {
+        alert('No se pudo guardar el cambio. Es posible que no tengas permisos suficientes.');
+        setPaaas2026Data(optimisticSnapshot);
+        return;
+      }
+
+      if (groupUpdate) {
+        const { error: groupError } = await supabaseOperaciones
+          .from('paaas_2026')
+          .update({ t1: groupUpdate.q, t2: groupUpdate.q, t3: groupUpdate.q, t4: groupUpdate.q })
+          .eq('id', groupUpdate.id);
+        if (groupError) {
+          console.error('Error actualizando T1-T4 del grupo:', groupError);
+          alert('Se guardó la sub-partida, pero no se pudo actualizar el trimestral del grupo. Recarga la página para verificar.');
+        }
+      }
+    } catch (err) {
+      console.error('Error guardando cambio en paaas_2026:', err);
+      alert('No se pudo guardar el cambio en Supabase. Se restauró el valor anterior.');
+      setPaaas2026Data(optimisticSnapshot);
+    }
+  };
+
   const handleAddServicioRow = useCallback(async () => {
     if (!serviciosTableColumns.length) return;
 
@@ -7494,6 +7693,115 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setIsAddingEstatus2026Row(false);
     }
   }, [estatus2026TableColumns, isAddingEstatus2026Row, estatus2026Data]);
+
+  const handleSaveNewServiceForResponsable = useCallback(async (
+    responsableValue: string,
+    formValues: typeof EMPTY_NEW_SERVICE_FORM,
+  ) => {
+    if (!estatus2026TableColumns.length || isSavingNewService) return;
+    if (!formValues.nombreServicio.trim()) {
+      alert('El nombre del servicio es obligatorio.');
+      return;
+    }
+    setIsSavingNewService(true);
+    try {
+      const realColumns = estatus2026TableColumns.filter(c => !c.startsWith('__'));
+      const safeRecord = createInitialRecordFromData(realColumns, estatus2026Data);
+
+      const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
+      if (responsableCol) {
+        safeRecord[responsableCol] = responsableValue;
+      }
+
+      safeRecord['Clave cucop'] = formValues.claveCucop.trim() || null;
+      safeRecord['Observación General del Servicio'] = formValues.observacionGeneral.trim() || null;
+      safeRecord['Nombre del Servicio.'] = formValues.nombreServicio.trim();
+      safeRecord['Subdirección'] = formValues.subdireccion.trim() || null;
+      safeRecord['Gerencia'] = formValues.gerencia.trim() || null;
+      safeRecord['Tipo_de_servicio'] = formValues.tipoServicio || null;
+      safeRecord['Monto solicitado anteproyecto 2026'] = formValues.montoSolicitado.trim() || null;
+      safeRecord['Monto Máximo 2024'] = formValues.montoMaximo2024.trim() || null;
+      safeRecord['Fase'] = formValues.fase || null;
+
+      const localNumericIds = estatus2026Data
+        .map((row) => Number(row?.id ?? row?.ID ?? row?.Id))
+        .filter((val) => Number.isFinite(val));
+
+      let nextId = (localNumericIds.length ? Math.max(...localNumericIds) : 0) + 1;
+
+      const { data: maxIdRows, error: maxIdError } = await supabase
+        .from('estatus_2026')
+        .select('ID')
+        .order('ID', { ascending: false })
+        .limit(1);
+
+      if (!maxIdError && Array.isArray(maxIdRows) && maxIdRows.length > 0) {
+        const dbMax = Number(maxIdRows[0]?.ID);
+        if (Number.isFinite(dbMax)) {
+          nextId = Math.max(nextId, dbMax + 1);
+        }
+      }
+
+      for (let i = 0; i < 50; i += 1) {
+        const { count, error: countError } = await supabase
+          .from('estatus_2026')
+          .select('*', { count: 'exact', head: true })
+          .eq('ID', nextId);
+
+        if (countError) throw countError;
+        if ((count ?? 0) === 0) break;
+        nextId += 1;
+      }
+
+      safeRecord['ID'] = nextId;
+
+      const { error } = await supabase.from('estatus_2026').insert(safeRecord);
+      if (error) throw error;
+
+      await fetchEstatus2026Data();
+      setServiceFormResponsable(null);
+      setNewServiceForm(EMPTY_NEW_SERVICE_FORM);
+    } catch (error: any) {
+      console.error('Error creating row in estatus_2026 for responsable:', error);
+      alert(`Error al crear el servicio: ${error.message || 'Error desconocido'}.`);
+    } finally {
+      setIsSavingNewService(false);
+    }
+  }, [estatus2026TableColumns, isSavingNewService, estatus2026Data]);
+
+  const handleCreateResponsable = useCallback(async () => {
+    if (isSavingResponsable) return;
+    const fullName = newResponsableForm.fullName.trim();
+    if (!fullName) {
+      alert('El nombre completo es obligatorio.');
+      return;
+    }
+    const catalogValue = fullName.toUpperCase();
+    if (getCombinedResponsableProfile(catalogValue)) {
+      alert('Ya existe un responsable con ese nombre.');
+      return;
+    }
+    setIsSavingResponsable(true);
+    try {
+      const { error } = await supabase.from('responsables').insert({
+        full_name: fullName,
+        catalog_value: catalogValue,
+        employee_number: newResponsableForm.employeeNumber.trim() || null,
+        academic_degree: newResponsableForm.academicDegree.trim() || null,
+        aifa_tenure: newResponsableForm.aifaTenure.trim() || null,
+      });
+      if (error) throw error;
+
+      await fetchResponsablesData();
+      setIsAddResponsableOpen(false);
+      setNewResponsableForm({ fullName: '', employeeNumber: '', academicDegree: '', aifaTenure: '' });
+    } catch (error: any) {
+      console.error('Error creating responsable:', error);
+      alert(`Error al crear el responsable: ${error.message || 'Error desconocido'}. Es posible que la tabla "responsables" aún no exista en Supabase.`);
+    } finally {
+      setIsSavingResponsable(false);
+    }
+  }, [isSavingResponsable, newResponsableForm, getCombinedResponsableProfile]);
 
   const handlePagos2026CellEdit = async (row: Record<string, any>, col: string, val: any) => {
     const PARENT_MONTHS = new Set(['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sept.', 'Oct.', 'Nov.', 'Dic.']);
@@ -8536,12 +8844,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <p className="text-sm font-semibold text-slate-700 truncate">{u.full_name}</p>
                           <select
                             className="mt-1 w-full text-xs border border-slate-200 rounded-lg px-2 py-1 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30"
-                            value={u.responsable ?? ''}
+                            value={getCombinedCanonicalResponsableValue(u.responsable)}
                             disabled={savingResponsable === u.id}
                             onChange={e => saveResponsable(u.id, e.target.value || null)}
                           >
                             <option value="">— Sin asignar (ve todo) —</option>
-                            {RESPONSABLES.map(r => <option key={r} value={r}>{r}</option>)}
+                            {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
                         </div>
                         {savingResponsable === u.id && <Loader2 className="h-4 w-4 animate-spin text-[#0F4C3A] flex-shrink-0" />}
@@ -9601,12 +9909,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                          ) : isResponsableCol ? (
                                            <select
                                              className="w-full text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
-                                             value={rawValue ? String(rawValue) : ''}
+                                             value={getCombinedCanonicalResponsableValue(rawValue)}
                                              onChange={(e) => handleServiciosCellEdit(row, column, e.target.value)}
                                              onClick={(e) => e.stopPropagation()}
                                            >
                                              <option value="">— Sin asignar —</option>
-                                             {RESPONSABLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                             {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
                                            </select>
                                          ) : isBooleanCol ? (
                                             <div className="flex items-center justify-center h-full min-h-[1.5em]" onClick={(e) => e.stopPropagation()}>
@@ -10579,14 +10887,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           const responsablesSourceRows = selectedResumenDetailQuarter === 'all'
                             ? estatus2026Data
                             : estatus2026Data.filter(row => getEstatus2026RowQuarter(row) === selectedResumenDetailQuarter);
-                          const grouped = new Map<string, { name: string; estatus: string }[]>();
+                          const grouped = new Map<string, { name: string; estatus: string; row: Record<string, any> }[]>();
+                          combinedResponsableProfiles.forEach((profile) => grouped.set(profile.catalogValue, []));
                           responsablesSourceRows.forEach(row => {
                             const resp = responsableCol ? String(row[responsableCol] ?? '').trim() : '';
-                            const label = resp || '— Sin asignar —';
+                            const label = resp ? getCombinedCanonicalResponsableValue(resp) : '— Sin asignar —';
                             const svcName = estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—';
                             const estatusVal = estatusCol ? String(row[estatusCol] ?? '—') : '—';
                             if (!grouped.has(label)) grouped.set(label, []);
-                            grouped.get(label)!.push({ name: svcName, estatus: estatusVal });
+                            grouped.get(label)!.push({ name: svcName, estatus: estatusVal, row });
                           });
 
                           // De-duplicate: if a service name already appears under a named responsable,
@@ -10614,18 +10923,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             if (b === '— Sin asignar —') return -1;
                             return a.localeCompare(b, 'es');
                           });
-                          const q = respSearch.trim().toLowerCase();
+                          const q = normalizeSearchFragment(respSearch.trim());
                           const filteredGroups = q
                             ? sortedGroups.map(([resp, svcs]) => {
-                                const filtered = svcs.filter(s => s.name.toLowerCase().includes(q) || s.estatus.toLowerCase().includes(q));
-                                return filtered.length > 0 ? [resp, filtered] as [string, { name: string; estatus: string }[]] : null;
-                              }).filter((x): x is [string, { name: string; estatus: string }[]] => x !== null)
+                                const profile = getCombinedResponsableProfile(resp);
+                                const profileMatches = normalizeSearchFragment([
+                                  resp,
+                                  profile?.fullName,
+                                  profile?.employeeNumber,
+                                  profile?.academicDegree,
+                                  profile?.aifaTenure,
+                                ].filter(Boolean).join(' ')).includes(q);
+                                const filtered = profileMatches
+                                  ? svcs
+                                  : svcs.filter(s =>
+                                      normalizeSearchFragment(s.name).includes(q)
+                                      || normalizeSearchFragment(s.estatus).includes(q)
+                                    );
+                                return profileMatches || filtered.length > 0
+                                  ? [resp, filtered] as [string, { name: string; estatus: string; row: Record<string, any> }[]]
+                                  : null;
+                              }).filter((x): x is [string, { name: string; estatus: string; row: Record<string, any> }[]] => x !== null)
                             : sortedGroups;
                           return (
                             <div className="space-y-4">
                               <div>
                                 <h2 className="text-2xl font-bold text-slate-900">Responsables de Servicios</h2>
-                                <p className="text-slate-500 mt-1 mb-3">{sortedGroups.length} responsable{sortedGroups.length !== 1 ? 's' : ''} · {responsablesSourceRows.length} servicio{responsablesSourceRows.length !== 1 ? 's' : ''} en total.</p>
+                                <p className="text-slate-500 mt-1 mb-3">{combinedResponsableProfiles.length} responsables registrados · {responsablesSourceRows.length} servicio{responsablesSourceRows.length !== 1 ? 's' : ''} en total.</p>
                                 <div className="flex items-center gap-2 flex-wrap mb-3">
                                   <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 w-fit">
                                     {(['all', 'Q1', 'Q2', 'Q3', 'Q4'] as const).map((key) => (
@@ -10656,7 +10980,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
                                   <input
                                     type="text"
-                                    placeholder="Buscar servicio o estatus..."
+                                    placeholder="Buscar responsable, servicio o estatus..."
                                     value={respSearch}
                                     onChange={e => setRespSearch(e.target.value)}
                                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white text-slate-800 shadow-sm"
@@ -10666,14 +10990,39 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               {filteredGroups.length === 0 && (
                                 <p className="text-slate-400 text-sm py-6 text-center">Sin resultados para "{respSearch}"</p>
                               )}
-                              {filteredGroups.map(([resp, services]) => (
+                              {filteredGroups.map(([resp, services]) => {
+                                const profile = getCombinedResponsableProfile(resp);
+                                return (
                                 <div key={resp} className="bg-white rounded-xl border border-purple-100 shadow-sm overflow-hidden">
-                                  <div className="bg-[#0F4C3A] px-6 py-3 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <Users className="h-4 w-4 text-white/70" />
-                                      <span className="text-sm font-bold text-white">{resp}</span>
+                                  <div className="bg-[#0F4C3A] px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="flex items-center gap-4 min-w-0">
+                                      {profile?.photoUrl ? (
+                                        <img
+                                          src={profile.photoUrl}
+                                          alt={`Fotografía de ${profile.fullName}`}
+                                          className="h-20 w-20 flex-shrink-0 rounded-xl border-2 border-white/50 bg-white/10 object-cover object-top shadow-md"
+                                          loading="lazy"
+                                          decoding="async"
+                                        />
+                                      ) : (
+                                        <span className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/10 flex items-center justify-center">
+                                          <Users className="h-6 w-6 text-white/70" />
+                                        </span>
+                                      )}
+                                      <div className="min-w-0">
+                                        <h3 className="text-base font-bold text-white leading-tight">{profile?.fullName ?? resp}</h3>
+                                        {profile && (
+                                          <div className="mt-2 space-y-1 text-xs text-emerald-50">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                              <span><strong className="text-white">No. de empleado:</strong> {profile.employeeNumber}</span>
+                                              <span><strong className="text-white">Antigüedad en el AIFA:</strong> {profile.aifaTenure}</span>
+                                            </div>
+                                            <p className="leading-relaxed"><strong className="text-white">Grado académico:</strong> {profile.academicDegree}</p>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                    <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-medium">{services.length} servicio{services.length !== 1 ? 's' : ''}</span>
+                                    <span className="self-start sm:self-center flex-shrink-0 text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-medium">{services.length} servicio{services.length !== 1 ? 's' : ''}</span>
                                   </div>
                                   <div className="overflow-x-auto">
                                     <table className="min-w-full divide-y divide-slate-200">
@@ -10682,15 +11031,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">#</th>
                                           <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Nombre del Servicio</th>
                                           <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Estatus</th>
+                                          <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Responsable</th>
+                                          <th className="px-6 py-3 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Acciones</th>
                                         </tr>
                                       </thead>
                                       <tbody className="bg-white divide-y divide-slate-100">
+                                        {services.length === 0 && (
+                                          <tr>
+                                            <td colSpan={5} className="px-6 py-5 text-center text-sm text-slate-400">
+                                              Sin servicios asignados en este periodo.
+                                            </td>
+                                          </tr>
+                                        )}
                                         {services.map((svc, idx) => {
                                           const bgColor = (ESTATUS_2026_COLOR_MAP as Record<string, string>)[svc.estatus] ?? '#94A3B8';
                                           const r = parseInt(bgColor.slice(1,3),16), g2 = parseInt(bgColor.slice(3,5),16), b2 = parseInt(bgColor.slice(5,7),16);
                                           const light = (0.299*r + 0.587*g2 + 0.114*b2)/255 > 0.55;
                                           const textCol = light ? '#713F12' : '#ffffff';
                                           const borderCol = light ? '#92400E' : 'rgba(0,0,0,0.25)';
+                                          const svcDeleteKey = `estatus_2026:id:${String(svc.row?.id ?? svc.row?.ID ?? svc.row?.Id)}`;
+                                          const isDeletingThisSvc = isDeletingRecord && deletingRecordKey === svcDeleteKey;
                                           return (
                                             <tr key={idx} className={`hover:bg-purple-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
                                               <td className="px-6 py-3 text-xs text-slate-400 font-mono">{idx + 1}</td>
@@ -10708,14 +11068,63 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                   }}
                                                 >{svc.estatus}</span>
                                               </td>
+                                              <td className="px-6 py-3">
+                                                <select
+                                                  className="w-full max-w-[240px] text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
+                                                  value={responsableCol ? getCombinedCanonicalResponsableValue(svc.row[responsableCol]) : ''}
+                                                  onChange={(e) => responsableCol && handleEstatus2026CellEdit(svc.row, responsableCol, e.target.value)}
+                                                >
+                                                  <option value="">— Sin asignar —</option>
+                                                  {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
+                                                </select>
+                                              </td>
+                                              <td className="px-6 py-3 text-center">
+                                                <button
+                                                  onClick={() => handleDeleteGenericRecord('estatus_2026', svc.row, svc.name)}
+                                                  disabled={isDeletingRecord}
+                                                  title="Eliminar servicio"
+                                                  className={`inline-flex items-center justify-center h-7 w-7 rounded-md border transition-colors ${isDeletingRecord ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200'}`}
+                                                >
+                                                  {isDeletingThisSvc ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                                </button>
+                                              </td>
                                             </tr>
                                           );
                                         })}
+                                        {profile && (
+                                          <tr>
+                                            <td colSpan={5} className="px-6 py-3 text-center">
+                                              <button
+                                                onClick={() => {
+                                                  setNewServiceForm(EMPTY_NEW_SERVICE_FORM);
+                                                  setServiceFormResponsable(resp);
+                                                }}
+                                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-dashed border-[#0F4C3A]/40 text-[#0F4C3A] text-xs font-semibold hover:bg-[#0F4C3A]/5 transition-colors"
+                                              >
+                                                <Plus className="h-3.5 w-3.5" />
+                                                Agregar servicio
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        )}
                                       </tbody>
                                     </table>
                                   </div>
                                 </div>
-                              ))}
+                                );
+                              })}
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  onClick={() => {
+                                    setNewResponsableForm({ fullName: '', employeeNumber: '', academicDegree: '', aifaTenure: '' });
+                                    setIsAddResponsableOpen(true);
+                                  }}
+                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-dashed border-[#0F4C3A]/40 text-[#0F4C3A] text-sm font-semibold hover:bg-[#0F4C3A]/5 transition-colors"
+                                >
+                                  <UserPlus className="h-4 w-4" />
+                                  Agregar responsable
+                                </button>
+                              </div>
                             </div>
                           );
                         })()}
@@ -12021,7 +12430,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                     <ColumnInfoTooltip label={humanizeKey(key)} tooltip={colTooltip} />
                                                   ) : null;
                                                 })()}
-                                                {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data, key === estatus2026StatusFieldSummary ? ESTATUS_2026_OPTIONS : normalizeAnnualKey(key) === 'responsable' ? RESPONSABLES : undefined)}
+                                                {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data, key === estatus2026StatusFieldSummary ? ESTATUS_2026_OPTIONS : normalizeAnnualKey(key) === 'responsable' ? combinedResponsablesList : undefined)}
                                               </div>
                                               {!VIRTUAL_COLUMN_LABELS[key] && (normalizeAnnualKey(key) === 'responsable' ? (
                                                 <select
@@ -12031,7 +12440,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                   onClick={(e) => e.stopPropagation()}
                                                 >
                                                   <option value="">Todos</option>
-                                                  {RESPONSABLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                                  {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
                                                 </select>
                                               ) : (
                                                 <input
@@ -12261,12 +12670,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                   ) : isResponsableCol ? (
                                                     <select
                                                       className="w-full text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
-                                                      value={rawValue ? String(rawValue) : ''}
+                                                      value={getCombinedCanonicalResponsableValue(rawValue)}
                                                       onChange={(e) => handleEstatus2026CellEdit(row, column, e.target.value)}
                                                       onClick={(e) => e.stopPropagation()}
                                                     >
                                                       <option value="">— Sin asignar —</option>
-                                                      {RESPONSABLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                                      {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
                                                     </select>
                                                   ) : isEstatusStatusCol ? (
                                                     <EstatusStatusPicker
@@ -14190,15 +14599,309 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   );
                 })()}
 
-                {/* ── Remaining placeholders (Anteproyecto, PAAAS, Deductivas) ── */}
-                {(activeReportesView === 'anteproyecto' || activeReportesView === 'paaas' || activeReportesView === 'deductivas') && (
+                {/* ── PAAAS 2026 ───────────────────────────────────────────── */}
+                {activeReportesView === 'paaas' && (() => {
+                  const childrenByGroup = new Map<number, Record<string, any>[]>();
+                  paaas2026Data.forEach(row => {
+                    if (row.tipo_registro === 'subpartida' && row.grupo_id != null) {
+                      if (!childrenByGroup.has(row.grupo_id)) childrenByGroup.set(row.grupo_id, []);
+                      childrenByGroup.get(row.grupo_id)!.push(row);
+                    }
+                  });
+
+                  const term = paaasSearchTerm.trim().toLowerCase();
+                  const matchesTerm = (row: Record<string, any>) =>
+                    !term ||
+                    String(row.concepto || '').toLowerCase().includes(term) ||
+                    String(row.cucop || '').toLowerCase().includes(term);
+
+                  const topLevel = paaas2026Data.filter(r => r.tipo_registro === 'independiente' || r.tipo_registro === 'grupo');
+
+                  const visibleTop = topLevel.filter(row => {
+                    if (paaasTipoFilter !== 'todos' && row.tipo_registro !== paaasTipoFilter) return false;
+                    if (!term) return true;
+                    if (row.tipo_registro === 'grupo') {
+                      const kids = childrenByGroup.get(row.id) || [];
+                      return matchesTerm(row) || kids.some(matchesTerm);
+                    }
+                    return matchesTerm(row);
+                  });
+
+                  const nIndep = paaas2026Data.filter(r => r.tipo_registro === 'independiente').length;
+                  const nGrupo = paaas2026Data.filter(r => r.tipo_registro === 'grupo').length;
+                  const nSub = paaas2026Data.filter(r => r.tipo_registro === 'subpartida').length;
+                  const totalGeneral = paaas2026Data
+                    .filter(r => r.tipo_registro !== 'grupo')
+                    .reduce((a, r) => a + (Number(r.valor_total_estimado_compra) || 0), 0);
+                  const FOLIO_CONTROL = 1875315554;
+                  const cuadra = Math.abs(totalGeneral - FOLIO_CONTROL) < 1;
+
+                  const toggleGroup = (id: number) => {
+                    setPaaasExpandedGroups(prev => {
+                      const next = new Set(prev);
+                      if (next.has(id)) next.delete(id); else next.add(id);
+                      return next;
+                    });
+                  };
+                  const isExpanded = (row: Record<string, any>) => {
+                    if (paaasExpandedGroups.has(row.id)) return true;
+                    if (!term) return false;
+                    const kids = childrenByGroup.get(row.id) || [];
+                    return kids.some(matchesTerm);
+                  };
+
+                  return (
+                    <div>
+                      {/* Header */}
+                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h1 className="text-lg font-bold text-slate-900 flex items-center gap-1.5">
+                            <Layers className="h-[18px] w-[18px] text-[#B38E5D]" />
+                            PAAAS 2026
+                          </h1>
+                          <p className="text-slate-500 text-xs mt-0.5">Programa Anual de Adquisiciones, Arrendamientos y Servicios · Aeropuerto Internacional "Felipe Ángeles", S.A. de C.V. · Folio {FOLIO_CONTROL.toLocaleString('es-MX')}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setPaaasExpandedGroups(new Set(paaas2026Data.filter(r => r.tipo_registro === 'grupo').map(r => r.id)))}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A] transition-colors"
+                          >
+                            Expandir grupos
+                          </button>
+                          <button
+                            onClick={() => setPaaasExpandedGroups(new Set())}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A] transition-colors"
+                          >
+                            Colapsar grupos
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Summary cards */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-3">
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                          <p className="text-[10px] text-slate-500">Registros importados</p>
+                          <p className="text-base font-bold text-slate-800 leading-tight">{paaas2026Data.length}</p>
+                          <p className="text-[9px] text-slate-400">{nIndep} independientes · {nGrupo} grupos · {nSub} sub-partidas</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                          <p className="text-[10px] text-slate-500">Partidas independientes</p>
+                          <p className="text-base font-bold text-slate-800 leading-tight">{nIndep}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                          <p className="text-[10px] text-slate-500">Adquisiciones consolidadas</p>
+                          <p className="text-base font-bold text-slate-800 leading-tight">{nGrupo} <span className="text-[10px] font-normal text-slate-400">grupos</span></p>
+                          <p className="text-[9px] text-slate-400">{nSub} sub-partidas agrupadas</p>
+                        </div>
+                        <div className={`rounded-lg border px-3 py-2 shadow-sm ${cuadra ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                          <p className={`text-[10px] font-medium ${cuadra ? 'text-emerald-700' : 'text-amber-700'}`}>Monto total estimado</p>
+                          <p className={`text-base font-bold leading-tight ${cuadra ? 'text-emerald-700' : 'text-amber-700'}`}>{formatCurrency(totalGeneral)}</p>
+                          <p className="text-[9px] text-slate-500 flex items-center gap-1">
+                            {cuadra ? '✓ Coincide con el folio del documento' : '⚠ No coincide con el folio del documento'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Filters */}
+                      <div className="flex flex-wrap items-center gap-2 mb-3">
+                        <div className="relative flex-1 min-w-[220px] max-w-sm">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                          <input
+                            type="text"
+                            value={paaasSearchTerm}
+                            onChange={(e) => setPaaasSearchTerm(e.target.value)}
+                            placeholder="Buscar por concepto o CUCOP..."
+                            className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/20 focus:border-[#0F4C3A]"
+                          />
+                        </div>
+                        <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1">
+                          {([
+                            { id: 'todos' as const, label: 'Todos' },
+                            { id: 'independiente' as const, label: 'Independientes' },
+                            { id: 'grupo' as const, label: 'Consolidadas' },
+                          ]).map(({ id, label }) => (
+                            <button
+                              key={id}
+                              onClick={() => setPaaasTipoFilter(id)}
+                              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${paaasTipoFilter === id
+                                ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <span className="text-[10px] text-slate-400 ml-auto">{visibleTop.length} de {topLevel.length} partidas/grupos</span>
+                      </div>
+
+                      {/* Table */}
+                      {loadingData ? (
+                        <div className="flex items-center justify-center py-16 text-slate-400">
+                          <Loader2 className="h-8 w-8 animate-spin mr-3" />
+                          Cargando datos...
+                        </div>
+                      ) : paaas2026Data.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                          <FileSpreadsheet className="h-12 w-12 mb-3 opacity-30" />
+                          <p>No hay datos de PAAAS 2026 disponibles.</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto overflow-y-auto max-h-[86vh] rounded-xl border border-slate-200 shadow-sm">
+                          <table className="min-w-full text-xs border-collapse">
+                            <thead className="sticky top-0 z-30">
+                              <tr className="bg-[#0F4C3A] text-white text-[11px] uppercase tracking-wide">
+                                <th className="px-3 py-3 text-left font-bold sticky left-0 z-40 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[110px]">CUCOP</th>
+                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[320px]">Concepto</th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap">Valor total estimado de compra</th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap">Valor Estimado de compras Mipymes</th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap">Cantidad</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Unidad de Medida</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Entidad Federativa</th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T1 <span className="block text-[9px] font-normal normal-case text-white/50">calculado</span></th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T2 <span className="block text-[9px] font-normal normal-case text-white/50">calculado</span></th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T3 <span className="block text-[9px] font-normal normal-case text-white/50">calculado</span></th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T4 <span className="block text-[9px] font-normal normal-case text-white/50">calculado</span></th>
+                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap">Fecha estimada para realizar el procedimiento</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Plurianualidad</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Ejercicios fiscales</th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap">Monto a ejercer en el presente año</th>
+                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap">Comentario 1</th>
+                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap">Comentario 2</th>
+                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap">Comentario 3</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {(() => {
+                                const moneyCols = new Set(['valor_total_estimado_compra', 'valor_estimado_compras_mipymes', 't1', 't2', 't3', 't4', 'monto_ejercer_presente_anio']);
+                                const cellText = (r: Record<string, any>, k: string) => {
+                                  const v = r[k];
+                                  if (v === null || v === undefined || v === '') return '';
+                                  if (moneyCols.has(k)) return formatCurrency(Number(v));
+                                  if (k === 'cantidad') return Number(v).toLocaleString('es-MX');
+                                  return String(v);
+                                };
+                                const editCell = (r: Record<string, any>, k: string, align: 'left' | 'right' | 'center' = 'left') => (
+                                  <div
+                                    contentEditable={canManageRecords}
+                                    suppressContentEditableWarning
+                                    className={`min-h-[1.4em] outline-none rounded px-1 -mx-1 whitespace-pre-wrap break-words ${canManageRecords ? 'cursor-text hover:bg-black/5 focus:bg-white focus:ring-2 focus:ring-[#0F4C3A]/40' : ''} ${align === 'right' ? 'text-right tabular-nums' : align === 'center' ? 'text-center tabular-nums' : 'text-left'}`}
+                                    onBlur={(e) => handlePaaas2026CellEdit(r, k, e.currentTarget.textContent ?? '')}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.currentTarget as HTMLDivElement).blur(); } }}
+                                  >
+                                    {cellText(r, k) || (canManageRecords ? '' : '—')}
+                                  </div>
+                                );
+                                // T1–T4 no se editan sueltas: replican la fórmula del Excel
+                                // origen (= Valor total / 4, o suma de sub-partidas / 4 en
+                                // grupos) y se recalculan solas al editar "Valor total
+                                // estimado de compra" (ver handlePaaas2026CellEdit).
+                                const derivedCell = (r: Record<string, any>, k: 't1' | 't2' | 't3' | 't4') => (
+                                  <div
+                                    className="min-h-[1.4em] rounded px-1 -mx-1 text-right tabular-nums italic text-slate-400"
+                                    title="Calculado automáticamente: Valor total estimado de compra ÷ 4 (suma de sub-partidas ÷ 4 para grupos). No se edita directamente."
+                                  >
+                                    {r[k] != null ? formatCurrency(Number(r[k])) : '—'}
+                                  </div>
+                                );
+                                return visibleTop.map((row, rowIdx) => {
+                                  const kids = row.tipo_registro === 'grupo' ? (childrenByGroup.get(row.id) || []) : [];
+                                  const expanded = row.tipo_registro === 'grupo' && isExpanded(row);
+                                  const visibleKids = kids.filter(k => !term || matchesTerm(k));
+                                  const usedMipymesFallback = row.tipo_registro === 'grupo' && row.valor_total_estimado_compra == null && row.valor_estimado_compras_mipymes != null;
+                                  return (
+                                    <React.Fragment key={row.id}>
+                                      <tr className={`group hover:bg-amber-50/40 transition-colors ${row.tipo_registro === 'grupo' ? 'bg-[#0F4C3A]/5 font-semibold' : rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
+                                        <td className={`px-3 py-2.5 font-mono text-slate-600 sticky left-0 z-10 border-r border-slate-200 min-w-[110px] transition-colors group-hover:bg-amber-50/40 ${row.tipo_registro === 'grupo' ? 'bg-[#f0f7f4]' : rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
+                                          <div className="flex items-center gap-1.5">
+                                            {row.tipo_registro === 'grupo' ? (
+                                              <button onClick={() => toggleGroup(row.id)} className="flex-shrink-0 text-[#0F4C3A]">
+                                                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                                              </button>
+                                            ) : <span className="w-3.5 flex-shrink-0" />}
+                                            <div className="flex-1 min-w-0">{editCell(row, 'cucop')}</div>
+                                          </div>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-slate-700 min-w-[320px] leading-snug">
+                                          {editCell(row, 'concepto')}
+                                          {usedMipymesFallback && (
+                                            <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-600 align-middle" title="En el CSV origen este monto viene cargado en la columna 'Valor Estimado de compras Mipymes' en vez de 'Valor total estimado de compra'. Se importó tal cual, sin modificar el dato.">
+                                              monto reportado en col. Mipymes (origen)
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="px-3 py-2.5 font-semibold text-slate-700">{editCell(row, 'valor_total_estimado_compra', 'right')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'valor_estimado_compras_mipymes', 'right')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600">{editCell(row, 'cantidad', 'right')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'unidad_medida', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'entidad_federativa', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600">{derivedCell(row, 't1')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600">{derivedCell(row, 't2')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600">{derivedCell(row, 't3')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600">{derivedCell(row, 't4')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'fecha_estimada_procedimiento')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'plurianualidad', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'ejercicios_fiscales', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'monto_ejercer_presente_anio', 'right')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_1')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_2')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_3')}</td>
+                                      </tr>
+                                      {expanded && visibleKids.map((kid, kidIdx) => (
+                                        <tr key={kid.id} className={`hover:bg-amber-50/40 transition-colors ${kidIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}`}>
+                                          <td className={`px-3 py-2 font-mono text-slate-500 sticky left-0 z-10 border-r border-slate-200 min-w-[110px] pl-8 ${kidIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}`}>
+                                            {editCell(kid, 'cucop')}
+                                          </td>
+                                          <td className="px-3 py-2 text-slate-600 min-w-[320px] leading-snug">
+                                            <div className="flex items-start gap-1">
+                                              <span className="text-slate-300 flex-shrink-0">↳</span>
+                                              <div className="flex-1 min-w-0">{editCell(kid, 'concepto')}</div>
+                                            </div>
+                                          </td>
+                                          <td className="px-3 py-2 text-slate-600">{editCell(kid, 'valor_total_estimado_compra', 'right')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'valor_estimado_compras_mipymes', 'right')}</td>
+                                          <td className="px-3 py-2 text-slate-500">{editCell(kid, 'cantidad', 'right')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'unidad_medida', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'entidad_federativa', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-300">{derivedCell(kid, 't1')}</td>
+                                          <td className="px-3 py-2 text-slate-300">{derivedCell(kid, 't2')}</td>
+                                          <td className="px-3 py-2 text-slate-300">{derivedCell(kid, 't3')}</td>
+                                          <td className="px-3 py-2 text-slate-300">{derivedCell(kid, 't4')}</td>
+                                          <td className="px-3 py-2 text-slate-300">{editCell(kid, 'fecha_estimada_procedimiento')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'plurianualidad', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'ejercicios_fiscales', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'monto_ejercer_presente_anio', 'right')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_1')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_2')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_3')}</td>
+                                        </tr>
+                                      ))}
+                                    </React.Fragment>
+                                  );
+                                });
+                              })()}
+                              {/* Footer totals row */}
+                              <tr className="bg-[#0F4C3A]/10 font-bold text-xs border-t-2 border-[#0F4C3A]/30">
+                                <td colSpan={2} className="px-3 py-3 text-[#0F4C3A] sticky left-0 bg-[#f0f7f4] border-r border-[#0F4C3A]/20 whitespace-nowrap z-10">TOTAL GENERAL — {nIndep} independientes + {nSub} sub-partidas de {nGrupo} grupos (462 registros)</td>
+                                <td className="px-3 py-3 text-right text-[#0F4C3A] tabular-nums whitespace-nowrap">{formatCurrency(totalGeneral)}</td>
+                                <td colSpan={14} />
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* ── Remaining placeholders (Anteproyecto, Deductivas) ── */}
+                {(activeReportesView === 'anteproyecto' || activeReportesView === 'deductivas') && (
                   <div className="flex flex-col items-center justify-center py-28 text-center">
                     <div className="rounded-full bg-slate-100 p-6 mb-5">
                       <FileSpreadsheet className="h-12 w-12 text-slate-300" />
                     </div>
                     <h2 className="text-xl font-bold text-slate-700 mb-2">
                       {activeReportesView === 'anteproyecto' && 'Anteproyecto'}
-                      {activeReportesView === 'paaas' && 'PAAAS'}
                       {activeReportesView === 'deductivas' && 'Deductivas'}
                     </h2>
                     <p className="text-slate-400 text-sm">Esta sección está en construcción.</p>
@@ -17374,6 +18077,238 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     {editingId ? 'Guardar Cambios' : 'Guardar Registro'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === MODAL PARA NUEVO SERVICIO DE UN RESPONSABLE (Estatus 2026) === */}
+      {serviceFormResponsable && (() => {
+        const profileForModal = getCombinedResponsableProfile(serviceFormResponsable);
+        return (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Plus className="h-5 w-5 text-[#B38E5D]" />
+                  Nuevo servicio de {profileForModal?.fullName ?? serviceFormResponsable}
+                </h3>
+                <button
+                  onClick={() => setServiceFormResponsable(null)}
+                  className="text-slate-400 hover:text-slate-600"
+                  aria-label="Cerrar modal"
+                  title="Cerrar"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSaveNewServiceForResponsable(serviceFormResponsable, newServiceForm);
+                  }}
+                  className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                >
+                  <div className="col-span-2">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Nombre del Servicio</label>
+                    <input
+                      value={newServiceForm.nombreServicio}
+                      onChange={(e) => setNewServiceForm(prev => ({ ...prev, nombreServicio: e.target.value }))}
+                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Clave CUCOP</label>
+                    <input
+                      value={newServiceForm.claveCucop}
+                      onChange={(e) => setNewServiceForm(prev => ({ ...prev, claveCucop: e.target.value }))}
+                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                    />
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Fase</label>
+                    <select
+                      value={newServiceForm.fase}
+                      onChange={(e) => setNewServiceForm(prev => ({ ...prev, fase: e.target.value }))}
+                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none bg-white"
+                    >
+                      <option value="">— Selecciona —</option>
+                      <option value="Ordinaria">Ordinaria</option>
+                      <option value="Trámite Autorizado">Trámite Autorizado</option>
+                    </select>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Observación General del Servicio</label>
+                    <input
+                      value={newServiceForm.observacionGeneral}
+                      onChange={(e) => setNewServiceForm(prev => ({ ...prev, observacionGeneral: e.target.value }))}
+                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                    />
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Subdirección</label>
+                    <input
+                      value={newServiceForm.subdireccion}
+                      onChange={(e) => setNewServiceForm(prev => ({ ...prev, subdireccion: e.target.value }))}
+                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                    />
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Gerencia</label>
+                    <input
+                      value={newServiceForm.gerencia}
+                      onChange={(e) => setNewServiceForm(prev => ({ ...prev, gerencia: e.target.value }))}
+                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                    />
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Tipo de Servicio</label>
+                    <TipoServicioPicker
+                      value={newServiceForm.tipoServicio}
+                      onChange={(next) => setNewServiceForm(prev => ({ ...prev, tipoServicio: next }))}
+                    />
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Monto Solicitado (Anteproyecto 2026)</label>
+                    <input
+                      value={newServiceForm.montoSolicitado}
+                      onChange={(e) => setNewServiceForm(prev => ({ ...prev, montoSolicitado: e.target.value }))}
+                      placeholder="$0.00"
+                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                    />
+                  </div>
+
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Monto Máximo 2024</label>
+                    <input
+                      value={newServiceForm.montoMaximo2024}
+                      onChange={(e) => setNewServiceForm(prev => ({ ...prev, montoMaximo2024: e.target.value }))}
+                      placeholder="$0.00"
+                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                    />
+                  </div>
+
+                  <div className="col-span-2 flex justify-end gap-3 mt-2 pt-4 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setServiceFormResponsable(null)}
+                      className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingNewService}
+                      className="px-6 py-2 bg-[#B38E5D] hover:bg-[#9c7a4d] text-white font-bold rounded-lg shadow-lg transition-colors flex items-center gap-2"
+                    >
+                      {isSavingNewService ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Guardar Servicio
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* === MODAL PARA NUEVO RESPONSABLE === */}
+      {isAddResponsableOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <UserPlus className="h-5 w-5 text-[#B38E5D]" />
+                Nuevo responsable
+              </h3>
+              <button
+                onClick={() => setIsAddResponsableOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+                aria-label="Cerrar modal"
+                title="Cerrar"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleCreateResponsable();
+                }}
+                className="grid grid-cols-1 gap-4"
+              >
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Nombre completo</label>
+                  <input
+                    value={newResponsableForm.fullName}
+                    onChange={(e) => setNewResponsableForm(prev => ({ ...prev, fullName: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">No. de empleado</label>
+                  <input
+                    value={newResponsableForm.employeeNumber}
+                    onChange={(e) => setNewResponsableForm(prev => ({ ...prev, employeeNumber: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Grado académico</label>
+                  <input
+                    value={newResponsableForm.academicDegree}
+                    onChange={(e) => setNewResponsableForm(prev => ({ ...prev, academicDegree: e.target.value }))}
+                    className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Antigüedad en el AIFA</label>
+                  <input
+                    value={newResponsableForm.aifaTenure}
+                    onChange={(e) => setNewResponsableForm(prev => ({ ...prev, aifaTenure: e.target.value }))}
+                    placeholder="Ej. 2 años 3 meses 3 días"
+                    className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
+                  />
+                </div>
+
+                <p className="text-xs text-slate-400">La foto se puede agregar más adelante.</p>
+
+                <div className="flex justify-end gap-3 mt-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddResponsableOpen(false)}
+                    className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingResponsable}
+                    className="px-6 py-2 bg-[#B38E5D] hover:bg-[#9c7a4d] text-white font-bold rounded-lg shadow-lg transition-colors flex items-center gap-2"
+                  >
+                    {isSavingResponsable ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Guardar Responsable
                   </button>
                 </div>
               </form>
