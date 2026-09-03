@@ -14664,13 +14664,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setPaaasExpandedGroups(new Set(paaas2026Data.filter(r => r.tipo_registro === 'grupo').map(r => r.id)))}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A] transition-colors"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-slate-200 text-slate-600 hover:border-[#6B5537] hover:text-[#6B5537] transition-colors"
                           >
                             Expandir grupos
                           </button>
                           <button
                             onClick={() => setPaaasExpandedGroups(new Set())}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-slate-200 text-slate-600 hover:border-[#0F4C3A] hover:text-[#0F4C3A] transition-colors"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-slate-200 text-slate-600 hover:border-[#6B5537] hover:text-[#6B5537] transition-colors"
                           >
                             Colapsar grupos
                           </button>
@@ -14711,7 +14711,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             value={paaasSearchTerm}
                             onChange={(e) => setPaaasSearchTerm(e.target.value)}
                             placeholder="Buscar por concepto o CUCOP..."
-                            className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/20 focus:border-[#0F4C3A]"
+                            className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-[#6B5537]/20 focus:border-[#6B5537]"
                           />
                         </div>
                         <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1">
@@ -14724,7 +14724,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               key={id}
                               onClick={() => setPaaasTipoFilter(id)}
                               className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${paaasTipoFilter === id
-                                ? 'bg-white text-[#0F4C3A] shadow-sm ring-1 ring-slate-200'
+                                ? 'bg-white text-[#6B5537] shadow-sm ring-1 ring-slate-200'
                                 : 'text-slate-500 hover:text-slate-800'
                                 }`}
                             >
@@ -14750,25 +14750,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <div className="overflow-x-auto overflow-y-auto max-h-[86vh] rounded-xl border border-slate-200 shadow-sm">
                           <table className="min-w-full text-xs border-collapse">
                             <thead className="sticky top-0 z-30">
-                              <tr className="bg-[#0F4C3A] text-white text-[11px] uppercase tracking-wide">
-                                <th className="px-3 py-3 text-left font-bold sticky left-0 z-40 bg-[#0F4C3A] whitespace-nowrap border-r border-white/20 min-w-[110px]">CUCOP</th>
-                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[320px]">Concepto</th>
-                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap">Valor total estimado de compra</th>
-                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap">Valor Estimado de compras Mipymes</th>
-                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap">Cantidad</th>
+                              <tr className="bg-[#D8C9A0] text-[#4A3D22] text-[11px] uppercase tracking-wide">
+                                <th className="px-3 py-3 text-left font-bold sticky left-0 z-40 bg-[#D8C9A0] whitespace-nowrap border-r border-[#4A3D22]/15 min-w-[110px]">CUCOP</th>
+                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap min-w-[320px] border-r border-[#4A3D22]/10">Concepto</th>
+                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap bg-[#CBB98A]">Valor total estimado de compra</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap bg-[#CBB98A] border-r border-[#4A3D22]/10">Valor Estimado de compras Mipymes</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Cantidad</th>
                                 <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Unidad de Medida</th>
-                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Entidad Federativa</th>
-                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T1 <span className="block text-[9px] font-normal normal-case text-white/50">calculado</span></th>
-                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T2 <span className="block text-[9px] font-normal normal-case text-white/50">calculado</span></th>
-                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T3 <span className="block text-[9px] font-normal normal-case text-white/50">calculado</span></th>
-                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T4 <span className="block text-[9px] font-normal normal-case text-white/50">calculado</span></th>
-                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap">Fecha estimada para realizar el procedimiento</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap border-r border-[#4A3D22]/10">Entidad Federativa</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap border-l-2 border-[#8a6a3f]/50" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T1 <span className="block text-[9px] font-normal normal-case text-[#4A3D22]/60">calculado</span></th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T2 <span className="block text-[9px] font-normal normal-case text-[#4A3D22]/60">calculado</span></th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T3 <span className="block text-[9px] font-normal normal-case text-[#4A3D22]/60">calculado</span></th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap border-r border-[#4A3D22]/10" title="Calculado: Valor total ÷ 4 (o suma de sub-partidas ÷ 4 en grupos)">T4 <span className="block text-[9px] font-normal normal-case text-[#4A3D22]/60">calculado</span></th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Fecha estimada para realizar el procedimiento</th>
                                 <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Plurianualidad</th>
-                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Ejercicios fiscales</th>
-                                <th className="px-3 py-3 text-right font-bold whitespace-nowrap">Monto a ejercer en el presente año</th>
-                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap">Comentario 1</th>
-                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap">Comentario 2</th>
-                                <th className="px-3 py-3 text-left font-bold whitespace-nowrap">Comentario 3</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap border-r border-[#4A3D22]/10">Ejercicios fiscales</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Monto a ejercer en el presente año</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Comentario 1</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Comentario 2</th>
+                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">Comentario 3</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -14785,7 +14785,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   <div
                                     contentEditable={canManageRecords}
                                     suppressContentEditableWarning
-                                    className={`min-h-[1.4em] outline-none rounded px-1 -mx-1 whitespace-pre-wrap break-words ${canManageRecords ? 'cursor-text hover:bg-black/5 focus:bg-white focus:ring-2 focus:ring-[#0F4C3A]/40' : ''} ${align === 'right' ? 'text-right tabular-nums' : align === 'center' ? 'text-center tabular-nums' : 'text-left'}`}
+                                    className={`min-h-[1.4em] outline-none rounded px-1 -mx-1 whitespace-pre-wrap break-words ${canManageRecords ? 'cursor-text hover:bg-black/5 focus:bg-white focus:ring-2 focus:ring-[#6B5537]/40' : ''} ${align === 'right' ? 'text-right tabular-nums' : align === 'center' ? 'text-center tabular-nums' : 'text-left'}`}
                                     onBlur={(e) => handlePaaas2026CellEdit(r, k, e.currentTarget.textContent ?? '')}
                                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.currentTarget as HTMLDivElement).blur(); } }}
                                   >
@@ -14798,7 +14798,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 // estimado de compra" (ver handlePaaas2026CellEdit).
                                 const derivedCell = (r: Record<string, any>, k: 't1' | 't2' | 't3' | 't4') => (
                                   <div
-                                    className="min-h-[1.4em] rounded px-1 -mx-1 text-right tabular-nums italic text-slate-400"
+                                    className="min-h-[1.4em] rounded px-1 -mx-1 text-center tabular-nums italic text-slate-400"
                                     title="Calculado automáticamente: Valor total estimado de compra ÷ 4 (suma de sub-partidas ÷ 4 para grupos). No se edita directamente."
                                   >
                                     {r[k] != null ? formatCurrency(Number(r[k])) : '—'}
@@ -14809,81 +14809,88 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   const expanded = row.tipo_registro === 'grupo' && isExpanded(row);
                                   const visibleKids = kids.filter(k => !term || matchesTerm(k));
                                   const usedMipymesFallback = row.tipo_registro === 'grupo' && row.valor_total_estimado_compra == null && row.valor_estimado_compras_mipymes != null;
+                                  const isGrupo = row.tipo_registro === 'grupo';
+                                  const rowBg = isGrupo ? 'bg-[#6B5537]/[0.06]' : rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60';
+                                  const rowHover = isGrupo ? 'hover:bg-[#6B5537]/10' : 'hover:bg-[#6B5537]/5';
+                                  const stickyHover = isGrupo ? 'group-hover:bg-[#6B5537]/10' : 'group-hover:bg-[#efe9dd]';
                                   return (
                                     <React.Fragment key={row.id}>
-                                      <tr className={`group hover:bg-amber-50/40 transition-colors ${row.tipo_registro === 'grupo' ? 'bg-[#0F4C3A]/5 font-semibold' : rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
-                                        <td className={`px-3 py-2.5 font-mono text-slate-600 sticky left-0 z-10 border-r border-slate-200 min-w-[110px] transition-colors group-hover:bg-amber-50/40 ${row.tipo_registro === 'grupo' ? 'bg-[#f0f7f4]' : rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
+                                      <tr className={`group transition-colors ${rowBg} ${rowHover} ${isGrupo ? 'font-semibold' : ''}`}>
+                                        <td className={`px-3 py-2.5 font-mono text-slate-600 sticky left-0 z-10 min-w-[110px] transition-colors ${isGrupo ? 'border-l-4 border-[#6B5537] border-r border-slate-200' : 'border-r border-slate-200'} ${rowBg} ${stickyHover}`}>
                                           <div className="flex items-center gap-1.5">
-                                            {row.tipo_registro === 'grupo' ? (
-                                              <button onClick={() => toggleGroup(row.id)} className="flex-shrink-0 text-[#0F4C3A]">
+                                            {isGrupo ? (
+                                              <button onClick={() => toggleGroup(row.id)} className="flex-shrink-0 text-[#6B5537]">
                                                 {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                                               </button>
                                             ) : <span className="w-3.5 flex-shrink-0" />}
                                             <div className="flex-1 min-w-0">{editCell(row, 'cucop')}</div>
                                           </div>
                                         </td>
-                                        <td className="px-3 py-2.5 text-slate-700 min-w-[320px] leading-snug">
+                                        <td className="px-3 py-2.5 text-slate-700 min-w-[320px] leading-snug border-r border-slate-100">
                                           {editCell(row, 'concepto')}
                                           {usedMipymesFallback && (
-                                            <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-600 align-middle" title="En el CSV origen este monto viene cargado en la columna 'Valor Estimado de compras Mipymes' en vez de 'Valor total estimado de compra'. Se importó tal cual, sin modificar el dato.">
+                                            <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#B38E5D]/15 text-[#8a6a3f] align-middle" title="En el CSV origen este monto viene cargado en la columna 'Valor Estimado de compras Mipymes' en vez de 'Valor total estimado de compra'. Se importó tal cual, sin modificar el dato.">
                                               monto reportado en col. Mipymes (origen)
                                             </span>
                                           )}
                                         </td>
-                                        <td className="px-3 py-2.5 font-semibold text-slate-700">{editCell(row, 'valor_total_estimado_compra', 'right')}</td>
-                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'valor_estimado_compras_mipymes', 'right')}</td>
-                                        <td className="px-3 py-2.5 text-slate-600">{editCell(row, 'cantidad', 'right')}</td>
+                                        <td className="px-3 py-2.5 font-semibold text-[#6B5537] border-l-2 border-[#6B5537]/10">{editCell(row, 'valor_total_estimado_compra', 'right')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500 border-r border-slate-100">{editCell(row, 'valor_estimado_compras_mipymes', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600">{editCell(row, 'cantidad', 'center')}</td>
                                         <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'unidad_medida', 'center')}</td>
-                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'entidad_federativa', 'center')}</td>
-                                        <td className="px-3 py-2.5 text-slate-600">{derivedCell(row, 't1')}</td>
-                                        <td className="px-3 py-2.5 text-slate-600">{derivedCell(row, 't2')}</td>
-                                        <td className="px-3 py-2.5 text-slate-600">{derivedCell(row, 't3')}</td>
-                                        <td className="px-3 py-2.5 text-slate-600">{derivedCell(row, 't4')}</td>
-                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'fecha_estimada_procedimiento')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500 border-r border-slate-100">{editCell(row, 'entidad_federativa', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600 bg-slate-50/50 border-l-2 border-[#B38E5D]/40">{derivedCell(row, 't1')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600 bg-slate-50/50">{derivedCell(row, 't2')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600 bg-slate-50/50">{derivedCell(row, 't3')}</td>
+                                        <td className="px-3 py-2.5 text-slate-600 bg-slate-50/50 border-r border-slate-200">{derivedCell(row, 't4')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'fecha_estimada_procedimiento', 'center')}</td>
                                         <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'plurianualidad', 'center')}</td>
-                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'ejercicios_fiscales', 'center')}</td>
-                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'monto_ejercer_presente_anio', 'right')}</td>
-                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_1')}</td>
-                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_2')}</td>
-                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_3')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500 border-r border-slate-100">{editCell(row, 'ejercicios_fiscales', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'monto_ejercer_presente_anio', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_1', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_2', 'center')}</td>
+                                        <td className="px-3 py-2.5 text-slate-500">{editCell(row, 'comentario_3', 'center')}</td>
                                       </tr>
-                                      {expanded && visibleKids.map((kid, kidIdx) => (
-                                        <tr key={kid.id} className={`hover:bg-amber-50/40 transition-colors ${kidIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}`}>
-                                          <td className={`px-3 py-2 font-mono text-slate-500 sticky left-0 z-10 border-r border-slate-200 min-w-[110px] pl-8 ${kidIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}`}>
+                                      {expanded && visibleKids.map((kid, kidIdx) => {
+                                        const kidBg = kidIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60';
+                                        return (
+                                        <tr key={kid.id} className={`group transition-colors ${kidBg} hover:bg-[#6B5537]/5`}>
+                                          <td className={`px-3 py-2 font-mono text-slate-500 sticky left-0 z-10 border-r border-slate-200 min-w-[110px] pl-8 ${kidBg} group-hover:bg-[#efe9dd]`}>
                                             {editCell(kid, 'cucop')}
                                           </td>
-                                          <td className="px-3 py-2 text-slate-600 min-w-[320px] leading-snug">
+                                          <td className="px-3 py-2 text-slate-600 min-w-[320px] leading-snug border-r border-slate-100">
                                             <div className="flex items-start gap-1">
                                               <span className="text-slate-300 flex-shrink-0">↳</span>
                                               <div className="flex-1 min-w-0">{editCell(kid, 'concepto')}</div>
                                             </div>
                                           </td>
-                                          <td className="px-3 py-2 text-slate-600">{editCell(kid, 'valor_total_estimado_compra', 'right')}</td>
-                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'valor_estimado_compras_mipymes', 'right')}</td>
-                                          <td className="px-3 py-2 text-slate-500">{editCell(kid, 'cantidad', 'right')}</td>
+                                          <td className="px-3 py-2 text-slate-700 border-l-2 border-[#6B5537]/5">{editCell(kid, 'valor_total_estimado_compra', 'right')}</td>
+                                          <td className="px-3 py-2 text-slate-400 border-r border-slate-100">{editCell(kid, 'valor_estimado_compras_mipymes', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-500">{editCell(kid, 'cantidad', 'center')}</td>
                                           <td className="px-3 py-2 text-slate-400">{editCell(kid, 'unidad_medida', 'center')}</td>
-                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'entidad_federativa', 'center')}</td>
-                                          <td className="px-3 py-2 text-slate-300">{derivedCell(kid, 't1')}</td>
-                                          <td className="px-3 py-2 text-slate-300">{derivedCell(kid, 't2')}</td>
-                                          <td className="px-3 py-2 text-slate-300">{derivedCell(kid, 't3')}</td>
-                                          <td className="px-3 py-2 text-slate-300">{derivedCell(kid, 't4')}</td>
-                                          <td className="px-3 py-2 text-slate-300">{editCell(kid, 'fecha_estimada_procedimiento')}</td>
+                                          <td className="px-3 py-2 text-slate-400 border-r border-slate-100">{editCell(kid, 'entidad_federativa', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-300 bg-slate-50/50 border-l-2 border-[#B38E5D]/20">{derivedCell(kid, 't1')}</td>
+                                          <td className="px-3 py-2 text-slate-300 bg-slate-50/50">{derivedCell(kid, 't2')}</td>
+                                          <td className="px-3 py-2 text-slate-300 bg-slate-50/50">{derivedCell(kid, 't3')}</td>
+                                          <td className="px-3 py-2 text-slate-300 bg-slate-50/50 border-r border-slate-200">{derivedCell(kid, 't4')}</td>
+                                          <td className="px-3 py-2 text-slate-300">{editCell(kid, 'fecha_estimada_procedimiento', 'center')}</td>
                                           <td className="px-3 py-2 text-slate-400">{editCell(kid, 'plurianualidad', 'center')}</td>
-                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'ejercicios_fiscales', 'center')}</td>
-                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'monto_ejercer_presente_anio', 'right')}</td>
-                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_1')}</td>
-                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_2')}</td>
-                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_3')}</td>
+                                          <td className="px-3 py-2 text-slate-400 border-r border-slate-100">{editCell(kid, 'ejercicios_fiscales', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'monto_ejercer_presente_anio', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_1', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_2', 'center')}</td>
+                                          <td className="px-3 py-2 text-slate-400">{editCell(kid, 'comentario_3', 'center')}</td>
                                         </tr>
-                                      ))}
+                                        );
+                                      })}
                                     </React.Fragment>
                                   );
                                 });
                               })()}
                               {/* Footer totals row */}
-                              <tr className="bg-[#0F4C3A]/10 font-bold text-xs border-t-2 border-[#0F4C3A]/30">
-                                <td colSpan={2} className="px-3 py-3 text-[#0F4C3A] sticky left-0 bg-[#f0f7f4] border-r border-[#0F4C3A]/20 whitespace-nowrap z-10">TOTAL GENERAL — {nIndep} independientes + {nSub} sub-partidas de {nGrupo} grupos (462 registros)</td>
-                                <td className="px-3 py-3 text-right text-[#0F4C3A] tabular-nums whitespace-nowrap">{formatCurrency(totalGeneral)}</td>
+                              <tr className="bg-[#6B5537]/10 font-bold text-xs border-t-2 border-[#6B5537]/30">
+                                <td colSpan={2} className="px-3 py-3 text-[#6B5537] sticky left-0 bg-[#f5f1ea] border-r border-[#6B5537]/20 whitespace-nowrap z-10">TOTAL GENERAL — {nIndep} independientes + {nSub} sub-partidas de {nGrupo} grupos (462 registros)</td>
+                                <td className="px-3 py-3 text-right text-[#6B5537] tabular-nums whitespace-nowrap">{formatCurrency(totalGeneral)}</td>
                                 <td colSpan={14} />
                               </tr>
                             </tbody>
