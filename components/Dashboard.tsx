@@ -520,6 +520,18 @@ ColumnFilterControl.displayName = 'ColumnFilterControl';
 // ---------------------------------------------------------------------------
 // EstatusStatusPicker — dropdown for the "Estatus" column in estatus_2026
 // ---------------------------------------------------------------------------
+// Los años que tienen módulo propio (Resumen, Estatus servicios y Gantt).
+// Para abrir 2028: agregar el año aquí, su tabla en TABLA_ESTATUS_POR_ANIO y su
+// grupo en la barra lateral. Las vistas no necesitan un solo cambio más: leen
+// las columnas que traiga la tabla, no una lista fija.
+const ANIOS_MODULO = [2026, 2027] as const;
+type AnioModulo = (typeof ANIOS_MODULO)[number];
+
+const TABLA_ESTATUS_POR_ANIO: Record<AnioModulo, string> = {
+  2026: 'estatus_2026',
+  2027: 'estatus_2027',
+};
+
 const ESTATUS_2026_OPTIONS = [
   'Elaboración de anexo técnico, administrativo y apéndices',
   'En IM',
@@ -878,6 +890,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const [is2025Expanded, setIs2025Expanded] = useState(true);
   const [is2026Expanded, setIs2026Expanded] = useState(true);
+  const [is2027Expanded, setIs2027Expanded] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Database State
@@ -885,7 +898,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [commercialSpaces, setCommercialSpaces] = useState<CommercialSpace[]>([]);
   const [annual2026Data, setAnnual2026Data] = useState<Record<string, any>[]>([]);
   const [servicios2026Data, setServicios2026Data] = useState<Record<string, any>[]>([]);
-  const [estatus2026Data, setEstatus2026Data] = useState<Record<string, any>[]>([]);
+  // Los módulos anuales (2026 y 2027) comparten las mismas tres vistas —Resumen,
+  // Estatus servicios y Gantt— y sólo cambian de renglones, así que los datos
+  // viven en un almacén por año y las vistas leen el del año activo. Agregar
+  // 2028 es agregar su tabla a ANIOS_MODULO.
+  const [estatusPorAnio, setEstatusPorAnio] = useState<Record<number, Record<string, any>[]>>({ 2026: [], 2027: [] });
+
+  // Qué año está abierto y de qué tabla salen sus renglones. Todo lo que
+  // cuelga de estatusAnioData —KPIs, distribuciones, tabla y Gantt— se
+  // recalcula solo al cambiar de año porque cambia esta referencia.
+  const anioActivo: AnioModulo = activeTab === '2027' ? 2027 : 2026;
+  const tablaEstatusAnio = TABLA_ESTATUS_POR_ANIO[anioActivo];
+  const estatusAnioData = useMemo(
+    () => estatusPorAnio[anioActivo] ?? [],
+    [estatusPorAnio, anioActivo]
+  );
+
+  // Escribe sólo sobre el año abierto y deja intacto el otro. Mantiene la firma
+  // de un setter de useState para que handleGenericCellEdit lo reciba igual que
+  // los de las demás tablas.
+  const setEstatusAnioData = useCallback<React.Dispatch<React.SetStateAction<Record<string, any>[]>>>(
+    (valor) => {
+      setEstatusPorAnio((prev) => {
+        const actuales = prev[anioActivo] ?? [];
+        const siguientes = typeof valor === 'function'
+          ? (valor as (p: Record<string, any>[]) => Record<string, any>[])(actuales)
+          : valor;
+        return { ...prev, [anioActivo]: siguientes };
+      });
+    },
+    [anioActivo]
+  );
   const [pagos2026Data, setPagos2026Data] = useState<Record<string, any>[]>([]);
   const [pagos2026ExpandedMonths, setPagos2026ExpandedMonths] = useState<Set<string>>(new Set());
   const [paasData, setPaasData] = useState<PaasItem[]>([]);
@@ -1013,6 +1056,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [newServiceForm, setNewServiceForm] = useState(EMPTY_NEW_SERVICE_FORM);
   const [isSavingNewService, setIsSavingNewService] = useState(false);
   const [dbResponsables, setDbResponsables] = useState<ResponsableProfile[]>([]);
+  // Foto de responsable abierta en grande. La miniatura es de 80 px y las caras
+  // no se distinguen.
+  const [fotoAmpliada, setFotoAmpliada] = useState<{ url: string; nombre: string } | null>(null);
   const [isAddResponsableOpen, setIsAddResponsableOpen] = useState(false);
   const [newResponsableForm, setNewResponsableForm] = useState({
     fullName: '',
@@ -1029,6 +1075,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     () => [...RESPONSABLE_PROFILES, ...dbResponsables],
     [dbResponsables]
   );
+
+  // Cerrar la foto con Escape, no sólo con el clic.
+  useEffect(() => {
+    if (!fotoAmpliada) return;
+    const alTeclear = (evento: KeyboardEvent) => {
+      if (evento.key === 'Escape') setFotoAmpliada(null);
+    };
+    window.addEventListener('keydown', alTeclear);
+    return () => window.removeEventListener('keydown', alTeclear);
+  }, [fotoAmpliada]);
 
   const combinedResponsablesList = useMemo(
     () => combinedResponsableProfiles.map((p) => p.catalogValue),
@@ -1057,7 +1113,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [obsOpenSet, setObsOpenSet] = useState<Record<string, true>>({});
   // Holds uncontrolled textarea DOM refs so we can read value only on Save (no re-renders while typing)
   const obsTextareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
-  const [active2026View, setActive2026View] = useState<'resumen' | 'estatus' | 'pagos' | 'gantt'>('resumen');
+  const [activeAnioView, setActiveAnioView] = useState<'resumen' | 'estatus' | 'pagos' | 'gantt'>('resumen');
+  // Pagos sólo existe en 2026. Si alguien estaba ahí y cambia a 2027, la vista
+  // guardada dejaría la pantalla en blanco: se cae a Resumen.
+  const vistaAnioEfectiva = (anioActivo === 2027 && activeAnioView === 'pagos') ? 'resumen' : activeAnioView;
   const [showGanttLegend, setShowGanttLegend] = useState(false);
   const [ganttTooltip, setGanttTooltip] = useState<{ x: number; y: number; service: string; gerencia: string; phaseName: string; area: 'DO' | 'DA'; start: Date; end: Date; days: number; phaseIdx: number } | null>(null);
   const [activePagos2026View, setActivePagos2026View] = useState<'tabla' | 'resumen'>('tabla');
@@ -1325,6 +1384,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     'año_2026': 'id',
     'estatus_servicios_2026': 'id',
     'estatus_2026': 'id',
+    'estatus_2027': 'id',
     'pagos': 'id',
     'balance_paas_2026': 'id',
     'paas': 'id',
@@ -1752,7 +1812,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         await fetchServicios2026Data();
         break;
       case 'estatus_2026':
-        await fetchEstatus2026Data();
+        await fetchEstatusAnio(anioActivo);
+        break;
+      case 'estatus_2027':
+        await fetchEstatus2027Data();
         break;
       case 'pagos':
         await fetchPagos2026Data();
@@ -2161,39 +2224,53 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const extractPagosRowId = (row: any) => row.id ?? row.ID ?? row.Id ?? row['No. Contrato'] ?? row['No contrato'] ?? row['No. de contrato'] ?? null;
 
-  const fetchEstatus2026Data = async () => {
+  const fetchEstatusAnio = async (anio: AnioModulo) => {
+    const tabla = TABLA_ESTATUS_POR_ANIO[anio];
     try {
-      // Removed .order('id') to avoid potential Supabase type errors, sorting client-side instead.
+      // Se ordena del lado del cliente para no depender de cómo se llame la
+      // columna llave en cada tabla.
       const { data, error } = await supabase
-        .from('estatus_2026')
+        .from(tabla)
         .select('*');
 
       if (error) {
-        console.error('Error fetching estatus_2026:', error.message);
-        setDebugError("Supabase Error: " + error.message);
-        return; // Exit if error
+        // 42P01 / PGRST205 = la tabla del año todavía no se ha creado. Es el
+        // estado normal antes de correr la migración, no un error que avisar.
+        const tablaInexistente = error.code === '42P01' || error.code === 'PGRST205';
+        if (tablaInexistente) {
+          console.info(`[${tabla}] la tabla aún no existe; el módulo ${anio} queda vacío.`);
+          setEstatusPorAnio((prev) => ({ ...prev, [anio]: [] }));
+          return;
+        }
+        console.error(`Error fetching ${tabla}:`, error.message);
+        setDebugError(`Supabase Error (${tabla}): ` + error.message);
+        return;
       }
 
       if (data !== null) {
-        // Sort by id chronologically (ascending numeric)
+        // La llave es "ID" en mayúsculas. Leyendo sólo a.id las dos
+        // comparaciones daban NaN y la tabla salía en el orden que quisiera la
+        // base, no del 1 al 21.
+        const idDe = (fila: Record<string, any>) => fila?.ID ?? fila?.id ?? fila?.Id;
         const sortedData = [...data].sort((a, b) => {
-          const valA = parseFloat(a.id);
-          const valB = parseFloat(b.id);
+          const valA = parseFloat(idDe(a));
+          const valB = parseFloat(idDe(b));
           if (!isNaN(valA) && !isNaN(valB)) {
             return valA - valB;
           }
-          // Fallback to string comparison if not numeric
-          const strA = String(a.id ?? '');
-          const strB = String(b.id ?? '');
+          const strA = String(idDe(a) ?? '');
+          const strB = String(idDe(b) ?? '');
           return strA.localeCompare(strB, undefined, { numeric: true });
         });
-        setEstatus2026Data(sortedData);
-        setDebugError("Data is explicitly null (no error)");
+        setEstatusPorAnio((prev) => ({ ...prev, [anio]: sortedData }));
       }
     } catch (err: any) {
       setDebugError("Exception: " + err.message);
     }
   };
+
+  const fetchEstatus2026Data = () => fetchEstatusAnio(2026);
+  const fetchEstatus2027Data = () => fetchEstatusAnio(2027);
 
   const fetchResponsableAdmin = async () => {
     const { data } = await supabase.schema('public').from('profiles').select('id, full_name, responsable').order('full_name');
@@ -2492,6 +2569,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           fetchAnnual2026Data(),
           fetchServicios2026Data(),
           fetchEstatus2026Data(),
+          fetchEstatus2027Data(),
           fetchPagos2026Data(),
           fetchServiciosHistorico(),
           fetchPaasData(),
@@ -2566,8 +2644,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const userResponsable = user.responsable ?? null;
     const isSuperAdminView = !userResponsable || (user.role === UserRole.ADMIN && viewAllServices);
     const baseData = isSuperAdminView
-      ? estatus2026Data
-      : estatus2026Data.filter(row =>
+      ? estatusAnioData
+      : estatusAnioData.filter(row =>
           getCanonicalResponsableValue(row['Responsable']) === getCanonicalResponsableValue(userResponsable)
         );
 
@@ -2589,7 +2667,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
       return true;
     });
-  }, [estatus2026Data, tableFilters.estatus2026, columnFilters.estatus2026, estatus2026ActiveColumnSearch, user.responsable]);
+  }, [estatusAnioData, tableFilters.estatus2026, columnFilters.estatus2026, estatus2026ActiveColumnSearch, user.responsable]);
 
   const filteredPagos2026Data = useMemo(() => {
     const query = tableFilters.pagos2026.trim();
@@ -4477,7 +4555,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     ['subdireccion', 'subdirección', 'área'],
     ['gerencia'],
     ['tipo_de_servicio', 'tipo de servicio'],
-    ['monto_solicitado_anteproyecto_2026', 'monto solicitado anteproyecto 2026', 'solicitado 2026'],
+    ['monto_solicitado_anteproyecto_2026', 'monto solicitado anteproyecto 2026', 'solicitado 2026',
+     'monto_solicitado_anteproyecto_2027', 'monto solicitado anteproyecto 2027', 'solicitado 2027'],
     ['monto_maximo_2024', 'monto máximo 2024', 'monto 2024'],
     ['fase'],
     ['documentacion_soporte', 'documentación soporte'],
@@ -4491,6 +4570,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     ['monto_maximo_2025', 'monto máximo 2025', 'monto 2025'],
     ['monto_suficiencia_presupuestal', 'monto de suficiencia presupuestal'],
     ['monto_maximo_2026', 'monto máximo 2026', 'monto 2026'],
+    ['monto_maximo_2027', 'monto máximo 2027', 'monto 2027'],
     ['no_procedimiento_contratacion', 'no. de procedimiento de contratación', 'no. procedimiento'],
     ['investigacion_mercado', 'investigación de mercado'],
     ['suficiencia_presupuestal', 'suficiencia presupuestal'],
@@ -4646,7 +4726,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
 
   const estatus2026TableColumns = useMemo(() => {
-    if (!estatus2026Data.length) return [] as string[];
+    if (!estatusAnioData.length) return [] as string[];
 
     const priorityMap = new Map<string, number>();
     estatus2026PreferredOrderHints.forEach((synonyms, index) => {
@@ -4656,7 +4736,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
 
     const columns = new Set<string>();
-    estatus2026Data.forEach((row) => {
+    estatusAnioData.forEach((row) => {
       if (!row) return;
       Object.keys(row).forEach((key) => {
         if (key && !shouldSkipColumnForForm(key)) columns.add(key);
@@ -4711,7 +4791,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     sorted.unshift('__row_num');
 
     return sorted;
-  }, [estatus2026Data]);
+  }, [estatusAnioData]);
 
   const estatus2026StickyDefinitions = [
     { id: 'clave_cucop', match: ['clave_cucop', 'clave cucop', 'cucop'], width: 140 },
@@ -4806,7 +4886,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
 
       if (!isBoolean) {
-        const hasBooleanLike = estatus2026Data.some((row) => isBooleanLikeValue(row?.[column]));
+        const hasBooleanLike = estatusAnioData.some((row) => isBooleanLikeValue(row?.[column]));
         if (hasBooleanLike) isBoolean = true;
       }
 
@@ -4833,7 +4913,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
 
     return meta;
-  }, [estatus2026TableColumns, estatus2026StickyInfo, estatus2026LastStickyKey, estatus2026Data]);
+  }, [estatus2026TableColumns, estatus2026StickyInfo, estatus2026LastStickyKey, estatusAnioData]);
 
   // ── RESUMEN 2026 ──────────────────────────────────────────────────────────
 
@@ -5007,9 +5087,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   ), [estatus2026TableColumns]);
 
   const estatus2026PhaseDistribution = useMemo(() => {
-    if (!estatus2026Data.length) return [] as { name: string; value: number }[];
+    if (!estatusAnioData.length) return [] as { name: string; value: number }[];
     const counts: Record<string, number> = {};
-    estatus2026Data.forEach((row) => {
+    estatusAnioData.forEach((row) => {
       const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
       if (raw === null || raw === undefined || String(raw).trim() === '') {
         counts['Sin fase'] = (counts['Sin fase'] ?? 0) + 1;
@@ -5023,7 +5103,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return Object.entries(counts)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [estatus2026Data, estatus2026StatusFieldSummary]);
+  }, [estatusAnioData, estatus2026StatusFieldSummary]);
 
   // Column that holds the 'estatus' value (distinct from 'fase')
   const estatus2026EstatusColumnField = useMemo(() => {
@@ -5128,7 +5208,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
 
   const estatus2026EstatusDistribution = useMemo(() => {
-    if (!estatus2026Data.length || !estatus2026EstatusColumnField) return [] as { name: string; value: number }[];
+    if (!estatusAnioData.length || !estatus2026EstatusColumnField) return [] as { name: string; value: number }[];
     const counts: Record<string, number> = {};
     // Pre-seed all canonical options at 0 so they always appear
     ESTATUS_2026_OPTIONS.forEach((opt) => { counts[opt] = 0; });
@@ -5136,13 +5216,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     // Deduplicate by group key so convenio-modificatorio rows don't double-count
     const seenKeys = new Set<string>();
     const dedupedRows = estatus2026ServiceNameFieldSummary
-      ? estatus2026Data.filter((row) => {
+      ? estatusAnioData.filter((row) => {
         const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary!, estatus2026ClaveFieldSummary);
         if (seenKeys.has(key)) return false;
         seenKeys.add(key);
         return true;
       })
-      : estatus2026Data;
+      : estatusAnioData;
     dedupedRows.forEach((row) => {
       const raw = row[estatus2026EstatusColumnField];
       const label = normalizeEstatus2026Value(raw);
@@ -5157,24 +5237,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const ib = ORDER.indexOf(b.name);
         return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
       });
-  }, [estatus2026Data, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+  }, [estatusAnioData, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
 
   // Raw (un-sorted, un-filtered) status counts per calendar month of 2026, keyed 0-11.
   // Used to build the Mensual/Trimestral views of "Distribución de Servicios por Estatus"
   // by merging one or more months together, so Total/Mensual/Trimestral always agree.
   const estatus2026EstatusCountsByMonth = useMemo(() => {
     const empty: Record<number, Record<string, number>> = {};
-    if (!estatus2026Data.length || !estatus2026EstatusColumnField) return empty;
+    if (!estatusAnioData.length || !estatus2026EstatusColumnField) return empty;
 
     const seenKeys = new Set<string>();
     const dedupedRows = estatus2026ServiceNameFieldSummary
-      ? estatus2026Data.filter((row) => {
+      ? estatusAnioData.filter((row) => {
         const key = buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary!, estatus2026ClaveFieldSummary);
         if (seenKeys.has(key)) return false;
         seenKeys.add(key);
         return true;
       })
-      : estatus2026Data;
+      : estatusAnioData;
 
     const byMonth: Record<number, Record<string, number>> = {};
     dedupedRows.forEach((row) => {
@@ -5186,7 +5266,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
     });
     return byMonth;
-  }, [estatus2026Data, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+  }, [estatusAnioData, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
 
   // Merges the raw per-month count records of the given month indexes into one.
   const mergeMonthCounts = (byMonth: Record<number, Record<string, number>>, monthIdxs: number[]): Record<string, number> => {
@@ -5244,17 +5324,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const isManualEstatusOverride = resumenPeriodMode === 'trimestral' && (resumenSelectedQuarter === 'Q1' || resumenSelectedQuarter === 'Q2');
 
   const estatus2026TotalMonto = useMemo(() => {
-    if (!estatus2026Data.length || !estatus2026MontoFieldSummary) return 0;
-    return estatus2026Data.reduce((acc, row) => {
+    if (!estatusAnioData.length || !estatus2026MontoFieldSummary) return 0;
+    return estatusAnioData.reduce((acc, row) => {
       const val = parseNumericValue(row[estatus2026MontoFieldSummary!]);
       return acc + (Number.isFinite(val) ? val : 0);
     }, 0);
-  }, [estatus2026Data, estatus2026MontoFieldSummary]);
+  }, [estatusAnioData, estatus2026MontoFieldSummary]);
 
   const estatus2026GerenciaDistribution = useMemo(() => {
-    if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary) return [] as { name: string; value: number }[];
+    if (!estatusAnioData.length || !estatus2026GerenciaFieldSummary) return [] as { name: string; value: number }[];
     const counts: Record<string, number> = {};
-    estatus2026Data.forEach((row) => {
+    estatusAnioData.forEach((row) => {
       const raw = row[estatus2026GerenciaFieldSummary!];
       if (!raw) return;
       const rawLabel = String(raw).trim();
@@ -5288,12 +5368,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
-  }, [estatus2026Data, estatus2026GerenciaFieldSummary]);
+  }, [estatusAnioData, estatus2026GerenciaFieldSummary]);
 
   // Raw (un-sliced) gerencia counts per calendar month of 2026, for the Mensual/Trimestral views.
   const estatus2026GerenciaCountsByMonth = useMemo(() => {
     const byMonth: Record<number, Record<string, number>> = {};
-    if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary) return byMonth;
+    if (!estatusAnioData.length || !estatus2026GerenciaFieldSummary) return byMonth;
     const ACCENT_MAP: [RegExp, string][] = [
       [/\bAeronautica\b/gi, 'Aeronáutica'],
       [/\bElectromecanica\b/gi, 'Electromecánica'],
@@ -5315,7 +5395,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       [/\bGestion\b/gi, 'Gestión'],
       [/\bComunicacion\b/gi, 'Comunicación'],
     ];
-    estatus2026Data.forEach((row) => {
+    estatusAnioData.forEach((row) => {
       const raw = row[estatus2026GerenciaFieldSummary!];
       if (!raw) return;
       const rawLabel = String(raw).trim();
@@ -5327,20 +5407,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
     });
     return byMonth;
-  }, [estatus2026Data, estatus2026GerenciaFieldSummary]);
+  }, [estatusAnioData, estatus2026GerenciaFieldSummary]);
 
   const estatus2026KPIs = useMemo(() => {
     // uniqueTotal = distinct service groups (same collapsing logic as the table)
     const uniqueTotal = (() => {
-      if (!estatus2026ServiceNameFieldSummary) return estatus2026Data.length;
+      if (!estatus2026ServiceNameFieldSummary) return estatusAnioData.length;
       const keys = new Set(
-        estatus2026Data.map((row) =>
+        estatusAnioData.map((row) =>
           buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary)
         )
       );
       return keys.size;
     })();
-    const dbTotal = estatus2026Data.length;
+    const dbTotal = estatusAnioData.length;
     const uniqueStatuses = estatus2026EstatusDistribution.length;
     const adjudicados = estatus2026EstatusDistribution.find(d =>
       d.name.toLowerCase().includes('adjudicad') || d.name.toLowerCase().includes('contratad')
@@ -5354,7 +5434,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     // total = unique services excluding cancelled
     const total = uniqueTotal - cancelados;
     return { total, dbTotal, uniqueStatuses, adjudicados, procedimiento, cancelados, enProceso, allUnique: uniqueTotal };
-  }, [estatus2026Data, estatus2026EstatusDistribution, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+  }, [estatusAnioData, estatus2026EstatusDistribution, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
 
   const activeEstatusTotalCount = useMemo(() => (
     !resumenActiveMonthIdxs ? estatus2026KPIs.allUnique : activeEstatusPieData.reduce((s, d) => s + d.value, 0)
@@ -5401,22 +5481,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   // 2026 estatus_2026 — subdirección distribution
   const estatus2026SubdirDistribution = useMemo(() => {
-    if (!estatus2026Data.length || !estatus2026SubdirFieldSummary) return [] as { name: string; value: number }[];
+    if (!estatusAnioData.length || !estatus2026SubdirFieldSummary) return [] as { name: string; value: number }[];
     const counts: Record<string, number> = {};
-    estatus2026Data.forEach(row => {
+    estatusAnioData.forEach(row => {
       const raw = row[estatus2026SubdirFieldSummary!];
       if (!raw) return;
       const label = String(raw).trim();
       if (label) counts[label] = (counts[label] ?? 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [estatus2026Data, estatus2026SubdirFieldSummary]);
+  }, [estatusAnioData, estatus2026SubdirFieldSummary]);
 
   // Raw subdirección counts per calendar month of 2026, for the Mensual/Trimestral views.
   const estatus2026SubdirCountsByMonth = useMemo(() => {
     const byMonth: Record<number, Record<string, number>> = {};
-    if (!estatus2026Data.length || !estatus2026SubdirFieldSummary) return byMonth;
-    estatus2026Data.forEach((row) => {
+    if (!estatusAnioData.length || !estatus2026SubdirFieldSummary) return byMonth;
+    estatusAnioData.forEach((row) => {
       const raw = row[estatus2026SubdirFieldSummary!];
       if (!raw) return;
       const label = String(raw).trim();
@@ -5427,11 +5507,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
     });
     return byMonth;
-  }, [estatus2026Data, estatus2026SubdirFieldSummary]);
+  }, [estatusAnioData, estatus2026SubdirFieldSummary]);
 
   // 2026 estatus_2026 — monto (presupuesto) by gerencia
   const estatus2026MontoByGerencia = useMemo(() => {
-    if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary || !estatus2026MontoFieldSummary) return [] as { name: string; value: number }[];
+    if (!estatusAnioData.length || !estatus2026GerenciaFieldSummary || !estatus2026MontoFieldSummary) return [] as { name: string; value: number }[];
     const ACCENTS: [RegExp, string][] = [
       [/\bAeronautica\b/gi, 'Aeronáutica'], [/\bElectromecanica\b/gi, 'Electromecánica'],
       [/\bIngenieria\b/gi, 'Ingeniería'], [/\bDistribucion\b/gi, 'Distribución'],
@@ -5441,7 +5521,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       [/\bGestion\b/gi, 'Gestión'], [/\bComunicacion\b/gi, 'Comunicación'],
     ];
     const totals: Record<string, number> = {};
-    estatus2026Data.forEach(row => {
+    estatusAnioData.forEach(row => {
       const rawG = row[estatus2026GerenciaFieldSummary!];
       if (!rawG) return;
       const label = ACCENTS.reduce((s, [re, rep]) => s.replace(re, rep), String(rawG).trim());
@@ -5451,12 +5531,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
     });
     return Object.entries(totals).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
-  }, [estatus2026Data, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
+  }, [estatusAnioData, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
 
   // Raw monto-by-gerencia totals per calendar month of 2026, for the Mensual/Trimestral views.
   const estatus2026MontoByGerenciaCountsByMonth = useMemo(() => {
     const byMonth: Record<number, Record<string, number>> = {};
-    if (!estatus2026Data.length || !estatus2026GerenciaFieldSummary || !estatus2026MontoFieldSummary) return byMonth;
+    if (!estatusAnioData.length || !estatus2026GerenciaFieldSummary || !estatus2026MontoFieldSummary) return byMonth;
     const ACCENTS: [RegExp, string][] = [
       [/\bAeronautica\b/gi, 'Aeronáutica'], [/\bElectromecanica\b/gi, 'Electromecánica'],
       [/\bIngenieria\b/gi, 'Ingeniería'], [/\bDistribucion\b/gi, 'Distribución'],
@@ -5465,7 +5545,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       [/\bTecnica\b/gi, 'Técnica'], [/\bJuridica\b/gi, 'Jurídica'],
       [/\bGestion\b/gi, 'Gestión'], [/\bComunicacion\b/gi, 'Comunicación'],
     ];
-    estatus2026Data.forEach((row) => {
+    estatusAnioData.forEach((row) => {
       const rawG = row[estatus2026GerenciaFieldSummary!];
       if (!rawG) return;
       const monto = parseNumericValue(row[estatus2026MontoFieldSummary!]);
@@ -5477,7 +5557,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       byMonth[mi][label] = (byMonth[mi][label] ?? 0) + monto;
     });
     return byMonth;
-  }, [estatus2026Data, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
+  }, [estatusAnioData, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
 
   const activeGerenciaData = useMemo(() => {
     if (!resumenActiveMonthIdxs) return estatus2026GerenciaDistribution;
@@ -5525,8 +5605,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   // 2026 estatus_2026 — completion rate of key boolean columns
   const estatus2026BooleanCompletion = useMemo(() => {
-    if (!estatus2026Data.length || !estatus2026TableColumns.length) return [] as { name: string; done: number; pending: number; pct: number }[];
-    const total = estatus2026Data.length;
+    if (!estatusAnioData.length || !estatus2026TableColumns.length) return [] as { name: string; done: number; pending: number; pct: number }[];
+    const total = estatusAnioData.length;
     const targets = [
       { fragment: 'investigacion', label: 'Inv. de Mercado' },
       { fragment: 'suficiencia', label: 'Suficiencia Presup.' },
@@ -5540,13 +5620,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     targets.forEach(({ fragment, label }) => {
       const col = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes(fragment));
       if (!col) return;
-      const allNull = estatus2026Data.every(r => r[col] === null || r[col] === undefined);
+      const allNull = estatusAnioData.every(r => r[col] === null || r[col] === undefined);
       if (allNull) return;
-      const done = estatus2026Data.filter(r => getBooleanChecked(r[col])).length;
+      const done = estatusAnioData.filter(r => getBooleanChecked(r[col])).length;
       results.push({ name: label, done, pending: total - done, pct: Math.round((done / total) * 100) });
     });
     return results;
-  }, [estatus2026Data, estatus2026TableColumns]);
+  }, [estatusAnioData, estatus2026TableColumns]);
 
   // ── END EXTRA ANALYSIS MEMOS ──────────────────────────────────────────────
 
@@ -6019,28 +6099,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   // Period-aware "Responsables" count for the KPI card. Total mode keeps the original
   // servicios2026Data-based computation untouched; Mensual/Trimestral derive it from
-  // estatus2026Data (which carries the Responsable column) filtered to the active period.
+  // estatusAnioData (which carries the Responsable column) filtered to the active period.
   const activeResponsablesCount = useMemo(() => {
-    if (!resumenActiveMonthIdxs) {
-      const responsableCol = serviciosTableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
-      if (!responsableCol) return servicios2026Data.length;
-      return new Set(
-        servicios2026Data
-          .map(r => getCanonicalResponsableValue(r[responsableCol]))
-          .filter(Boolean)
-      ).size;
-    }
+    // Antes, en la vista "Todo <año>", esto salía de estatus_servicios_2026 —otra
+    // tabla, del año pasado— y como ahí no existe la columna Responsable caía al
+    // return de emergencia y mostraba el número de RENGLONES de esa tabla: 46
+    // "responsables únicos" cuando en realidad hay ocho personas asignadas.
+    // Ahora se cuenta siempre sobre los servicios del año abierto, que es de
+    // donde salen también las tarjetas de "Ver por responsable".
     const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
     if (!responsableCol) return 0;
     const set = new Set<string>();
-    estatus2026Data.forEach((row) => {
-      const mi = getEstatus2026RowMonth(row);
-      if (mi === null || !resumenActiveMonthIdxs.includes(mi)) return;
-      const v = getCanonicalResponsableValue(row[responsableCol]);
+    estatusAnioData.forEach((row) => {
+      if (resumenActiveMonthIdxs) {
+        const mi = getEstatus2026RowMonth(row);
+        if (mi === null || !resumenActiveMonthIdxs.includes(mi)) return;
+      }
+      // El mismo nombre escrito de dos formas es una sola persona: se homologa
+      // con el catálogo, igual que el desglose de abajo.
+      const v = getCombinedCanonicalResponsableValue(row[responsableCol]);
       if (v) set.add(v);
     });
     return set.size;
-  }, [resumenActiveMonthIdxs, serviciosTableColumns, servicios2026Data, estatus2026TableColumns, estatus2026Data]);
+  }, [resumenActiveMonthIdxs, estatus2026TableColumns, estatusAnioData, getCombinedCanonicalResponsableValue]);
 
   const serviciosColumnsToRender = useMemo(() => {
     if (!serviciosTableColumns.length) return [] as string[];
@@ -6635,7 +6716,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   // ── CALENDAR EVENTS FOR ESTATUS_2026 ──────────────────────────────────────
   const calendarEvents2026 = useMemo(() => {
     const events: any[] = [];
-    if (!estatus2026Data.length) return events;
+    if (!estatusAnioData.length) return events;
 
     const dateColDefs: { fragments: string[]; label: string; color: string }[] = [
       { fragments: ['fallo'], label: 'Fallo', color: '#EF4444' },
@@ -6652,7 +6733,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       { fragments: ['vigencia'], label: 'Vigencia', color: '#7C3AED' },
     ];
 
-    const firstRow = estatus2026Data[0] ?? {};
+    const firstRow = estatusAnioData[0] ?? {};
     const allCols = Object.keys(firstRow);
     const dateKeywords = ['fecha', 'vigencia', 'fallo', 'apertura', 'inicio', 'termino', 'visita', 'revision', 'diferimiento', 'junta', 'programacion', 'formalizacion', 'convocatoria', 'validacion'];
 
@@ -6666,7 +6747,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       dateColumns.push({ col, label: match?.label ?? col, color: match?.color ?? '#3B82F6' });
     });
 
-    estatus2026Data.forEach((row) => {
+    estatusAnioData.forEach((row) => {
       const serviceName = estatus2026ServiceNameFieldSummary
         ? String(row[estatus2026ServiceNameFieldSummary] ?? 'Servicio sin nombre')
         : 'Servicio sin nombre';
@@ -6690,7 +6771,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
 
     return events;
-  }, [estatus2026Data, estatus2026ServiceNameFieldSummary]);
+  }, [estatusAnioData, estatus2026ServiceNameFieldSummary]);
   // ── END CALENDAR EVENTS ESTATUS_2026 ──────────────────────────────────────
 
   const sortedProceduresData = useMemo(() => {
@@ -7169,9 +7250,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     if (deepEqual(normalizedCurrent, normalizedNext)) return;
 
-    // estatus_2026 requires editable but unique IDs in UI to avoid duplicated rows.
+    // Las tablas anuales de estatus dejan editar el ID a mano, así que hay que
+    // impedir que dos servicios terminen con el mismo número.
     const isIdColumn = column.toLowerCase() === 'id';
-    if (tableName === 'estatus_2026' && isIdColumn) {
+    if (Object.values(TABLA_ESTATUS_POR_ANIO).includes(tableName) && isIdColumn) {
       if (normalizedNext === null || normalizedNext === '') {
         alert('El ID no puede estar vacío.');
         return;
@@ -7508,7 +7590,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const handleInvoicesCellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('estatus_facturas', row, col, val, setInvoicesData, invoicesData);
   const handleCompranetCellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('procedimientos_compranet', row, col, val, setCompranetData, compranetData);
   const handlePendingOctCellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('estatus_procedimiento', row, col, val, setProcedureStatuses, procedureStatuses);
-  const handleEstatus2026CellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit('estatus_2026', row, col, val, setEstatus2026Data, estatus2026Data);
+  // "Monto solicitado anteproyecto 2026" en 2026, "...2027" en 2027.
+  const columnaMontoSolicitado = useMemo(
+    () => estatus2026TableColumns.find(c => normalizeAnnualKey(c).startsWith('monto solicitado anteproyecto')) ?? null,
+    [estatus2026TableColumns]
+  );
+
+  // El año de referencia contra el que se compara: 2024 en la tabla de 2026,
+  // 2025 en la de 2027. Se toma el más viejo que exista.
+  const columnaMontoMaximoBase = useMemo(() => {
+    const candidatas = estatus2026TableColumns
+      .filter(c => /^monto maximo \d{4}$/.test(normalizeAnnualKey(c)))
+      .sort((a, b) => normalizeAnnualKey(a).localeCompare(normalizeAnnualKey(b)));
+    return candidatas[0] ?? null;
+  }, [estatus2026TableColumns]);
+
+  // En 2026 los montos se guardaron como texto ("$580,000.00"); en 2027 son
+  // numeric. Mandar una cadena a una columna numérica revienta el insert, así
+  // que se decide por lo que ya trae la tabla.
+  const valorMontoParaColumna = (columna: string, texto: string) => {
+    const limpio = (texto ?? '').trim();
+    if (!limpio) return null;
+    const esNumerica = estatusAnioData.some(fila => typeof fila?.[columna] === 'number');
+    if (!esNumerica) return limpio;
+    const numero = Number(limpio.replace(/[^0-9.\-]/g, ''));
+    return Number.isFinite(numero) ? numero : null;
+  };
+
+  const handleEstatus2026CellEdit = (row: Record<string, any>, col: string, val: any) => handleGenericCellEdit(tablaEstatusAnio, row, col, val, setEstatusAnioData, estatusAnioData);
 
   // paaas_2026 vive en el proyecto Supabase de AIFA-Operaciones (supabaseOperaciones),
   // no en el de Contratos, así que no puede pasar por handleGenericCellEdit (que
@@ -7644,9 +7753,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       const realColumns = estatus2026TableColumns.filter(c => !c.startsWith('__'));
       // Use data-driven type detection so accented column names (e.g. 'Validación por el área')
       // are never sent as boolean `false` when they are DATE columns in the DB.
-      const safeRecord = createInitialRecordFromData(realColumns, estatus2026Data);
+      const safeRecord = createInitialRecordFromData(realColumns, estatusAnioData);
 
-      const localNumericIds = estatus2026Data
+      const localNumericIds = estatusAnioData
         .map((row) => Number(row?.id ?? row?.ID ?? row?.Id))
         .filter((val) => Number.isFinite(val));
 
@@ -7654,7 +7763,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       // Try to anchor from DB max(id) so consecutive ID is based on the latest persisted value.
       const { data: maxIdRows, error: maxIdError } = await supabase
-        .from('estatus_2026')
+        .from(tablaEstatusAnio)
         .select('ID')
         .order('ID', { ascending: false })
         .limit(1);
@@ -7669,7 +7778,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       // Final anti-duplicate guard (important when users are editing IDs manually).
       for (let i = 0; i < 50; i += 1) {
         const { count, error: countError } = await supabase
-          .from('estatus_2026')
+          .from(tablaEstatusAnio)
           .select('*', { count: 'exact', head: true })
           .eq('ID', nextId);
 
@@ -7680,11 +7789,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       safeRecord['ID'] = nextId;
 
-      const { error } = await supabase.from('estatus_2026').insert(safeRecord);
+      const { error } = await supabase.from(tablaEstatusAnio).insert(safeRecord);
       if (error) throw error;
 
       // Always refetch canonical data after insert.
-      await fetchEstatus2026Data();
+      await fetchEstatusAnio(anioActivo);
       setIsEstatus2026Editing(true);
     } catch (error: any) {
       console.error('Error creating row in estatus_2026:', error);
@@ -7692,7 +7801,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     } finally {
       setIsAddingEstatus2026Row(false);
     }
-  }, [estatus2026TableColumns, isAddingEstatus2026Row, estatus2026Data]);
+  }, [estatus2026TableColumns, isAddingEstatus2026Row, estatusAnioData]);
 
   const handleSaveNewServiceForResponsable = useCallback(async (
     responsableValue: string,
@@ -7706,7 +7815,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setIsSavingNewService(true);
     try {
       const realColumns = estatus2026TableColumns.filter(c => !c.startsWith('__'));
-      const safeRecord = createInitialRecordFromData(realColumns, estatus2026Data);
+      const safeRecord = createInitialRecordFromData(realColumns, estatusAnioData);
 
       const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
       if (responsableCol) {
@@ -7719,18 +7828,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       safeRecord['Subdirección'] = formValues.subdireccion.trim() || null;
       safeRecord['Gerencia'] = formValues.gerencia.trim() || null;
       safeRecord['Tipo_de_servicio'] = formValues.tipoServicio || null;
-      safeRecord['Monto solicitado anteproyecto 2026'] = formValues.montoSolicitado.trim() || null;
-      safeRecord['Monto Máximo 2024'] = formValues.montoMaximo2024.trim() || null;
       safeRecord['Fase'] = formValues.fase || null;
 
-      const localNumericIds = estatus2026Data
+      // Las columnas de monto llevan el año en el nombre ("...anteproyecto 2026"
+      // contra "...2027"), así que se resuelven contra las columnas que de
+      // verdad tiene la tabla del año abierto en vez de escribirlas a mano: con
+      // el nombre de 2026 el alta reventaba en 2027.
+      if (columnaMontoSolicitado) {
+        safeRecord[columnaMontoSolicitado] = valorMontoParaColumna(columnaMontoSolicitado, formValues.montoSolicitado);
+      }
+      if (columnaMontoMaximoBase) {
+        safeRecord[columnaMontoMaximoBase] = valorMontoParaColumna(columnaMontoMaximoBase, formValues.montoMaximo2024);
+      }
+
+      const localNumericIds = estatusAnioData
         .map((row) => Number(row?.id ?? row?.ID ?? row?.Id))
         .filter((val) => Number.isFinite(val));
 
       let nextId = (localNumericIds.length ? Math.max(...localNumericIds) : 0) + 1;
 
       const { data: maxIdRows, error: maxIdError } = await supabase
-        .from('estatus_2026')
+        .from(tablaEstatusAnio)
         .select('ID')
         .order('ID', { ascending: false })
         .limit(1);
@@ -7744,7 +7862,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       for (let i = 0; i < 50; i += 1) {
         const { count, error: countError } = await supabase
-          .from('estatus_2026')
+          .from(tablaEstatusAnio)
           .select('*', { count: 'exact', head: true })
           .eq('ID', nextId);
 
@@ -7755,10 +7873,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       safeRecord['ID'] = nextId;
 
-      const { error } = await supabase.from('estatus_2026').insert(safeRecord);
+      const { error } = await supabase.from(tablaEstatusAnio).insert(safeRecord);
       if (error) throw error;
 
-      await fetchEstatus2026Data();
+      await fetchEstatusAnio(anioActivo);
       setServiceFormResponsable(null);
       setNewServiceForm(EMPTY_NEW_SERVICE_FORM);
     } catch (error: any) {
@@ -7767,7 +7885,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     } finally {
       setIsSavingNewService(false);
     }
-  }, [estatus2026TableColumns, isSavingNewService, estatus2026Data]);
+  }, [estatus2026TableColumns, isSavingNewService, estatusAnioData]);
 
   const handleCreateResponsable = useCallback(async () => {
     if (isSavingResponsable) return;
@@ -8622,13 +8740,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   { view: 'pagos' as const, icon: DollarSign, label: 'Pagos 2026' },
                   { view: 'gantt' as const, icon: Layers, label: 'Diagrama Gantt' },
                 ]).map((item) => {
-                  const isActive = activeTab === '2026' && active2026View === item.view;
+                  const isActive = activeTab === '2026' && activeAnioView === item.view;
                   return (
                     <button
                       key={item.view}
                       onClick={() => {
                         handleSidebarSelection('2026');
-                        setActive2026View(item.view);
+                        setActiveAnioView(item.view);
                         setSelectedEstatus2026Estatus(null);
                         setSelectedEstatus2026Phase(null);
                         setSelectedResumenCard(null);
@@ -8641,6 +8759,56 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-white/30'}`} />
                       <span className="truncate">{item.label}</span>
                       {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-400 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ─ 2027 Group (violet) ─ */}
+          <div className="mb-1">
+            <button
+              onClick={() => setIs2027Expanded(!is2027Expanded)}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all group hover:bg-white/5"
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-500/20">
+                  <CalendarDays className="h-3.5 w-3.5 text-violet-400" />
+                </span>
+                <span className="text-[13px] font-bold text-white/80 group-hover:text-white tracking-wide">2027</span>
+                <span className="text-[9px] font-bold bg-violet-500/20 text-violet-300 rounded-full px-1.5 py-0.5 leading-none uppercase tracking-wider">Anteproyecto</span>
+              </div>
+              <ChevronRight className={`h-3.5 w-3.5 text-white/30 transition-transform duration-200 ${is2027Expanded ? 'rotate-90' : ''}`} />
+            </button>
+
+            {is2027Expanded && (
+              <div className="mt-0.5 ml-3 pl-3 border-l border-violet-500/20 space-y-0.5">
+                {/* 2027 todavía no tiene Pagos: ningún servicio está adjudicado. */}
+                {([
+                  { view: 'resumen' as const, icon: LayoutDashboard, label: 'Resumen' },
+                  { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
+                  { view: 'gantt' as const, icon: Layers, label: 'Diagrama Gantt' },
+                ]).map((item) => {
+                  const isActive = activeTab === '2027' && activeAnioView === item.view;
+                  return (
+                    <button
+                      key={item.view}
+                      onClick={() => {
+                        handleSidebarSelection('2027');
+                        setActiveAnioView(item.view);
+                        setSelectedEstatus2026Estatus(null);
+                        setSelectedEstatus2026Phase(null);
+                        setSelectedResumenCard(null);
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${isActive
+                        ? 'bg-violet-500/15 text-violet-300'
+                        : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                        }`}
+                    >
+                      <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-violet-400' : 'text-white/30'}`} />
+                      <span className="truncate">{item.label}</span>
+                      {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-violet-400 flex-shrink-0" />}
                     </button>
                   );
                 })}
@@ -8881,7 +9049,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           const fmt = (d: Date) => `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
           const irCalendario = () => {
             setActiveTab('2026');
-            setActive2026View('estatus');
+            setActiveAnioView('estatus');
             setEstatus2026Tab('calendar');
             setEstatus2026CalendarDate(new Date());
           };
@@ -10260,9 +10428,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               </div>
             )}
 
-            {activeTab === '2026' && (
+            {/* Mismo bloque para 2026 y 2027: las vistas se arman con las
+                columnas que traiga la tabla del año activo, no con una lista fija. */}
+            {(activeTab === '2026' || activeTab === '2027') && (
               <div className="space-y-6">
-                {active2026View === 'resumen' && (
+                {vistaAnioEfectiva === 'resumen' && (
                   <>
                     {selectedResumenCard ? (
                       /* ── Detail view: KPI card drill-down ─────────────────── */
@@ -10272,12 +10442,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
                         >
                           <ArrowLeft className="h-4 w-4" />
-                          Volver al resumen 2026
+                          Volver al resumen {anioActivo}
                         </button>
 
                         {/* Card: Total Servicios */}
                         {selectedResumenCard === 'total' && (() => {
-                          const rows = estatus2026Data.filter((row) => {
+                          const rows = estatusAnioData.filter((row) => {
                             if (!estatus2026EstatusColumnField) return true;
                             if (normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) === 'Cancelado') return false;
                             if (selectedResumenDetailQuarter !== 'all' && getEstatus2026RowQuarter(row) !== selectedResumenDetailQuarter) return false;
@@ -10286,7 +10456,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           return (
                             <div className="space-y-4">
                               <div>
-                                <h2 className="text-2xl font-bold text-slate-900">Servicios Activos 2026</h2>
+                                <h2 className="text-2xl font-bold text-slate-900">Servicios Activos {anioActivo}</h2>
                                 <p className="text-slate-500 mt-1">{rows.length} registro{rows.length !== 1 ? 's' : ''} activos.</p>
                                 <div className="flex items-center gap-2 flex-wrap mt-3">
                                   <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 w-fit">
@@ -10299,7 +10469,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           : 'text-slate-500 hover:text-slate-800'
                                           }`}
                                       >
-                                        {key === 'all' ? 'Todo 2026' : key}
+                                        {key === 'all' ? `Todo ${anioActivo}` : key}
                                       </button>
                                     ))}
                                   </div>
@@ -10357,7 +10527,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {selectedResumenCard === 'en-proceso' && (() => {
                           const EN_PROCESO_STATUSES = ESTATUS_2026_OPTIONS.filter(s => s !== 'Adjudicado' && s !== 'Cancelado') as readonly string[];
                           const seenKeys = new Set<string>();
-                          const rows = estatus2026Data.filter((row) => {
+                          const rows = estatusAnioData.filter((row) => {
                             if (!estatus2026EstatusColumnField) return false;
                             const v = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
                             if (!EN_PROCESO_STATUSES.includes(v)) return false;
@@ -10387,7 +10557,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           : 'text-slate-500 hover:text-slate-800'
                                           }`}
                                       >
-                                        {key === 'all' ? 'Todo 2026' : key}
+                                        {key === 'all' ? `Todo ${anioActivo}` : key}
                                       </button>
                                     ))}
                                   </div>
@@ -10719,7 +10889,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {/* Card: Adjudicados */}
                         {selectedResumenCard === 'adjudicados' && (() => {
                           const seenKeys = new Set<string>();
-                          const rows = estatus2026Data.filter((row) => {
+                          const rows = estatusAnioData.filter((row) => {
                             if (!estatus2026EstatusColumnField) return false;
                             const v = normalizeEstatus2026Value(row[estatus2026EstatusColumnField]);
                             if (!(v.toLowerCase().includes('adjudicad') || v.toLowerCase().includes('contratad'))) return false;
@@ -10747,7 +10917,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           : 'text-slate-500 hover:text-slate-800'
                                           }`}
                                       >
-                                        {key === 'all' ? 'Todo 2026' : key}
+                                        {key === 'all' ? `Todo ${anioActivo}` : key}
                                       </button>
                                     ))}
                                   </div>
@@ -10799,7 +10969,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {/* Card: Cancelados */}
                         {selectedResumenCard === 'cancelados' && (() => {
                           const seenKeys = new Set<string>();
-                          const rows = estatus2026Data.filter((row) => {
+                          const rows = estatusAnioData.filter((row) => {
                             if (!estatus2026EstatusColumnField) return false;
                             if (normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) !== 'Cancelado') return false;
                             if (selectedResumenDetailQuarter !== 'all' && getEstatus2026RowQuarter(row) !== selectedResumenDetailQuarter) return false;
@@ -10826,7 +10996,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           : 'text-slate-500 hover:text-slate-800'
                                           }`}
                                       >
-                                        {key === 'all' ? 'Todo 2026' : key}
+                                        {key === 'all' ? `Todo ${anioActivo}` : key}
                                       </button>
                                     ))}
                                   </div>
@@ -10877,7 +11047,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {/* Card: Responsables */}
                         {selectedResumenCard === 'responsables' && (() => {
                           // El campo "Responsable" vive en estatus_2026 (no en estatus_servicios_2026),
-                          // por eso el agrupamiento se hace sobre estatus2026Data.
+                          // por eso el agrupamiento se hace sobre estatusAnioData.
                           const responsableCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'responsable');
                           // "Estatus" explícito: estatus2026StatusFieldSummary resuelve a "Fase"
                           // (Ordinaria / Trámite autorizado) y esos valores no existen en
@@ -10885,8 +11055,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           const estatusCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c) === 'estatus')
                             ?? estatus2026StatusFieldSummary;
                           const responsablesSourceRows = selectedResumenDetailQuarter === 'all'
-                            ? estatus2026Data
-                            : estatus2026Data.filter(row => getEstatus2026RowQuarter(row) === selectedResumenDetailQuarter);
+                            ? estatusAnioData
+                            : estatusAnioData.filter(row => getEstatus2026RowQuarter(row) === selectedResumenDetailQuarter);
                           const grouped = new Map<string, { name: string; estatus: string; row: Record<string, any> }[]>();
                           combinedResponsableProfiles.forEach((profile) => grouped.set(profile.catalogValue, []));
                           responsablesSourceRows.forEach(row => {
@@ -10961,7 +11131,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           : 'text-slate-500 hover:text-slate-800'
                                           }`}
                                       >
-                                        {key === 'all' ? 'Todo 2026' : key}
+                                        {key === 'all' ? `Todo ${anioActivo}` : key}
                                       </button>
                                     ))}
                                   </div>
@@ -10997,13 +11167,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   <div className="bg-[#0F4C3A] px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                     <div className="flex items-center gap-4 min-w-0">
                                       {profile?.photoUrl ? (
-                                        <img
-                                          src={profile.photoUrl}
-                                          alt={`Fotografía de ${profile.fullName}`}
-                                          className="h-20 w-20 flex-shrink-0 rounded-xl border-2 border-white/50 bg-white/10 object-cover object-top shadow-md"
-                                          loading="lazy"
-                                          decoding="async"
-                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => setFotoAmpliada({ url: profile.photoUrl, nombre: profile.fullName })}
+                                          title={`Ver la foto de ${profile.fullName} en grande`}
+                                          aria-label={`Ver la foto de ${profile.fullName} en grande`}
+                                          className="group/foto relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-xl border-2 border-white/50 bg-white/10 shadow-md cursor-zoom-in transition-shadow hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0F4C3A]"
+                                        >
+                                          <img
+                                            src={profile.photoUrl}
+                                            alt={`Fotografía de ${profile.fullName}`}
+                                            className="h-full w-full object-cover object-top transition-transform duration-200 group-hover/foto:scale-105"
+                                            loading="lazy"
+                                            decoding="async"
+                                          />
+                                          <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity duration-200 group-hover/foto:opacity-100">
+                                            <Maximize2 className="h-5 w-5 text-white" />
+                                          </span>
+                                        </button>
                                       ) : (
                                         <span className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/10 flex items-center justify-center">
                                           <Users className="h-6 w-6 text-white/70" />
@@ -11049,7 +11230,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           const light = (0.299*r + 0.587*g2 + 0.114*b2)/255 > 0.55;
                                           const textCol = light ? '#713F12' : '#ffffff';
                                           const borderCol = light ? '#92400E' : 'rgba(0,0,0,0.25)';
-                                          const svcDeleteKey = `estatus_2026:id:${String(svc.row?.id ?? svc.row?.ID ?? svc.row?.Id)}`;
+                                          const svcDeleteKey = `${tablaEstatusAnio}:id:${String(svc.row?.id ?? svc.row?.ID ?? svc.row?.Id)}`;
                                           const isDeletingThisSvc = isDeletingRecord && deletingRecordKey === svcDeleteKey;
                                           return (
                                             <tr key={idx} className={`hover:bg-purple-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
@@ -11080,7 +11261,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                               </td>
                                               <td className="px-6 py-3 text-center">
                                                 <button
-                                                  onClick={() => handleDeleteGenericRecord('estatus_2026', svc.row, svc.name)}
+                                                  onClick={() => handleDeleteGenericRecord(tablaEstatusAnio, svc.row, svc.name)}
                                                   disabled={isDeletingRecord}
                                                   title="Eliminar servicio"
                                                   className={`inline-flex items-center justify-center h-7 w-7 rounded-md border transition-colors ${isDeletingRecord ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200'}`}
@@ -11197,7 +11378,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
                         >
                           <ArrowLeft className="h-4 w-4" />
-                          Volver al resumen 2026
+                          Volver al resumen {anioActivo}
                         </button>
                         <div>
                           <h2 className="text-2xl font-bold text-slate-900">
@@ -11206,7 +11387,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <p className="text-slate-500 mt-1">
                             {(() => {
                               const seenKeys = new Set<string>();
-                              return estatus2026Data.filter((row) => {
+                              return estatusAnioData.filter((row) => {
                                 if (!estatus2026EstatusColumnField) return false;
                                 const raw = row[estatus2026EstatusColumnField];
                                 if (normalizeEstatus2026Value(raw) !== selectedEstatus2026Estatus) return false;
@@ -11233,7 +11414,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <tbody className="bg-white divide-y divide-slate-200">
                                 {(() => {
                                   const seenKeys = new Set<string>();
-                                  return estatus2026Data.filter((row) => {
+                                  return estatusAnioData.filter((row) => {
                                     if (!estatus2026EstatusColumnField) return false;
                                     const raw = row[estatus2026EstatusColumnField];
                                     if (normalizeEstatus2026Value(raw) !== selectedEstatus2026Estatus) return false;
@@ -11271,14 +11452,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <div className="space-y-6">
                         <div className="flex items-start justify-between flex-wrap gap-3">
                           <div>
-                            <h1 className="text-2xl font-bold text-slate-900">Resumen 2026</h1>
+                            <h1 className="text-2xl font-bold text-slate-900">Resumen {anioActivo}</h1>
                             <p className="text-slate-500 mt-1">
-                              Vista consolidada del estatus de servicios y flujo de pagos para el ejercicio 2026.
+                              Vista consolidada del estatus de servicios{anioActivo === 2026 ? ' y flujo de pagos' : ''} para el ejercicio {anioActivo}.
                             </p>
                           </div>
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {([
-                              { key: 'all', label: 'Todo 2026', range: null },
+                              { key: 'all', label: `Todo ${anioActivo}`, range: null },
                               { key: 'Q1', label: 'Q1', range: 'Ene – Mar' },
                               { key: 'Q2', label: 'Q2', range: 'Abr – Jun' },
                               { key: 'Q3', label: 'Q3', range: 'Jul – Sep' },
@@ -11313,9 +11494,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {(() => {
                           // Resumen manual del control en Excel: sustituye el conteo automático en Q1/Q2,
                           // donde la captura de servicios en la base de datos todavía está incompleta.
-                          const manualOverride = resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === 'Q1'
+                          const manualOverride = anioActivo === 2026 && resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === 'Q1'
                             ? { enProceso: 46, adjudicados: 19, cancelados: 3, total: 68 }
-                            : resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === 'Q2'
+                            : anioActivo === 2026 && resumenPeriodMode === 'trimestral' && resumenSelectedQuarter === 'Q2'
                             ? { enProceso: 27, adjudicados: 33, cancelados: 8, total: 68 }
                             : null;
                           const kpiTotal = manualOverride ? manualOverride.total : (resumenActiveMonthIdxs ? activeEstatusKPIs.total : estatus2026KPIs.total);
@@ -11336,7 +11517,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total Servicios</p>
                                 <p className="text-3xl font-bold text-slate-900 mt-2">{kpiTotal}</p>
                                 <p className="text-xs text-slate-500 mt-2">
-                                  Servicios activos en 2026
+                                  Servicios activos en {anioActivo}
                                   {!manualOverride && !resumenActiveMonthIdxs && estatus2026KPIs.dbTotal > estatus2026KPIs.allUnique && (
                                     <span className="text-slate-400 ml-1">({estatus2026KPIs.dbTotal} registros totales)</span>
                                   )}
@@ -11644,7 +11825,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               </ResponsiveContainer>
                             ) : (
                               <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
-                                No hay datos en la columna Estatus de la tabla Estatus 2026.
+                                No hay datos en la columna Estatus de la tabla Estatus {anioActivo}.
                               </div>
                             )}
                           </div>
@@ -11735,7 +11916,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           {/* Subdirección 2026 */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                             <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-bold text-slate-800">Servicios 2026 por Subdirección</h3>
+                              <h3 className="text-lg font-bold text-slate-800">Servicios {anioActivo} por Subdirección</h3>
                               <span className="text-xs font-medium text-slate-400">{activeSubdirTotal} total</span>
                             </div>
                             <div className="space-y-3">
@@ -11765,7 +11946,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           {/* Presupuesto por Gerencia 2026 */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                             <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-bold text-slate-800">Presupuesto por Gerencia 2026</h3>
+                              <h3 className="text-lg font-bold text-slate-800">Presupuesto por Gerencia {anioActivo}</h3>
                               <span className="text-xs font-medium text-slate-400">Monto total</span>
                             </div>
                             <div className="space-y-3">
@@ -11805,7 +11986,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
                         >
                           <ArrowLeft className="h-4 w-4" />
-                          Volver al resumen 2026
+                          Volver al resumen {anioActivo}
                         </button>
 
                         <div>
@@ -11813,7 +11994,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             Servicios en fase: <span className="text-[#B38E5D]">{selectedEstatus2026Phase}</span>
                           </h2>
                           <p className="text-slate-500 mt-1">
-                            {estatus2026Data.filter((row) => {
+                            {estatusAnioData.filter((row) => {
                               const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
                               if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin fase') return true;
                               const label = String(raw ?? '').trim();
@@ -11834,7 +12015,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 </tr>
                               </thead>
                               <tbody className="bg-white divide-y divide-slate-200">
-                                {estatus2026Data
+                                {estatusAnioData
                                   .filter((row) => {
                                     const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
                                     if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin fase') return true;
@@ -11868,11 +12049,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </>
                 )}
 
-                {active2026View === 'estatus' && (
+                {vistaAnioEfectiva === 'estatus' && (
                   <>
                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                       <div>
-                        <h1 className="text-2xl font-bold text-slate-900">Estatus de Servicios 2026</h1>
+                        <h1 className="text-2xl font-bold text-slate-900">Estatus de Servicios {anioActivo}</h1>
                         <p className="text-slate-500 text-sm mt-1">
                           Seguimiento visual de fechas clave y registro de estatus por servicio.
                         </p>
@@ -11932,7 +12113,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               <div className="space-y-3">
                                 <h4 className="text-sm font-bold text-[#0F4C3A]">¿Cómo funciona el calendario?</h4>
                                 <p className="text-sm text-slate-700">
-                                  El calendario lee automáticamente todas las columnas de tipo <strong>fecha</strong> que existan en la tabla <code className="px-1 rounded bg-white border border-slate-200 text-xs">estatus_2026</code> y las despliega como eventos, agrupados por servicio.
+                                  El calendario lee automáticamente todas las columnas de tipo <strong>fecha</strong> que existan en la tabla <code className="px-1 rounded bg-white border border-slate-200 text-xs">{tablaEstatusAnio}</code> y las despliega como eventos, agrupados por servicio.
                                 </p>
                                 <div>
                                   <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">Rubros que detecta:</p>
@@ -12430,7 +12611,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                     <ColumnInfoTooltip label={humanizeKey(key)} tooltip={colTooltip} />
                                                   ) : null;
                                                 })()}
-                                                {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatus2026Data, key === estatus2026StatusFieldSummary ? ESTATUS_2026_OPTIONS : normalizeAnnualKey(key) === 'responsable' ? combinedResponsablesList : undefined)}
+                                                {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatusAnioData, key === estatus2026StatusFieldSummary ? ESTATUS_2026_OPTIONS : normalizeAnnualKey(key) === 'responsable' ? combinedResponsablesList : undefined)}
                                               </div>
                                               {!VIRTUAL_COLUMN_LABELS[key] && (normalizeAnnualKey(key) === 'responsable' ? (
                                                 <select
@@ -12507,7 +12688,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                           title="Eliminar fila"
                                                           aria-label="Eliminar fila"
                                                           className="text-rose-400 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
-                                                          onClick={(e) => { e.stopPropagation(); handleDeleteGenericRecord('estatus_2026', row, 'Estatus 2026'); }}
+                                                          onClick={(e) => { e.stopPropagation(); handleDeleteGenericRecord(tablaEstatusAnio, row, `Estatus ${anioActivo}`); }}
                                                         >
                                                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0H7m4-4h2a1 1 0 011 1v1H8V4a1 1 0 011-1h2z" /></svg>
                                                         </button>
@@ -12693,7 +12874,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                         onChange={(e) => {
                                                           const newVal = e.target.checked;
                                                           if (isConvenioColumnName(column)) {
-                                                            handleConvenioCellEdit('estatus_2026', row, column, newVal, setEstatus2026Data, estatus2026Data);
+                                                            handleConvenioCellEdit(tablaEstatusAnio, row, column, newVal, setEstatusAnioData, estatusAnioData);
                                                             return;
                                                           }
                                                           const valToSave = getBooleanSaveValue(rawValue, column, newVal);
@@ -12767,7 +12948,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                           <button
                                                             type="button"
                                                             className="inline-block w-full px-0.5 py-0.5 text-center font-medium text-slate-700 hover:text-emerald-700"
-                                                            onClick={() => handleConvenioServiceClick('estatus_2026', row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatus2026Data, setEstatus2026Data, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
+                                                            onClick={() => handleConvenioServiceClick(tablaEstatusAnio, row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatusAnioData, setEstatusAnioData, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
                                                           >
                                                             {editingValue}
                                                           </button>
@@ -12791,7 +12972,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                           <button
                                                             type="button"
                                                             className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200"
-                                                            onClick={() => handleConvenioServiceClick('estatus_2026', row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatus2026Data, setEstatus2026Data, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
+                                                            onClick={() => handleConvenioServiceClick(tablaEstatusAnio, row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatusAnioData, setEstatusAnioData, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
                                                           >
                                                             Convenio modificatorio
                                                           </button>
@@ -12911,7 +13092,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                           <button
                                                             type="button"
                                                             className="font-medium text-slate-700 hover:text-emerald-700"
-                                                            onClick={() => handleConvenioServiceClick('estatus_2026', row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatus2026Data, setEstatus2026Data, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
+                                                            onClick={() => handleConvenioServiceClick(tablaEstatusAnio, row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatusAnioData, setEstatusAnioData, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
                                                           >
                                                             {editingValue}
                                                           </button>
@@ -12922,7 +13103,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                           <button
                                                             type="button"
                                                             className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200"
-                                                            onClick={() => handleConvenioServiceClick('estatus_2026', row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatus2026Data, setEstatus2026Data, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
+                                                            onClick={() => handleConvenioServiceClick(tablaEstatusAnio, row, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatusAnioData, setEstatusAnioData, expandedEstatus2026Convenio, setExpandedEstatus2026Convenio)}
                                                           >
                                                             Convenio modificatorio
                                                           </button>
@@ -12947,7 +13128,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                   <button
                                                     onClick={(e) => {
                                                       e.stopPropagation();
-                                                      handleDeleteGenericRecord('estatus_2026', row as Record<string, any>, 'Registro estatus_2026');
+                                                      handleDeleteGenericRecord(tablaEstatusAnio, row as Record<string, any>, `Registro ${tablaEstatusAnio}`);
                                                     }}
                                                     disabled={isDeletingRecord}
                                                     className={`mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-md border transition-colors text-[11px] font-semibold ${isDeletingRecord ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200'}`}
@@ -12974,7 +13155,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </>
                 )}
 
-                {active2026View === 'pagos' && (
+                {vistaAnioEfectiva === 'pagos' && (
                   <div className="space-y-6">
                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                       <div>
@@ -13501,7 +13682,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </div>
                 )}
 
-                {active2026View === 'gantt' && (() => {
+                {vistaAnioEfectiva === 'gantt' && (() => {
                   const DO_COLOR = '#111827';
                   const DA_COLOR = '#60A5FA';
                   const MONTHS_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -13519,7 +13700,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     return isNaN(dt.getTime()) ? null : dt;
                   };
 
-                  const ganttRows = estatus2026Data
+                  const ganttRows = estatusAnioData
                     .filter(row => GANTT_DATE_GROUPS.some(g => row[g.start] && row[g.end]))
                     .map(row => {
                       const label = estatus2026ServiceNameFieldSummary
@@ -13539,7 +13720,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     return (
                       <div className="space-y-6">
                         <div>
-                          <h2 className="text-2xl font-bold text-slate-800 mb-1">Diagrama de Gantt 2026</h2>
+                          <h2 className="text-2xl font-bold text-slate-800 mb-1">Diagrama de Gantt {anioActivo}</h2>
                           <p className="text-slate-500 text-sm">Visualización del progreso de cada servicio por fase del proceso de contratación</p>
                         </div>
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-wrap gap-6 items-start">
@@ -13553,7 +13734,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <p className="text-amber-700 text-sm max-w-lg mx-auto leading-relaxed">
                             El diagrama de Gantt se generará automáticamente una vez que se capturen las
                             fechas de inicio y término para cada fase en la tabla de{' '}
-                            <button onClick={() => setActive2026View('estatus')} className="font-bold underline hover:text-amber-900 transition-colors">Estatus servicios</button>.
+                            <button onClick={() => setActiveAnioView('estatus')} className="font-bold underline hover:text-amber-900 transition-colors">Estatus servicios</button>.
                           </p>
                         </div>
                       </div>
@@ -13680,7 +13861,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       <div className="space-y-6">
                         {/* Title */}
                         <div>
-                          <h2 className="text-2xl font-bold text-slate-800 mb-1">Diagrama de Gantt 2026</h2>
+                          <h2 className="text-2xl font-bold text-slate-800 mb-1">Diagrama de Gantt {anioActivo}</h2>
                           <p className="text-slate-500 text-sm">Progreso por fase del proceso de contratación — {ganttRows.length} servicio{ganttRows.length !== 1 ? 's' : ''} con fechas capturadas</p>
                         </div>
 
@@ -18190,7 +18371,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </div>
 
                   <div className="col-span-1">
-                    <label className="block text-xs font-bold text-slate-500 mb-1">Monto Solicitado (Anteproyecto 2026)</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Monto Solicitado (Anteproyecto {anioActivo})</label>
                     <input
                       value={newServiceForm.montoSolicitado}
                       onChange={(e) => setNewServiceForm(prev => ({ ...prev, montoSolicitado: e.target.value }))}
@@ -18200,7 +18381,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   </div>
 
                   <div className="col-span-1">
-                    <label className="block text-xs font-bold text-slate-500 mb-1">Monto Máximo 2024</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">{columnaMontoMaximoBase ?? 'Monto Máximo'}</label>
                     <input
                       value={newServiceForm.montoMaximo2024}
                       onChange={(e) => setNewServiceForm(prev => ({ ...prev, montoMaximo2024: e.target.value }))}
@@ -18636,6 +18817,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Foto de responsable en grande */}
+      {fotoAmpliada && createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setFotoAmpliada(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Fotografía de ${fotoAmpliada.nombre}`}
+        >
+          {/* El clic dentro de la foto no cierra: sólo el del fondo. */}
+          <div className="relative" onClick={(evento) => evento.stopPropagation()}>
+            <img
+              src={fotoAmpliada.url}
+              alt={`Fotografía de ${fotoAmpliada.nombre}`}
+              className="max-h-[82vh] max-w-[90vw] rounded-2xl border border-white/20 object-contain shadow-2xl"
+            />
+            <p className="mt-3 text-center text-sm font-semibold text-white">{fotoAmpliada.nombre}</p>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setFotoAmpliada(null)}
+              aria-label="Cerrar la fotografía"
+              className="absolute -right-3 -top-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-700 shadow-lg transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
