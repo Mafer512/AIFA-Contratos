@@ -169,7 +169,9 @@ export interface ProcedureRecord {
 
 export enum Screen {
   LOGIN = 'LOGIN',
-  DASHBOARD = 'DASHBOARD'
+  DASHBOARD = 'DASHBOARD',
+  /** Llegó por el enlace de "olvidé mi contraseña" y tiene que escribir una nueva. */
+  RESET_PASSWORD = 'RESET_PASSWORD'
 }
 
 export interface KPIData {
@@ -197,4 +199,26 @@ export interface ChangeLogEntry {
   previous_data: Record<string, unknown> | null;
   new_data: Record<string, unknown> | null;
   created_at: string;
+}
+
+/**
+ * Una sesión de trabajo en la bitácora de accesos (tabla access_logs).
+ *
+ * El tiempo en línea no se almacena: se calcula como
+ * coalesce(logout_at, last_seen_at) - login_at. Así una sesión que terminó
+ * porque cerraron el navegador sigue dando una duración correcta, con el
+ * margen de un latido (~1 min), en lugar de quedar abierta para siempre.
+ */
+export interface AccessLogEntry {
+  id: number;
+  user_id: string;
+  user_email: string | null;
+  user_name: string | null;
+  user_role: string | null;
+  login_at: string;
+  last_seen_at: string;
+  logout_at: string | null;
+  logout_reason: 'MANUAL' | 'INACTIVIDAD' | 'CIERRE' | null;
+  user_agent: string | null;
+  platform: string | null;
 }

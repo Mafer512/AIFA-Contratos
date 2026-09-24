@@ -2,17 +2,26 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import ResetPassword from './components/ResetPassword';
 import { Screen, User, UserRole, BeforeInstallPromptEvent } from './types';
 import { supabase } from './services/supabaseClient';
+import { authLink, esFlujoRecovery, alDetectarRecovery, limpiarRecovery } from './services/authLink';
+import { startAccessSession, endAccessSession, touchAccessSession } from './services/accessLog';
 
 const INACTIVITY_TIMEOUT_MS  = 10 * 60 * 1000; // 10 min → auto logout
 const INACTIVITY_WARNING_MS  =  8 * 60 * 1000; //  8 min → show warning
 const WARNING_COUNTDOWN_SECS = 120;             //  2 min countdown
 
 const App: React.FC = () => {
-  const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.LOGIN);
+  const [currentScreen, setCurrentScreen] = useState<Screen>(
+    esFlujoRecovery() ? Screen.RESET_PASSWORD : Screen.LOGIN
+  );
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!esFlujoRecovery());
+  // Mientras esté en pie, syncSession no puede mandar a nadie al dashboard: la
+  // sesión que abre el enlace sirve sólo para cambiar la contraseña.
+  const recoveryRef = useRef(esFlujoRecovery());
+  const [recoveryLinkError, setRecoveryLinkError] = useState<string | null>(authLink.error);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
@@ -37,6 +46,7 @@ const App: React.FC = () => {
   const handleInactivityLogout = useCallback(async () => {
     clearInactivityTimers();
     setInactivityWarning(false);
+    try { await endAccessSession('INACTIVIDAD'); } catch (_) {}
     try { await supabase.auth.signOut(); } catch (_) {}
     forceLoginRef.current = false;
     setCurrentUser(null);
@@ -74,6 +84,24 @@ const App: React.FC = () => {
     }, INACTIVITY_TIMEOUT_MS);
   }, [currentScreen, clearInactivityTimers, handleInactivityLogout]);
 
+  // Red de seguridad del restablecimiento.
+  //
+  // Si Supabase avisó de PASSWORD_RECOVERY antes de que React montara —que es
+  // lo normal, porque lo emite mientras se inicializa—, el aviso quedó guardado
+  // en authLink. Aquí se recoge, y de paso se queda escuchando por si llega
+  // mientras la pantalla ya está en pie. Sin esto, la persona acababa dentro
+  // del dashboard con su contraseña vieja intacta.
+  useEffect(() => {
+    const entrarEnRecuperacion = () => {
+      recoveryRef.current = true;
+      setCurrentScreen(Screen.RESET_PASSWORD);
+      setLoading(false);
+    };
+
+    if (esFlujoRecovery()) entrarEnRecuperacion();
+    return alDetectarRecovery(entrarEnRecuperacion);
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -100,12 +128,10 @@ const App: React.FC = () => {
     };
 
     const url = new URL(window.location.href);
-    const hashParams = new URLSearchParams(url.hash.replace('#', ''));
-    const queryParams = url.searchParams;
 
-    const confirmationType = hashParams.get('type') || queryParams.get('type');
-    const confirmationMessage = hashParams.get('message') || queryParams.get('message');
-    const isSignupConfirmation = confirmationType === 'signup' || confirmationMessage === 'Confirmation complete';
+    // authLink leyó esto antes de que Supabase borrara el hash; leerlo otra vez
+    // aquí ya no serviría de nada.
+    const isSignupConfirmation = authLink.signup;
 
     if (isSignupConfirmation) {
       forceLoginRef.current = true;
@@ -125,6 +151,7 @@ const App: React.FC = () => {
 
     const initAuth = async () => {
       if (forceLoginRef.current) return;
+      if (recoveryRef.current || esFlujoRecovery()) { clearAuthFallback(); setLoading(false); return; }
 
       try {
         const { data, error } = await supabase.auth.getSession();
@@ -157,6 +184,14 @@ const App: React.FC = () => {
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (_event === 'PASSWORD_RECOVERY') {
+        recoveryRef.current = true;
+        setCurrentScreen(Screen.RESET_PASSWORD);
+        setLoading(false);
+        clearAuthFallback();
+        return;
+      }
+
       if (forceLoginRef.current) {
         if (session) {
           try {
@@ -246,6 +281,16 @@ const App: React.FC = () => {
       return;
     }
 
+    // El enlace del correo también abre sesión. Si se dejara pasar, la persona
+    // entraría al sistema sin haber cambiado nada y su contraseña seguiría
+    // siendo la que no recuerda.
+    if (recoveryRef.current || esFlujoRecovery()) {
+      recoveryRef.current = true;
+      setCurrentScreen(Screen.RESET_PASSWORD);
+      setLoading(false);
+      return;
+    }
+
     const { user } = session;
     const meta = user.user_metadata ?? {};
 
@@ -296,6 +341,36 @@ const App: React.FC = () => {
     setCurrentScreen(Screen.DASHBOARD);
     setAuthNotice(null);
     setLoading(false);
+
+    // Bitácora de accesos. Va sin await: si Supabase tarda, el dashboard ya
+    // está en pantalla y no hay razón para hacerlo esperar por una bitácora.
+    void startAccessSession(appUser);
+  };
+
+  /**
+   * Fin del restablecimiento.
+   *
+   * Cierra la sesión temporal del enlace a propósito: obliga a estrenar la
+   * contraseña nueva y confirma que quedó bien guardada, en vez de dejar a la
+   * persona dentro sin haberla usado nunca.
+   */
+  const handleResetDone = async (mensaje: string) => {
+    recoveryRef.current = false;
+    limpiarRecovery();
+    setRecoveryLinkError(null);
+
+    try { await supabase.auth.signOut(); } catch (_) {}
+
+    // Fuera el token del enlace, para que recargar no reabra esta pantalla.
+    try {
+      const url = new URL(window.location.href);
+      window.history.replaceState({}, document.title, `${url.origin}${url.pathname}`);
+    } catch (_) {}
+
+    setCurrentUser(null);
+    setAuthNotice(mensaje || null);
+    setCurrentScreen(Screen.LOGIN);
+    setLoading(false);
   };
 
   const handleLoginSuccess = () => {
@@ -305,6 +380,7 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     try {
+      await endAccessSession('MANUAL');
       const { error } = await supabase.auth.signOut();
       if (error) {
         throw error;
@@ -355,6 +431,23 @@ const App: React.FC = () => {
       clearInactivityTimers();
     };
   }, [currentScreen, resetInactivityTimer, clearInactivityTimers]);
+
+  // Último latido de la bitácora al ocultar o cerrar la pestaña.
+  //
+  // No cierra la sesión: al ocultarse no sabemos si se van o sólo cambian de
+  // pestaña. Sólo acerca last_seen_at al momento real, para que el tiempo en
+  // línea no se quede corto por hasta un minuto cuando cierran el navegador
+  // sin pasar por "Cerrar Sesión".
+  useEffect(() => {
+    if (currentScreen !== Screen.DASHBOARD) return;
+    const onHide = () => touchAccessSession();
+    window.addEventListener('pagehide', onHide);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      document.removeEventListener('visibilitychange', onHide);
+    };
+  }, [currentScreen]);
 
   useEffect(() => {
     return () => {
@@ -410,6 +503,9 @@ const App: React.FC = () => {
 
   return (
     <div className="antialiased text-slate-900">
+      {currentScreen === Screen.RESET_PASSWORD && (
+        <ResetPassword onDone={handleResetDone} linkError={recoveryLinkError} />
+      )}
       {currentScreen === Screen.LOGIN && (
         <Login onLoginSuccess={handleLoginSuccess} externalSuccessMessage={authNotice ?? undefined} />
       )}

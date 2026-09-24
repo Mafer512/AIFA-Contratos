@@ -9,7 +9,8 @@ import {
   TrendingUp, BarChart2, Plus, Save, Loader2, Pencil, Trash2,
   CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
   Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, RefreshCw,
-  Users, Plane, Activity, Info, XCircle, Clock, Globe, UserPlus
+  Users, Plane, Activity, Info, XCircle, Clock, Globe, UserPlus,
+  LogIn, KeyRound, ShieldCheck, Monitor, Smartphone, Timer, CheckCircle2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
@@ -29,9 +30,9 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff } from '../types';
-import { supabase, supabaseOperaciones } from '../services/supabaseClient';
-import { formatCurrency, isMonetaryField as shouldFormatAsCurrency } from '../utils/formatters';
+import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff, AccessLogEntry } from '../types';
+import { supabase, supabaseOperaciones, supabaseSignUp } from '../services/supabaseClient';
+import { formatCurrency, isMonetaryField as shouldFormatAsCurrency, formatDuration, formatRelativeTime, describeDevice, isMobileDevice } from '../utils/formatters';
 import {
   RESPONSABLE_PROFILES,
   getCanonicalResponsableValue,
@@ -1143,9 +1144,39 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [respSearch, setRespSearch] = useState('');
   const [viewAllServices, setViewAllServices] = useState(false);
   const [ganttModalService, setGanttModalService] = useState<Record<string, any> | null>(null);
-  const [showResponsableAdmin, setShowResponsableAdmin] = useState(false);
-  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null}[]>([]);
+  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null}[]>([]);
   const [savingResponsable, setSavingResponsable] = useState<string | null>(null);
+  // Restablecimiento de contraseña: guarda el id del usuario en curso y el
+  // resultado del último envío, para dar acuse junto a la fila del usuario.
+  const [sendingReset, setSendingReset] = useState<string | null>(null);
+  const [resetFeedback, setResetFeedback] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+  const [savingRole, setSavingRole] = useState<string | null>(null);
+
+  // ── Alta de usuarios ──────────────────────────────────────────────────────
+  const [accesosView, setAccesosView] = useState<'bitacora' | 'usuarios'>('bitacora');
+  const [showNewUserForm, setShowNewUserForm] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [newUser, setNewUser] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    role: UserRole.OPERATOR as UserRole,
+    responsable: '',
+  });
+  const [newUserFeedback, setNewUserFeedback] = useState<{ ok: boolean; title: string; msg: string } | null>(null);
+  const [userSearch, setUserSearch] = useState('');
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+
+  // ── Bitácora de accesos ───────────────────────────────────────────────────
+  const [accessLogs, setAccessLogs] = useState<AccessLogEntry[]>([]);
+  const [loadingAccessLogs, setLoadingAccessLogs] = useState(false);
+  const [accessLogsError, setAccessLogsError] = useState<string | null>(null);
+  const [accessUserFilter, setAccessUserFilter] = useState<string>('all');
+  const [accessRangeDays, setAccessRangeDays] = useState<number>(30);
+  // Se mueve solo cada 30 s para que "en línea" y "hace 3 min" no se queden
+  // congelados mientras la pantalla está abierta.
+  const [accessNow, setAccessNow] = useState<number>(() => Date.now());
 
   const [expandedServicioStatusId, setExpandedServicioStatusId] = useState<string | number | null>(null);
   const [expandedServiciosConvenio, setExpandedServiciosConvenio] = useState<Record<string, boolean>>({});
@@ -1701,6 +1732,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const fetchChangeHistory = useCallback(async () => {
     if (!historyAvailableRef.current) return;
+    // El historial es pantalla de administrador. Un operador escribe en él
+    // (logChange) pero no lo lee, así que pedirlo sólo generaría un error de
+    // permisos en su consola.
+    if (user.role !== UserRole.ADMIN) return;
     try {
       setLoadingHistory(true);
       setHistoryError(null);
@@ -1728,7 +1763,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     } finally {
       setLoadingHistory(false);
     }
-  }, []);
+  }, [user.role]);
 
   const logChange = useCallback(async ({ table, action, recordId, before, after }: LogChangeParams) => {
     if (!historyAvailableRef.current) return;
@@ -2042,7 +2077,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     title: string,
     primaryKey?: string | null
   ) => {
-    if (!requireManagePermission()) return;
+    if (!requireDeletePermission()) return;
     if (isDeletingRecord) {
       alert('Espera, se está eliminando un registro.');
       return;
@@ -2153,14 +2188,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   }, [user.role]);
 
+  // Dos permisos distintos, a propósito:
+  //
+  //   canManageRecords — capturar y editar las tablas de trabajo. Lo tienen
+  //     administradores y operadores. Todo cambio queda firmado en el historial
+  //     con nombre y rol de quien lo hizo (ver logChange).
+  //
+  //   isAdmin — administración del sistema: contraseñas, bitácoras y quién ve
+  //     qué servicios. Sólo administradores.
+  //
+  // Coincide con lo que ya exige la base: las políticas RLS de estatus_2027 y
+  // de las tablas endurecidas permiten escribir a ('ADMIN', 'OPERATOR'). Antes
+  // la interfaz era más estricta que la base y el operador no podía capturar.
   const canManageRecords = useMemo(
+    () => user.role === UserRole.ADMIN || user.role === UserRole.OPERATOR,
+    [user.role]
+  );
+
+  const isAdmin = useMemo(
     () => user.role === UserRole.ADMIN,
     [user.role]
   );
 
   const requireManagePermission = () => {
     if (canManageRecords) return true;
-    alert('Tu perfil es de solo consulta. Solicita privilegios de administrador para realizar cambios.');
+    alert('Tu perfil es de solo lectura. Pide a un administrador que te asigne el rol de Operador para capturar información.');
+    return false;
+  };
+
+  /**
+   * Borrar es aparte de editar: sólo administradores.
+   *
+   * No es una regla inventada aquí, es la que ya tiene la base. Las políticas
+   * RLS de estatus_2026 y estatus_2027 dicen
+   *     for delete ... using (public.current_app_role() = 'ADMIN')
+   * así que un operador que pulse Eliminar recibiría de Postgres un "0 filas
+   * borradas" sin explicación. Más vale decírselo antes y con todas sus letras.
+   */
+  const requireDeletePermission = () => {
+    if (isAdmin) return true;
+    alert(
+      'Sólo un administrador puede eliminar registros.\n\n' +
+      'Como Operador puedes capturar y editar toda la información, pero el borrado está reservado ' +
+      'para evitar pérdidas accidentales. Pide a un administrador que lo elimine.'
+    );
     return false;
   };
 
@@ -2273,8 +2344,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const fetchEstatus2027Data = () => fetchEstatusAnio(2027);
 
   const fetchResponsableAdmin = async () => {
-    const { data } = await supabase.schema('public').from('profiles').select('id, full_name, responsable').order('full_name');
-    if (data) setResponsableAdminData(data as any);
+    setLoadingUsers(true);
+    setUsersError(null);
+    try {
+      // profiles nació antes que estas migraciones y en algunas instalaciones
+      // no tiene columna email. Si falta, PostgREST rechaza el select entero y
+      // la lista se quedaría vacía; por eso se reintenta sin ella. La
+      // consecuencia es sólo que el botón de contraseña queda deshabilitado
+      // hasta que se corra la migración que agrega la columna.
+      const withEmail = await supabase
+        .schema('public')
+        .from('profiles')
+        .select('id, full_name, responsable, role, email')
+        .order('full_name');
+
+      if (!withEmail.error) {
+        setResponsableAdminData((withEmail.data ?? []) as any);
+        return;
+      }
+
+      const fallback = await supabase
+        .schema('public')
+        .from('profiles')
+        .select('id, full_name, responsable, role')
+        .order('full_name');
+
+      if (fallback.error) {
+        console.error('Error cargando perfiles:', fallback.error.message);
+        setUsersError(
+          fallback.error.code === '42501'
+            ? 'Tu sesión no tiene permiso para leer la tabla profiles. Ejecuta la migración supabase/migrations/20260924030000_admin_gestiona_perfiles.sql en el editor SQL de Supabase.'
+            : `No se pudo cargar la lista de usuarios: ${fallback.error.message}`
+        );
+        return;
+      }
+      setResponsableAdminData((fallback.data ?? []).map((u: any) => ({ ...u, email: null })) as any);
+    } finally {
+      setLoadingUsers(false);
+    }
   };
 
   const saveResponsable = async (userId: string, newResponsable: string | null) => {
@@ -2283,6 +2390,357 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setResponsableAdminData(prev => prev.map(u => u.id === userId ? { ...u, responsable: newResponsable } : u));
     setSavingResponsable(null);
   };
+
+  /**
+   * Envía a un usuario el correo para restablecer su contraseña.
+   *
+   * Fijar la contraseña de otra persona desde aquí exigiría la llave
+   * service_role de Supabase, y esa llave no puede viajar en el JavaScript del
+   * navegador: cualquiera la copiaría y tendría control total del proyecto. El
+   * correo de restablecimiento consigue lo mismo sin exponer nada — la nueva
+   * contraseña la escribe su dueño y nunca pasa por esta pantalla.
+   */
+  const sendPasswordReset = async (userId: string, email: string | null | undefined) => {
+    if (!isAdmin) return;
+    if (!email) {
+      setResetFeedback({ id: userId, ok: false, msg: 'Este usuario no tiene correo registrado en su perfil.' });
+      return;
+    }
+    setSendingReset(userId);
+    setResetFeedback(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/`,
+      });
+      if (error) throw error;
+      setResetFeedback({ id: userId, ok: true, msg: `Correo enviado a ${email}` });
+    } catch (err: any) {
+      console.error('Error enviando restablecimiento de contraseña:', err);
+      setResetFeedback({ id: userId, ok: false, msg: err?.message ?? 'No se pudo enviar el correo.' });
+    } finally {
+      setSendingReset(null);
+    }
+  };
+
+  /** Cambia el rol de un usuario (Administrador / Operador / Solo lectura). */
+  const saveUserRole = async (userId: string, newRole: string) => {
+    if (!isAdmin) return;
+
+    // Quitarse a uno mismo el rol de administrador deja el panel inaccesible en
+    // el acto, y si es el único admin ya nadie puede devolvérselo.
+    if (userId === user.id && newRole !== UserRole.ADMIN) {
+      const sigue = window.confirm(
+        'Estás por quitarte a ti mismo el rol de Administrador.\n\n' +
+        'Perderás el acceso a esta pantalla de inmediato y sólo otro administrador podrá devolvértelo.\n\n' +
+        '¿Continuar?'
+      );
+      if (!sigue) return;
+    }
+
+    setSavingRole(userId);
+    const { error } = await supabase.schema('public').from('profiles').update({ role: newRole }).eq('id', userId);
+    if (error) {
+      console.error('Error cambiando el rol:', error.message);
+      setResetFeedback({ id: userId, ok: false, msg: `No se pudo cambiar el rol: ${error.message}` });
+    } else {
+      setResponsableAdminData(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      setResetFeedback({ id: userId, ok: true, msg: 'Rol actualizado. Aplica en su próximo inicio de sesión.' });
+    }
+    setSavingRole(null);
+  };
+
+  /**
+   * Da de alta a una persona desde el panel de administración.
+   *
+   * Usa supabaseSignUp, no el cliente principal: signUp() inicia sesión con la
+   * cuenta nueva, y con el cliente principal el administrador terminaría dentro
+   * del sistema suplantando al empleado que acaba de crear.
+   *
+   * El perfil (nombre, rol, responsable) se escribe después con el cliente del
+   * administrador, que es quien tiene permiso sobre la tabla profiles.
+   */
+  const createUser = async () => {
+    if (!isAdmin) return;
+
+    const fullName = newUser.fullName.trim();
+    const email = newUser.email.trim().toLowerCase();
+    const password = newUser.password;
+
+    if (!fullName) {
+      setNewUserFeedback({ ok: false, title: 'Falta el nombre', msg: 'Escribe el nombre completo de la persona.' });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setNewUserFeedback({ ok: false, title: 'Correo inválido', msg: 'Revisa la dirección de correo.' });
+      return;
+    }
+    if (password.length < 6) {
+      setNewUserFeedback({ ok: false, title: 'Contraseña muy corta', msg: 'La contraseña temporal necesita al menos 6 caracteres.' });
+      return;
+    }
+
+    setCreatingUser(true);
+    setNewUserFeedback(null);
+
+    try {
+      const { data, error } = await supabaseSignUp.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: { full_name: fullName, role: newUser.role },
+        },
+      });
+
+      if (error) throw error;
+
+      const createdId = data.user?.id;
+      if (!createdId) {
+        throw new Error('Supabase no devolvió el usuario creado.');
+      }
+
+      // La sesión de la cuenta nueva no debe quedar viva ni en memoria.
+      await supabaseSignUp.auth.signOut();
+
+      // El perfil puede existir ya, si el proyecto tiene un trigger que lo crea
+      // al registrarse. Por eso es upsert y no insert.
+      const { error: profileError } = await supabase
+        .schema('public')
+        .from('profiles')
+        .upsert({
+          id: createdId,
+          full_name: fullName,
+          role: newUser.role,
+          responsable: newUser.responsable || null,
+          email,
+        }, { onConflict: 'id' });
+
+      if (profileError) {
+        // La cuenta sí quedó creada; lo que falló es el perfil. Hay que decirlo
+        // tal cual: repetir el alta daría "usuario ya registrado" y confundiría.
+        console.error('Error creando el perfil:', profileError);
+        setNewUserFeedback({
+          ok: false,
+          title: 'Cuenta creada, perfil incompleto',
+          msg: `La cuenta de ${email} sí se creó, pero no se pudo guardar su rol ni su responsable (${profileError.message}). Ajústalos desde la lista de abajo.`,
+        });
+      } else {
+        // signUp devuelve sesión cuando el proyecto no exige confirmar el
+        // correo. Sirve para decirle al administrador qué pasa ahora sin que
+        // tenga que adivinar si la persona puede entrar ya o no.
+        const entraYa = Boolean(data.session);
+        setNewUserFeedback({
+          ok: true,
+          title: 'Usuario creado',
+          msg: entraYa
+            ? `${fullName} ya puede entrar con ${email} y la contraseña temporal que le diste.`
+            : `Se creó la cuenta de ${fullName}. Antes de entrar debe abrir el enlace de confirmación que le llegó a ${email}.`,
+        });
+        setNewUser({ fullName: '', email: '', password: '', role: UserRole.OPERATOR, responsable: '' });
+        setShowNewUserForm(false);
+      }
+
+      await fetchResponsableAdmin();
+    } catch (err: any) {
+      console.error('Error creando usuario:', err);
+      const msg = (err?.message ?? '').toLowerCase();
+      if (msg.includes('already registered') || msg.includes('already been registered')) {
+        setNewUserFeedback({ ok: false, title: 'Ese correo ya tiene cuenta', msg: 'Busca a la persona en la lista de abajo en vez de crearla otra vez.' });
+      } else if (msg.includes('rate limit')) {
+        setNewUserFeedback({ ok: false, title: 'Demasiadas altas seguidas', msg: 'Supabase limita cuántas cuentas se crean por hora. Espera unos minutos.' });
+      } else {
+        setNewUserFeedback({ ok: false, title: 'No se pudo crear la cuenta', msg: err?.message ?? 'Error inesperado.' });
+      }
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
+  /** Genera una contraseña temporal legible para dictarla por teléfono. */
+  const generateTempPassword = () => {
+    // Sin I, l, O, 0, 1 ni O: son las que se confunden al leerlas en voz alta.
+    const abc = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    const bytes = new Uint32Array(12);
+    window.crypto.getRandomValues(bytes);
+    const pwd = Array.from(bytes, b => abc[b % abc.length]).join('');
+    setNewUser(prev => ({ ...prev, password: pwd }));
+  };
+
+  const filteredAdminUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return responsableAdminData;
+    return responsableAdminData.filter(u =>
+      (u.full_name ?? '').toLowerCase().includes(q) ||
+      (u.email ?? '').toLowerCase().includes(q)
+    );
+  }, [responsableAdminData, userSearch]);
+
+  // ── Bitácora de accesos ───────────────────────────────────────────────────
+
+  // Margen para considerar a alguien "en línea": el navegador late cada minuto,
+  // así que tres minutos absorben un latido perdido sin dejar fantasmas.
+  const ONLINE_WINDOW_MS = 3 * 60 * 1000;
+
+  const fetchAccessLogs = useCallback(async () => {
+    if (!isAdmin) return;
+    setLoadingAccessLogs(true);
+    setAccessLogsError(null);
+    try {
+      const { data, error } = await supabase
+        .from('access_logs')
+        .select('*')
+        .order('login_at', { ascending: false })
+        .limit(500);
+
+      if (error) {
+        // PostgREST contesta PGRST205 (no el 42P01 de Postgres) cuando la tabla
+        // nunca ha existido, así que se reconocen los dos.
+        if (error.code === '42P01' || error.code === 'PGRST205' || /schema cache/i.test(error.message ?? '')) {
+          setAccessLogsError('La tabla access_logs todavía no existe. Ejecuta la migración supabase/migrations/20260924000000_create_access_logs.sql en el editor SQL de Supabase.');
+        } else {
+          setAccessLogsError('No se pudo cargar la bitácora de accesos.');
+        }
+        console.error('Error fetching access logs:', error);
+        return;
+      }
+      setAccessLogs((data ?? []) as AccessLogEntry[]);
+    } catch (err) {
+      console.error('Error fetching access logs:', err);
+      setAccessLogsError('No se pudo cargar la bitácora de accesos.');
+    } finally {
+      setLoadingAccessLogs(false);
+    }
+  }, [isAdmin]);
+
+  // Fin efectivo de una sesión: la hora de salida si la hubo, y si no el último
+  // latido. Sin esto, quien cierra el navegador de golpe se vería "en línea"
+  // para siempre y su tiempo acumulado crecería sin parar.
+  const sessionEndMs = useCallback((entry: AccessLogEntry) => (
+    new Date(entry.logout_at ?? entry.last_seen_at).getTime()
+  ), []);
+
+  const isSessionOnline = useCallback((entry: AccessLogEntry, now: number) => (
+    !entry.logout_at && now - new Date(entry.last_seen_at).getTime() < ONLINE_WINDOW_MS
+  ), []);
+
+  const sessionDurationMs = useCallback((entry: AccessLogEntry, now: number) => {
+    const start = new Date(entry.login_at).getTime();
+    const end = isSessionOnline(entry, now) ? now : sessionEndMs(entry);
+    return Math.max(0, end - start);
+  }, [isSessionOnline, sessionEndMs]);
+
+  const accessRangeCutoff = useMemo(
+    () => (accessRangeDays === 0 ? 0 : accessNow - accessRangeDays * 86_400_000),
+    [accessRangeDays, accessNow]
+  );
+
+  const accessLogsInRange = useMemo(
+    () => accessLogs.filter(e => new Date(e.login_at).getTime() >= accessRangeCutoff),
+    [accessLogs, accessRangeCutoff]
+  );
+
+  const filteredAccessLogs = useMemo(() => (
+    accessUserFilter === 'all'
+      ? accessLogsInRange
+      : accessLogsInRange.filter(e => e.user_id === accessUserFilter)
+  ), [accessLogsInRange, accessUserFilter]);
+
+  /** Una tarjeta por persona: última conexión, tiempo acumulado y si está en línea. */
+  const accessPeople = useMemo(() => {
+    const byUser = new Map<string, {
+      userId: string; name: string; email: string | null; role: string | null;
+      sessions: number; totalMs: number; lastSeen: number; firstSeen: number; online: boolean;
+    }>();
+
+    accessLogsInRange.forEach((entry) => {
+      const prev = byUser.get(entry.user_id);
+      const end = sessionEndMs(entry);
+      const online = isSessionOnline(entry, accessNow);
+      const start = new Date(entry.login_at).getTime();
+      if (prev) {
+        prev.sessions += 1;
+        prev.totalMs += sessionDurationMs(entry, accessNow);
+        prev.lastSeen = Math.max(prev.lastSeen, end);
+        prev.firstSeen = Math.min(prev.firstSeen, start);
+        prev.online = prev.online || online;
+      } else {
+        byUser.set(entry.user_id, {
+          userId: entry.user_id,
+          name: entry.user_name ?? 'Usuario sin nombre',
+          email: entry.user_email,
+          role: entry.user_role,
+          sessions: 1,
+          totalMs: sessionDurationMs(entry, accessNow),
+          lastSeen: end,
+          firstSeen: start,
+          online,
+        });
+      }
+    });
+
+    // En línea primero, después por conexión más reciente.
+    return Array.from(byUser.values()).sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return b.lastSeen - a.lastSeen;
+    });
+  }, [accessLogsInRange, accessNow, sessionEndMs, isSessionOnline, sessionDurationMs]);
+
+  const onlineNowCount = useMemo(
+    () => accessLogs.filter(e => isSessionOnline(e, accessNow)).length,
+    [accessLogs, accessNow, isSessionOnline]
+  );
+
+  const accessSummary = useMemo(() => {
+    const totalMs = accessLogsInRange.reduce((acc, e) => acc + sessionDurationMs(e, accessNow), 0);
+    const startOfToday = new Date(accessNow); startOfToday.setHours(0, 0, 0, 0);
+    const todayMs = startOfToday.getTime();
+    return {
+      sessions: accessLogsInRange.length,
+      people: accessPeople.length,
+      totalMs,
+      avgMs: accessLogsInRange.length ? totalMs / accessLogsInRange.length : 0,
+      today: accessLogsInRange.filter(e => new Date(e.login_at).getTime() >= todayMs).length,
+    };
+  }, [accessLogsInRange, accessPeople.length, accessNow, sessionDurationMs]);
+
+  /** Entradas por hora del día — dice a qué horas se usa de verdad el sistema. */
+  const accessByHour = useMemo(() => {
+    const buckets = Array.from({ length: 24 }, (_, hour) => ({ hour, total: 0 }));
+    accessLogsInRange.forEach((e) => { buckets[new Date(e.login_at).getHours()].total += 1; });
+    return buckets;
+  }, [accessLogsInRange]);
+
+  const accessPeakHour = useMemo(
+    () => accessByHour.reduce((max, b) => (b.total > max.total ? b : max), accessByHour[0]),
+    [accessByHour]
+  );
+
+  // Reloj de la bitácora. Corre para cualquier administrador, no sólo dentro de
+  // la pestaña, porque también alimenta el contador de "en línea" del menú
+  // lateral. Es cálculo local: no toca la red.
+  useEffect(() => {
+    if (!isAdmin) return;
+    const id = window.setInterval(() => setAccessNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [isAdmin]);
+
+  // Primera carga: deja el contador del menú con un número real desde el inicio.
+  useEffect(() => {
+    if (!isAdmin) return;
+    void fetchAccessLogs();
+    void fetchResponsableAdmin();
+    // fetchResponsableAdmin no está memorizado y cambia en cada render; incluirlo
+    // en las dependencias dispararía el efecto sin parar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, fetchAccessLogs]);
+
+  // Refresco automático sólo mientras la bitácora está a la vista. Fuera de la
+  // pestaña no hay para qué seguir consultando cada minuto.
+  useEffect(() => {
+    if (activeTab !== 'accesos' || !isAdmin) return;
+    const id = window.setInterval(() => { void fetchAccessLogs(); }, 60_000);
+    return () => window.clearInterval(id);
+  }, [activeTab, isAdmin, fetchAccessLogs]);
 
   const fetchPagos2026Data = async () => {
     try {
@@ -2450,7 +2908,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
 
   const deleteHistoricoRow = async (id: number, label: string) => {
-    if (!requireManagePermission()) return;
+    if (!requireDeletePermission()) return;
     if (!window.confirm(`¿Eliminar el registro "${label}"? Esta acción no se puede deshacer.`)) return;
     try {
       const { error } = await supabase.from('servicios_historicos').delete().eq('id', id);
@@ -2859,7 +3317,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   // === HANDLE DELETE ===
   const handleDeleteRecord = async (id: number) => {
-    if (!requireManagePermission()) return;
+    if (!requireDeletePermission()) return;
     if (!window.confirm("¿Está seguro que desea eliminar este registro? Esta acción no se puede deshacer.")) {
       return;
     }
@@ -3919,6 +4377,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [procedureStatuses]);
 
   const topProcedureCompanies = useMemo(() => procedureByCompany.slice(0, 8), [procedureByCompany]);
+
+  // Si a un usuario le bajan el rol mientras tiene la sesión abierta, puede
+  // quedarse parado en una pestaña de administración. Las políticas RLS ya no
+  // le devolverían datos, pero tampoco tiene por qué ver el cascarón: se le
+  // regresa al inicio.
+  useEffect(() => {
+    if (!isAdmin && (activeTab === 'history' || activeTab === 'accesos')) {
+      setActiveTab('overview');
+    }
+  }, [isAdmin, activeTab]);
 
   const handleSidebarSelection = (tabId: string) => {
     setActiveTab(tabId);
@@ -8860,20 +9328,53 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             )}
           </div>
 
-          {/* ─ Historial (sky) ─ */}
-          <button
-            onClick={() => handleSidebarSelection('history')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${activeTab === 'history'
-              ? 'bg-sky-500/15 text-sky-300'
-              : 'text-white/50 hover:bg-white/5 hover:text-white/80'
-              }`}
-          >
-            <span className={`flex h-6 w-6 items-center justify-center rounded-lg ${activeTab === 'history' ? 'bg-sky-500/20' : 'bg-white/5'}`}>
-              <History className={`h-3.5 w-3.5 ${activeTab === 'history' ? 'text-sky-400' : 'text-white/30'}`} />
-            </span>
-            <span>Historial</span>
-            {activeTab === 'history' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400 flex-shrink-0" />}
-          </button>
+          {/* ─ Administración — sólo ADMIN ─ */}
+          {isAdmin && (
+            <div className="pt-2 mt-2 border-t border-white/8 space-y-1">
+              <p className="px-3 pb-1 text-[9px] font-bold uppercase tracking-[0.2em] text-white/25">
+                Administración
+              </p>
+
+              {/* ─ Historial de cambios (sky) ─ */}
+              <button
+                onClick={() => handleSidebarSelection('history')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${activeTab === 'history'
+                  ? 'bg-sky-500/15 text-sky-300'
+                  : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                  }`}
+              >
+                <span className={`flex h-6 w-6 items-center justify-center rounded-lg ${activeTab === 'history' ? 'bg-sky-500/20' : 'bg-white/5'}`}>
+                  <History className={`h-3.5 w-3.5 ${activeTab === 'history' ? 'text-sky-400' : 'text-white/30'}`} />
+                </span>
+                <span>Historial</span>
+                {activeTab === 'history' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400 flex-shrink-0" />}
+              </button>
+
+              {/* ─ Bitácora de accesos (violeta) ─ */}
+              <button
+                onClick={() => { handleSidebarSelection('accesos'); fetchAccessLogs(); }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${activeTab === 'accesos'
+                  ? 'bg-violet-500/15 text-violet-300'
+                  : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                  }`}
+              >
+                <span className={`flex h-6 w-6 items-center justify-center rounded-lg ${activeTab === 'accesos' ? 'bg-violet-500/20' : 'bg-white/5'}`}>
+                  <Activity className={`h-3.5 w-3.5 ${activeTab === 'accesos' ? 'text-violet-400' : 'text-white/30'}`} />
+                </span>
+                <span>Accesos</span>
+                {onlineNowCount > 0 && activeTab !== 'accesos' && (
+                  <span className="ml-auto flex items-center gap-1 text-[10px] font-bold text-emerald-300">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                    </span>
+                    {onlineNowCount}
+                  </span>
+                )}
+                {activeTab === 'accesos' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-violet-400 flex-shrink-0" />}
+              </button>
+            </div>
+          )}
 
         </nav>
 
@@ -8973,64 +9474,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   <Globe className="h-4 w-4" />
                 </button>
               )}
-              {user.role === UserRole.ADMIN && (
+              {isAdmin && (
                 <button
-                  onClick={() => { setShowResponsableAdmin(true); fetchResponsableAdmin(); }}
+                  onClick={() => {
+                    handleSidebarSelection('accesos');
+                    setAccesosView('usuarios');
+                    setResetFeedback(null);
+                    fetchResponsableAdmin();
+                  }}
                   className="ml-1 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-[#0F4C3A] transition-colors"
-                  title="Gestionar responsables de usuarios"
+                  title="Usuarios: altas, permisos y contraseñas"
                 >
                   <Users className="h-4 w-4" />
                 </button>
               )}
             </div>
 
-            {/* Modal: Gestión de Responsables (super admin) */}
-            {showResponsableAdmin && createPortal(
-              <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)' }}
-                onClick={() => setShowResponsableAdmin(false)}>
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center justify-between px-6 py-4 bg-[#0F4C3A] rounded-t-2xl">
-                    <div>
-                      <h2 className="text-base font-bold text-white">Gestión de Responsables</h2>
-                      <p className="text-xs text-emerald-200 mt-0.5">Asigna qué servicios ve cada usuario</p>
-                    </div>
-                    <button onClick={() => setShowResponsableAdmin(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
-                    <p className="text-xs text-slate-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      <strong>Sin asignar (—)</strong> = el usuario ve <strong>todos</strong> los servicios (super admin).
-                      Asigna un responsable para limitar la vista.
-                    </p>
-                    {responsableAdminData.map(u => (
-                      <div key={u.id} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
-                        <div className="h-8 w-8 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-bold flex items-center justify-center text-xs uppercase flex-shrink-0">
-                          {u.full_name?.split(' ').slice(0,2).map((n:string) => n[0]).join('') ?? '?'}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-slate-700 truncate">{u.full_name}</p>
-                          <select
-                            className="mt-1 w-full text-xs border border-slate-200 rounded-lg px-2 py-1 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30"
-                            value={getCombinedCanonicalResponsableValue(u.responsable)}
-                            disabled={savingResponsable === u.id}
-                            onChange={e => saveResponsable(u.id, e.target.value || null)}
-                          >
-                            <option value="">— Sin asignar (ve todo) —</option>
-                            {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
-                          </select>
-                        </div>
-                        {savingResponsable === u.id && <Loader2 className="h-4 w-4 animate-spin text-[#0F4C3A] flex-shrink-0" />}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
-                    <p className="text-[11px] text-slate-400">Los cambios aplican en el próximo inicio de sesión del usuario.</p>
-                  </div>
-                </div>
-              </div>,
-              document.body
-            )}
           </div>
         </header>
 
@@ -10259,7 +10718,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               </div>
             )}
 
-            {activeTab === 'history' && (
+            {activeTab === 'history' && isAdmin && (
               <div className="space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div>
@@ -10425,6 +10884,813 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+                BITÁCORA DE ACCESOS — sólo administradores
+                ══════════════════════════════════════════════════════════════ */}
+            {activeTab === 'accesos' && isAdmin && (
+              <div className="space-y-6">
+
+                {/* ── Encabezado ── */}
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <span className="hidden sm:flex h-12 w-12 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white items-center justify-center shadow-lg shadow-violet-500/25 flex-shrink-0">
+                      {accesosView === 'bitacora' ? <Activity className="h-6 w-6" /> : <Users className="h-6 w-6" />}
+                    </span>
+                    <div>
+                      <h1 className="text-2xl font-bold text-slate-900">
+                        {accesosView === 'bitacora' ? 'Bitácora de Accesos' : 'Usuarios del Sistema'}
+                      </h1>
+                      <p className="text-slate-500 text-sm mt-0.5 max-w-2xl">
+                        {accesosView === 'bitacora'
+                          ? 'Quién entra al sistema, a qué hora, cuánto tiempo permanece en línea y cuándo se conectó por última vez.'
+                          : 'Da de alta a nuevas personas, define qué puede hacer cada una y restablece contraseñas.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {accesosView === 'bitacora' && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-0.5">
+                        {[{ d: 7, l: '7 días' }, { d: 30, l: '30 días' }, { d: 90, l: '90 días' }, { d: 0, l: 'Todo' }].map(opt => (
+                          <button
+                            key={opt.d}
+                            onClick={() => setAccessRangeDays(opt.d)}
+                            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                              accessRangeDays === opt.d
+                                ? 'bg-white text-violet-700 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                          >
+                            {opt.l}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={fetchAccessLogs}
+                        disabled={loadingAccessLogs}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-600 border border-slate-200 bg-white rounded-xl hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${loadingAccessLogs ? 'animate-spin' : ''}`} />
+                        Actualizar
+                      </button>
+                    </div>
+                  )}
+
+                  {accesosView === 'usuarios' && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowNewUserForm(v => !v); setNewUserFeedback(null); }}
+                      className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl transition-all shadow-sm ${
+                        showNewUserForm
+                          ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          : 'bg-[#0F4C3A] text-white hover:bg-[#0d3f30] shadow-[#0F4C3A]/25'
+                      }`}
+                    >
+                      {showNewUserForm ? <X className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
+                      {showNewUserForm ? 'Cancelar' : 'Nuevo usuario'}
+                    </button>
+                  )}
+                </div>
+
+                {/* ── Sub-pestañas ── */}
+                <div className="flex items-center gap-1 border-b border-slate-200">
+                  {([
+                    { id: 'bitacora' as const, label: 'Bitácora', icon: Activity },
+                    { id: 'usuarios' as const, label: 'Usuarios', icon: Users },
+                  ]).map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setAccesosView(tab.id)}
+                      className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                        accesosView === tab.id
+                          ? 'border-violet-600 text-violet-700'
+                          : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <tab.icon className="h-4 w-4" />
+                      {tab.label}
+                      {tab.id === 'usuarios' && responsableAdminData.length > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold tabular-nums">
+                          {responsableAdminData.length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {accesosView === 'bitacora' && (<>
+                {accessLogsError ? (
+                  <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                    <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-900">No se pudo mostrar la bitácora</p>
+                      <p className="text-sm text-amber-800 mt-1">{accessLogsError}</p>
+                    </div>
+                  </div>
+                ) : loadingAccessLogs && accessLogs.length === 0 ? (
+                  <div className="flex items-center justify-center gap-2 py-20 text-slate-500">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Cargando bitácora de accesos...
+                  </div>
+                ) : accessLogsInRange.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+                    <span className="inline-flex h-14 w-14 rounded-2xl bg-slate-100 text-slate-400 items-center justify-center mb-4">
+                      <Activity className="h-7 w-7" />
+                    </span>
+                    <p className="text-sm font-semibold text-slate-700">Todavía no hay accesos registrados en este periodo</p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Cada inicio de sesión queda registrado automáticamente a partir de ahora.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* ── Indicadores ── */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* En línea ahora — el único que cambia solo, por eso lleva el pulso */}
+                      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 p-5 shadow-lg shadow-emerald-600/20">
+                        <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/10" />
+                        <div className="relative">
+                          <div className="flex items-center gap-2 text-emerald-100 text-[11px] font-bold uppercase tracking-wider">
+                            {onlineNowCount > 0 && (
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                              </span>
+                            )}
+                            En línea ahora
+                          </div>
+                          <p className="text-4xl font-black text-white mt-2 tabular-nums leading-none">{onlineNowCount}</p>
+                          <p className="text-[11px] text-emerald-100/80 mt-2">
+                            {onlineNowCount === 1 ? 'persona conectada' : 'personas conectadas'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+                        <div className="flex items-center gap-2 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                          <LogIn className="h-3.5 w-3.5" />
+                          Sesiones
+                        </div>
+                        <p className="text-4xl font-black text-slate-900 mt-2 tabular-nums leading-none">{accessSummary.sessions}</p>
+                        <p className="text-[11px] text-slate-500 mt-2">
+                          <span className="font-bold text-violet-600">{accessSummary.today}</span> el día de hoy
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+                        <div className="flex items-center gap-2 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                          <Users className="h-3.5 w-3.5" />
+                          Usuarios
+                        </div>
+                        <p className="text-4xl font-black text-slate-900 mt-2 tabular-nums leading-none">{accessSummary.people}</p>
+                        <p className="text-[11px] text-slate-500 mt-2">
+                          distintos en el periodo
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+                        <div className="flex items-center gap-2 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                          <Timer className="h-3.5 w-3.5" />
+                          Sesión promedio
+                        </div>
+                        <p className="text-3xl font-black text-slate-900 mt-2 tabular-nums leading-none">{formatDuration(accessSummary.avgMs)}</p>
+                        <p className="text-[11px] text-slate-500 mt-2">
+                          {formatDuration(accessSummary.totalMs)} en total
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* ── Personas ── */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <h2 className="text-base font-bold text-slate-900">Usuarios del sistema</h2>
+                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-bold">
+                          {accessPeople.length}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {accessPeople.map((person) => {
+                          const roleMeta =
+                            person.role === UserRole.ADMIN
+                              ? { label: 'Administrador', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+                              : person.role === UserRole.OPERATOR
+                                ? { label: 'Operador', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
+                                : { label: 'Solo lectura', cls: 'bg-slate-50 text-slate-600 border-slate-200' };
+                          const initials = person.name.trim().split(/\s+/).slice(0, 2)
+                            .map(w => w.charAt(0).toUpperCase()).join('') || '?';
+                          const isFiltered = accessUserFilter === person.userId;
+
+                          return (
+                            <button
+                              key={person.userId}
+                              type="button"
+                              onClick={() => setAccessUserFilter(isFiltered ? 'all' : person.userId)}
+                              title={isFiltered ? 'Quitar el filtro' : `Ver sólo las sesiones de ${person.name}`}
+                              className={`text-left rounded-2xl border bg-white p-5 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${
+                                isFiltered ? 'border-violet-400 ring-2 ring-violet-200' : 'border-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="relative flex-shrink-0">
+                                  <div
+                                    className="h-12 w-12 rounded-2xl flex items-center justify-center text-white font-black text-sm"
+                                    style={{ background: person.online
+                                      ? 'linear-gradient(135deg, #059669, #0F766E)'
+                                      : 'linear-gradient(135deg, #0F4C3A, #1B3A5E)' }}
+                                  >
+                                    {initials}
+                                  </div>
+                                  {person.online && (
+                                    <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                      <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 ring-2 ring-white" />
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-bold text-slate-900 truncate" title={person.name}>{person.name}</p>
+                                  <p className="text-[11px] text-slate-400 truncate" title={person.email ?? ''}>{person.email ?? 'Sin correo'}</p>
+                                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                    <span className={`inline-flex items-center px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full border ${roleMeta.cls}`}>
+                                      {roleMeta.label}
+                                    </span>
+                                    {person.online ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full bg-emerald-500 text-white">
+                                        En línea
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400">
+                                        {formatRelativeTime(person.lastSeen, accessNow)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-100">
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Sesiones</p>
+                                  <p className="text-sm font-black text-slate-800 tabular-nums mt-0.5">{person.sessions}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">En línea</p>
+                                  <p className="text-sm font-black text-slate-800 tabular-nums mt-0.5">{formatDuration(person.totalMs)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Última vez</p>
+                                  <p className="text-sm font-bold text-slate-800 mt-0.5 truncate" title={formatDateTime(new Date(person.lastSeen).toISOString())}>
+                                    {person.online ? 'Ahora' : formatRelativeTime(person.lastSeen, accessNow).replace('hace ', '')}
+                                  </p>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* ── Entradas por hora ──
+                        Una sola serie: un solo tono, sin leyenda (el título ya
+                        dice qué se está midiendo) y con etiqueta directa sólo en
+                        la hora pico, no en las 24 barras. */}
+                    <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+                      <div className="flex items-baseline justify-between gap-4 flex-wrap mb-5">
+                        <div>
+                          <h2 className="text-base font-bold text-slate-900">Entradas por hora del día</h2>
+                          <p className="text-xs text-slate-500 mt-0.5">A qué horas se usa realmente el sistema.</p>
+                        </div>
+                        {accessPeakHour && accessPeakHour.total > 0 && (
+                          <p className="text-xs text-slate-500">
+                            Hora pico:{' '}
+                            <span className="font-bold text-violet-700 tabular-nums">
+                              {String(accessPeakHour.hour).padStart(2, '0')}:00
+                            </span>
+                          </p>
+                        )}
+                      </div>
+
+                      {(() => {
+                        const maxTotal = Math.max(1, ...accessByHour.map(b => b.total));
+                        return (
+                          <div>
+                            <div className="flex items-end gap-[2px] h-32">
+                              {accessByHour.map((bucket) => {
+                                const pct = (bucket.total / maxTotal) * 100;
+                                const isPeak = bucket.total === maxTotal && bucket.total > 0;
+                                return (
+                                  <div key={bucket.hour} className="flex-1 flex flex-col justify-end items-center h-full group relative">
+                                    {isPeak && (
+                                      <span className="absolute -top-1 text-[10px] font-black text-violet-700 tabular-nums">
+                                        {bucket.total}
+                                      </span>
+                                    )}
+                                    <div
+                                      className={`w-full rounded-t transition-colors ${
+                                        bucket.total === 0
+                                          ? 'bg-slate-100'
+                                          : isPeak
+                                            ? 'bg-violet-600'
+                                            : 'bg-violet-400 group-hover:bg-violet-500'
+                                      }`}
+                                      style={{ height: bucket.total === 0 ? '3px' : `max(4px, ${pct}%)` }}
+                                      title={`${String(bucket.hour).padStart(2, '0')}:00 — ${bucket.total} ${bucket.total === 1 ? 'entrada' : 'entradas'}`}
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {/* Eje recesivo: sólo las cuatro marcas que orientan */}
+                            <div className="flex mt-2 text-[10px] font-medium text-slate-400 tabular-nums">
+                              {accessByHour.map(b => (
+                                <span key={b.hour} className="flex-1 text-center">
+                                  {b.hour % 6 === 0 ? String(b.hour).padStart(2, '0') : ''}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* ── Sesiones ── */}
+                    <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-base font-bold text-slate-900">Detalle de sesiones</h2>
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-bold tabular-nums">
+                            {filteredAccessLogs.length}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            aria-label="Filtrar sesiones por usuario"
+                            title="Filtrar sesiones por usuario"
+                            value={accessUserFilter}
+                            onChange={(e) => setAccessUserFilter(e.target.value)}
+                            className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-400/40"
+                          >
+                            <option value="all">Todos los usuarios</option>
+                            {accessPeople.map(pers => (
+                              <option key={pers.userId} value={pers.userId}>{pers.name}</option>
+                            ))}
+                          </select>
+                          {accessUserFilter !== 'all' && (
+                            <button
+                              type="button"
+                              onClick={() => setAccessUserFilter('all')}
+                              className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                              title="Quitar el filtro"
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-slate-50 text-slate-500">
+                            <tr>
+                              <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Usuario</th>
+                              <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Fecha</th>
+                              <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Entrada</th>
+                              <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Salida</th>
+                              <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Tiempo en línea</th>
+                              <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Cierre</th>
+                              <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Dispositivo</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {filteredAccessLogs.map((entry) => {
+                              const loginDate = new Date(entry.login_at);
+                              const online = isSessionOnline(entry, accessNow);
+                              const hhmm = (d: Date) => d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+                              const endMs = sessionEndMs(entry);
+                              const mobile = isMobileDevice(entry.user_agent);
+
+                              // Cómo terminó. Una sesión sin logout_at y con el
+                              // último latido viejo no "sigue abierta": el
+                              // navegador se cerró sin avisar.
+                              const cierre = online
+                                ? { label: 'En curso', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+                                : entry.logout_reason === 'MANUAL'
+                                  ? { label: 'Cerró sesión', cls: 'bg-slate-50 text-slate-600 border-slate-200' }
+                                  : entry.logout_reason === 'INACTIVIDAD'
+                                    ? { label: 'Inactividad', cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+                                    : { label: 'Cerró navegador', cls: 'bg-slate-50 text-slate-500 border-slate-200' };
+
+                              return (
+                                <tr key={entry.id} className="hover:bg-slate-50/70 transition-colors">
+                                  <td className="px-5 py-3">
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <span className={`h-2 w-2 rounded-full flex-shrink-0 ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                      <div className="min-w-0">
+                                        <p className="font-semibold text-slate-800 truncate max-w-[180px]" title={entry.user_name ?? ''}>
+                                          {entry.user_name ?? 'Usuario desconocido'}
+                                        </p>
+                                        <p className="text-[11px] text-slate-400 truncate max-w-[180px]" title={entry.user_email ?? ''}>
+                                          {entry.user_email ?? '—'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-600 whitespace-nowrap capitalize">
+                                    {format(loginDate, "EEE d 'de' MMM", { locale: es })}
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 tabular-nums">
+                                      <LogIn className="h-3.5 w-3.5 text-emerald-500" />
+                                      {hhmm(loginDate)}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    {online ? (
+                                      <span className="text-[11px] font-semibold text-emerald-600">— sigue dentro —</span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 tabular-nums">
+                                        <LogOut className="h-3.5 w-3.5 text-slate-400" />
+                                        {hhmm(new Date(endMs))}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-bold text-slate-800 tabular-nums whitespace-nowrap">
+                                    {formatDuration(sessionDurationMs(entry, accessNow))}
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full border ${cierre.cls}`}>
+                                      {cierre.label}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-3 whitespace-nowrap">
+                                    <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500" title={entry.user_agent ?? ''}>
+                                      {mobile
+                                        ? <Smartphone className="h-3.5 w-3.5 text-slate-400" />
+                                        : <Monitor className="h-3.5 w-3.5 text-slate-400" />}
+                                      {describeDevice(entry.user_agent)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {accessLogs.length >= 500 && (
+                        <p className="px-5 py-3 text-[11px] text-slate-400 border-t border-slate-100 bg-slate-50">
+                          Se muestran las 500 sesiones más recientes.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+                </>)}
+
+                {/* ══════════════════════════════════════════════════════════
+                    USUARIOS — alta, permisos y contraseñas
+                    ══════════════════════════════════════════════════════════ */}
+                {accesosView === 'usuarios' && (
+                  <>
+                    {/* ── Alta de usuario ── */}
+                    {showNewUserForm && (
+                      <div className="rounded-2xl border-2 border-[#0F4C3A]/20 bg-gradient-to-br from-emerald-50/50 to-white p-6 shadow-sm">
+                        <div className="flex items-center gap-2 mb-5">
+                          <span className="flex h-9 w-9 rounded-xl bg-[#0F4C3A] text-white items-center justify-center flex-shrink-0">
+                            <UserPlus className="h-4.5 w-4.5" />
+                          </span>
+                          <div>
+                            <h2 className="text-base font-bold text-slate-900">Dar de alta a una persona</h2>
+                            <p className="text-xs text-slate-500">Podrá entrar con el correo y la contraseña temporal que le des.</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                              Nombre completo
+                            </label>
+                            <input
+                              type="text"
+                              value={newUser.fullName}
+                              onChange={e => setNewUser(prev => ({ ...prev, fullName: e.target.value }))}
+                              placeholder="María Fernanda López García"
+                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all placeholder:text-slate-300"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                              Correo institucional
+                            </label>
+                            <input
+                              type="email"
+                              value={newUser.email}
+                              onChange={e => setNewUser(prev => ({ ...prev, email: e.target.value }))}
+                              placeholder="nombre@aifa.aero"
+                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all placeholder:text-slate-300"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                              Contraseña temporal
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={newUser.password}
+                                onChange={e => setNewUser(prev => ({ ...prev, password: e.target.value }))}
+                                placeholder="Mínimo 6 caracteres"
+                                className="flex-1 min-w-0 px-3 py-2.5 text-sm font-mono bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all placeholder:text-slate-300 placeholder:font-sans"
+                              />
+                              <button
+                                type="button"
+                                onClick={generateTempPassword}
+                                title="Generar una contraseña fácil de dictar"
+                                className="px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-[#0F4C3A] hover:border-[#0F4C3A]/40 transition-colors flex-shrink-0"
+                              >
+                                <RefreshCw className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              Se la das a la persona; ella puede cambiarla con "¿Olvidaste tu contraseña?".
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                              Permisos
+                            </label>
+                            <select
+                              value={newUser.role}
+                              onChange={e => setNewUser(prev => ({ ...prev, role: e.target.value as UserRole }))}
+                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all"
+                            >
+                              <option value={UserRole.OPERATOR}>Operador — captura y edita las tablas</option>
+                              <option value={UserRole.VIEWER}>Solo lectura — únicamente consulta</option>
+                              <option value={UserRole.ADMIN}>Administrador — todo, incluida esta pantalla</option>
+                            </select>
+                          </div>
+
+                          <div className="md:col-span-2">
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                              Servicios que verá
+                            </label>
+                            <select
+                              value={newUser.responsable}
+                              onChange={e => setNewUser(prev => ({ ...prev, responsable: e.target.value }))}
+                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all"
+                            >
+                              <option value="">— Todos los servicios —</option>
+                              {combinedResponsablesList.map(r => <option key={r} value={r}>Sólo los de {r}</option>)}
+                            </select>
+                          </div>
+                        </div>
+
+                        {newUserFeedback && (
+                          <div className={`flex items-start gap-2.5 mt-4 rounded-xl border p-3.5 ${
+                            newUserFeedback.ok
+                              ? 'border-emerald-200 bg-emerald-50'
+                              : 'border-red-200 bg-red-50'
+                          }`}>
+                            {newUserFeedback.ok
+                              ? <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600 flex-shrink-0 mt-px" />
+                              : <AlertCircle className="h-4.5 w-4.5 text-red-600 flex-shrink-0 mt-px" />}
+                            <div>
+                              <p className={`text-sm font-bold ${newUserFeedback.ok ? 'text-emerald-800' : 'text-red-800'}`}>
+                                {newUserFeedback.title}
+                              </p>
+                              <p className={`text-xs mt-0.5 ${newUserFeedback.ok ? 'text-emerald-700' : 'text-red-700'}`}>
+                                {newUserFeedback.msg}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-end gap-2 mt-5">
+                          <button
+                            type="button"
+                            onClick={() => { setShowNewUserForm(false); setNewUserFeedback(null); }}
+                            className="px-4 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={createUser}
+                            disabled={creatingUser}
+                            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0d3f30] disabled:opacity-60 transition-colors shadow-sm shadow-[#0F4C3A]/25"
+                          >
+                            {creatingUser
+                              ? <><Loader2 className="h-4 w-4 animate-spin" /> Creando...</>
+                              : <><UserPlus className="h-4 w-4" /> Crear usuario</>}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Acuse del alta cuando el formulario ya se cerró */}
+                    {!showNewUserForm && newUserFeedback && (
+                      <div className={`flex items-start gap-2.5 rounded-2xl border p-4 ${
+                        newUserFeedback.ok ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'
+                      }`}>
+                        {newUserFeedback.ok
+                          ? <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-px" />
+                          : <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-px" />}
+                        <div className="flex-1">
+                          <p className={`text-sm font-bold ${newUserFeedback.ok ? 'text-emerald-800' : 'text-red-800'}`}>
+                            {newUserFeedback.title}
+                          </p>
+                          <p className={`text-xs mt-0.5 ${newUserFeedback.ok ? 'text-emerald-700' : 'text-red-700'}`}>
+                            {newUserFeedback.msg}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setNewUserFeedback(null)}
+                          className="text-slate-400 hover:text-slate-600 flex-shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* ── Lista de usuarios ── */}
+                    <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+                        <h2 className="text-base font-bold text-slate-900">Todos los usuarios</h2>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                          <input
+                            type="text"
+                            value={userSearch}
+                            onChange={e => setUserSearch(e.target.value)}
+                            placeholder="Buscar por nombre o correo"
+                            className="pl-9 pr-3 py-2 w-64 max-w-full text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-400/40"
+                          />
+                        </div>
+                      </div>
+
+                      {loadingUsers && responsableAdminData.length === 0 ? (
+                        <div className="px-5 py-12 text-center">
+                          <Loader2 className="h-5 w-5 animate-spin text-slate-400 mx-auto mb-3" />
+                          <p className="text-sm text-slate-500">Cargando usuarios...</p>
+                        </div>
+                      ) : usersError ? (
+                        <div className="flex items-start gap-3 m-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                          <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-semibold text-amber-900">No se pudo cargar la lista</p>
+                            <p className="text-sm text-amber-800 mt-1">{usersError}</p>
+                          </div>
+                        </div>
+                      ) : responsableAdminData.length === 0 ? (
+                        <div className="px-5 py-12 text-center">
+                          <p className="text-sm text-slate-500">No hay usuarios registrados todavía.</p>
+                          <p className="text-xs text-slate-400 mt-1">Usa "Nuevo usuario" para dar de alta al primero.</p>
+                        </div>
+                      ) : filteredAdminUsers.length === 0 ? (
+                        <div className="px-5 py-12 text-center text-sm text-slate-500">
+                          Ningún usuario coincide con "{userSearch}".
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {filteredAdminUsers.map(u => {
+                            const uRoleMeta =
+                              u.role === UserRole.ADMIN
+                                ? { label: 'Administrador', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+                                : u.role === UserRole.OPERATOR
+                                  ? { label: 'Operador', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
+                                  : { label: 'Solo lectura', cls: 'bg-slate-50 text-slate-600 border-slate-200' };
+                            const feedback = resetFeedback?.id === u.id ? resetFeedback : null;
+                            const initials = (u.full_name ?? '?').trim().split(/\s+/).slice(0, 2)
+                              .map(w => w.charAt(0).toUpperCase()).join('') || '?';
+                            const esYo = u.id === user.id;
+
+                            return (
+                              <div key={u.id} className="px-5 py-4 hover:bg-slate-50/60 transition-colors">
+                                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                                  {/* Identidad */}
+                                  <div className="flex items-center gap-3 min-w-0 lg:w-64 flex-shrink-0">
+                                    <div
+                                      className="h-10 w-10 rounded-xl flex items-center justify-center text-white font-black text-xs flex-shrink-0"
+                                      style={{ background: 'linear-gradient(135deg, #0F4C3A, #1B3A5E)' }}
+                                    >
+                                      {initials}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5">
+                                        <p className="text-sm font-bold text-slate-800 truncate" title={u.full_name ?? ''}>
+                                          {u.full_name ?? 'Sin nombre'}
+                                        </p>
+                                        {esYo && (
+                                          <span className="px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[9px] font-bold uppercase tracking-wider flex-shrink-0">
+                                            Tú
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-slate-400 truncate" title={u.email ?? ''}>
+                                        {u.email ?? 'Sin correo registrado'}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {/* Permisos */}
+                                  <div className="flex-1 min-w-0">
+                                    <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                                      Permisos
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                      <select
+                                        aria-label={`Rol de ${u.full_name}`}
+                                        value={u.role ?? UserRole.VIEWER}
+                                        disabled={savingRole === u.id}
+                                        onChange={e => saveUserRole(u.id, e.target.value)}
+                                        className={`flex-1 min-w-0 text-xs font-semibold border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30 disabled:opacity-50 ${uRoleMeta.cls}`}
+                                      >
+                                        <option value={UserRole.ADMIN}>Administrador</option>
+                                        <option value={UserRole.OPERATOR}>Operador</option>
+                                        <option value={UserRole.VIEWER}>Solo lectura</option>
+                                      </select>
+                                      {savingRole === u.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0F4C3A] flex-shrink-0" />}
+                                    </div>
+                                  </div>
+
+                                  {/* Servicios */}
+                                  <div className="flex-1 min-w-0">
+                                    <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                                      Servicios que ve
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                      <select
+                                        aria-label={`Servicios que ve ${u.full_name}`}
+                                        className="flex-1 min-w-0 text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30 disabled:opacity-50"
+                                        value={getCombinedCanonicalResponsableValue(u.responsable)}
+                                        disabled={savingResponsable === u.id}
+                                        onChange={e => saveResponsable(u.id, e.target.value || null)}
+                                      >
+                                        <option value="">— Todos —</option>
+                                        {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
+                                      </select>
+                                      {savingResponsable === u.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0F4C3A] flex-shrink-0" />}
+                                    </div>
+                                  </div>
+
+                                  {/* Contraseña */}
+                                  <div className="flex-shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => sendPasswordReset(u.id, u.email)}
+                                      disabled={sendingReset === u.id || !u.email}
+                                      title={u.email
+                                        ? `Enviar a ${u.email} un correo para restablecer su contraseña`
+                                        : 'Este usuario no tiene correo registrado'}
+                                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-[#0F4C3A] hover:border-[#0F4C3A]/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                      {sendingReset === u.id
+                                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        : <KeyRound className="h-3.5 w-3.5" />}
+                                      Restablecer contraseña
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {feedback && (
+                                  <p className={`flex items-center gap-1.5 mt-2.5 text-[11px] font-medium ${feedback.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+                                    {feedback.ok
+                                      ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                                      : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                                    {feedback.msg}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 space-y-1.5">
+                        <p className="flex items-start gap-1.5 text-[11px] text-slate-500">
+                          <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                          <span>
+                            <strong>Restablecer contraseña</strong> envía a la persona un correo para que ella misma la cambie.
+                            Nadie más, ni un administrador, llega a verla.
+                          </span>
+                        </p>
+                        <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
+                          <Info className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                          <span>Los cambios de permisos y de servicios aplican en el próximo inicio de sesión del usuario.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

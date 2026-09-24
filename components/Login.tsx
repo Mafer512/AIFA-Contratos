@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, User, Lock, Mail, UserPlus, AlertTriangle, CheckCircle, Key, Eye, EyeOff, ShieldCheck, Info } from 'lucide-react';
+import { ArrowRight, Lock, Mail, AlertTriangle, CheckCircle, Key, Eye, EyeOff, ShieldCheck, Info } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
 // === CONFIGURACIÓN DE IMÁGENES ===
 const AIFA_ASSETS = {
   // Tu imagen de fondo aérea
   background: "https://images.unsplash.com/photo-1626116189797-4482f44a6499?q=80&w=1974&auto=format&fit=crop",
-  
+
   // Escudo de Slots (Placeholder)
-  badge: "https://via.placeholder.com/150/000000/FFFFFF/?text=SLOTS" 
+  badge: "https://via.placeholder.com/150/000000/FFFFFF/?text=SLOTS"
 };
 
 // === COMPONENTE DE LOGO (IMAGEN PNG) ===
@@ -47,21 +47,22 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage }) => {
-  const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState(''); 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Restablecimiento de contraseña: se maneja aparte del envío del formulario
+  // para no disparar la validación del campo de contraseña, que aquí sobra.
+  const [isSendingReset, setIsSendingReset] = useState(false);
 
   const planeGradientId = useMemo(() => `login-plane-gradient-${Math.random().toString(36).slice(2, 10)}`, []);
   const planeGlowId = useMemo(() => `login-plane-glow-${Math.random().toString(36).slice(2, 10)}`, []);
   const planeSparkId = useMemo(() => `login-plane-spark-${Math.random().toString(36).slice(2, 10)}`, []);
-  
+
   // Estado para mensajes de error más detallados
   const [errorHeader, setErrorHeader] = useState('');
   const [errorDetail, setErrorDetail] = useState('');
-  
+
   const [successMessage, setSuccessMessage] = useState('');
   const [successTitle, setSuccessTitle] = useState('Registro Exitoso');
   const [showApiKeyHelp, setShowApiKeyHelp] = useState(false);
@@ -70,7 +71,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
     if (!externalSuccessMessage) return;
     setSuccessMessage(externalSuccessMessage);
     setSuccessTitle('Cuenta confirmada');
-    setIsRegistering(false);
     setErrorHeader('');
     setErrorDetail('');
     setShowApiKeyHelp(false);
@@ -87,62 +87,19 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
     const normalizedEmail = email.trim().toLowerCase();
 
     try {
-      if (isRegistering) {
-        const currentUrl = window.location.origin;
-        const { data, error } = await supabase.auth.signUp({
-          email: normalizedEmail,
-          password,
-          options: {
-            emailRedirectTo: currentUrl,
-            data: {
-              full_name: fullName,
-              role: 'OPERATOR'
-            }
-          }
-        });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
 
-        if (error) throw error;
-        
-        if (data.user) {
-          try {
-            await supabase
-              .schema('public')
-              .from('profiles')
-              .upsert(
-                {
-                  id: data.user.id,
-                  full_name: fullName,
-                  role: 'OPERATOR'
-                },
-                { onConflict: 'id' }
-              );
-          } catch (profileError) {
-            console.error('Error syncing profile record:', profileError);
-          }
-        }
+      if (error) throw error;
 
-        if (data.user && !data.session) {
-          setSuccessTitle('Registro enviado');
-          setSuccessMessage('¡Cuenta creada con éxito! Por favor, revise su correo electrónico (y la carpeta de Spam) para confirmar su cuenta antes de iniciar sesión.');
-          setIsRegistering(false);
-        } else if (data.session) {
-          onLoginSuccess();
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: normalizedEmail,
-          password,
-        });
-
-        if (error) throw error;
-        
-        if (data.session) {
-          onLoginSuccess();
-        }
+      if (data.session) {
+        onLoginSuccess();
       }
     } catch (err: any) {
       console.error("Auth error full object:", err);
-      
+
       const msg = err.message || '';
       const msgLower = msg.toLowerCase();
 
@@ -168,13 +125,59 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
     }
   };
 
+  /**
+   * "Olvidé mi contraseña": manda el correo de restablecimiento a la dirección
+   * escrita arriba.
+   *
+   * El acuse es el mismo exista o no la cuenta, y es a propósito: si dijera
+   * "ese correo no está registrado", cualquiera podría usar esta pantalla para
+   * averiguar quién tiene cuenta en el sistema.
+   */
+  const handleForgotPassword = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    setErrorHeader('');
+    setErrorDetail('');
+    setSuccessMessage('');
+    setShowApiKeyHelp(false);
+
+    if (!normalizedEmail) {
+      setErrorHeader('Falta tu correo');
+      setErrorDetail('Escribe tu correo en el campo de arriba y vuelve a pulsar "¿Olvidaste tu contraseña?".');
+      return;
+    }
+
+    setIsSendingReset(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+
+      setSuccessTitle('Revisa tu correo');
+      setSuccessMessage(`Si ${normalizedEmail} tiene una cuenta, le llegará un enlace para crear una contraseña nueva. Revisa también la carpeta de Spam.`);
+    } catch (err: any) {
+      console.error('Error enviando restablecimiento:', err);
+      const msgLower = (err?.message ?? '').toLowerCase();
+      if (msgLower.includes('rate limit')) {
+        setErrorHeader('Demasiados intentos');
+        setErrorDetail('Ya se enviaron varios correos. Espera unos minutos antes de volver a intentarlo.');
+      } else {
+        setErrorHeader('No se pudo enviar el correo');
+        setErrorDetail(err?.message ?? 'Intenta de nuevo en unos momentos.');
+      }
+    } finally {
+      setIsSendingReset(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-200 via-slate-100 to-emerald-50 p-4 md:p-0 font-sans">
       <div className="flex w-full max-w-6xl bg-white rounded-3xl shadow-2xl overflow-hidden min-h-[760px] md:min-h-[720px]">
-        
+
         {/* ─── LEFT PANEL ──────────────────────────────────────── */}
         <div className="hidden md:flex w-[52%] relative flex-col items-center justify-center text-white text-center overflow-hidden bg-gradient-to-br from-[#020D07] via-[#062B1A] to-[#0A1F12]">
-          
+
           {/* Subtle green depth layers */}
           <div className="absolute top-0 left-0 w-3/4 h-2/3 bg-gradient-to-br from-[#0F4C3A]/30 to-transparent pointer-events-none" />
           {/* Gold bottom-right glow */}
@@ -237,20 +240,20 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
 
           {/* Content */}
           <div className="relative z-10 flex flex-col items-center justify-between h-full py-12 px-10">
-            
+
             {/* Logo */}
             <div className="flex flex-col items-center gap-5 w-full">
               <div className="p-5 bg-white/96 rounded-2xl shadow-2xl backdrop-blur-md w-full max-w-[260px] flex justify-center border border-white/60">
                 <AifaLogo className="h-28 w-full object-contain" />
               </div>
-              
+
               {/* Gold separator */}
               <div className="flex items-center gap-3 w-full max-w-[220px]">
                 <div className="flex-1 h-px bg-gradient-to-r from-transparent to-[#B38E5D]/60" />
                 <div className="w-1.5 h-1.5 rounded-full bg-[#B38E5D]" style={{ animation: 'loginGoldPulse 3s ease-in-out infinite' }} />
                 <div className="flex-1 h-px bg-gradient-to-l from-transparent to-[#B38E5D]/60" />
               </div>
-              
+
               <h1 className="text-[2.2rem] font-black tracking-[0.2em] text-white drop-shadow-lg leading-tight">
                 AIFA<br />
                 <span className="text-[#B38E5D]">CONTRATOS</span>
@@ -287,7 +290,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
 
         {/* ─── RIGHT PANEL (form) ──────────────────────────────── */}
         <div className="w-full md:w-[48%] bg-white flex flex-col justify-center relative">
-          
+
           {/* Top accent bar */}
           <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-[#0F4C3A] via-[#1a7a5e] to-[#B38E5D]" />
 
@@ -304,15 +307,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
               {/* Header */}
               <div className="mb-8 space-y-2">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#0F4C3A]/10 text-[#0F4C3A] text-[10px] font-black uppercase tracking-[0.4em] border border-[#0F4C3A]/20">
-                  {isRegistering ? 'Registro' : 'Acceso AIFA'}
+                  Acceso AIFA
                 </div>
                 <h2 className="text-[1.9rem] font-extrabold text-slate-900 tracking-tight leading-snug mt-3">
-                  {isRegistering ? 'Solicitar acceso' : 'Bienvenido de nuevo'}
+                  Bienvenido de nuevo
                 </h2>
                 <p className="text-slate-500 text-sm leading-relaxed">
-                  {isRegistering 
-                    ? 'Solicite acceso institucional para colaborar en la gestión centralizada de contratos.'
-                    : 'Ingresa con tus credenciales para consultar contratos, pagos y observaciones.'}
+                  Ingresa con tus credenciales para consultar contratos, pagos y observaciones.
                 </p>
               </div>
 
@@ -324,18 +325,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
               )}
 
               <form onSubmit={handleAuth} className="space-y-5">
-                
-                {isRegistering && (
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.35em] mb-2">Nombre</label>
-                    <div className="relative group">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-[#0F4C3A] transition-colors" />
-                      <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/12 outline-none transition-all placeholder:text-slate-400"
-                        placeholder="Nombre completo" required={isRegistering} />
-                    </div>
-                  </div>
-                )}
 
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.35em] mb-2">Correo</label>
@@ -359,6 +348,19 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  <div className="flex justify-end mt-2">
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      disabled={isSendingReset || isLoading}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#0F4C3A] disabled:opacity-60 transition-colors"
+                    >
+                      {isSendingReset
+                        ? <div className="animate-spin rounded-full h-3 w-3 border-2 border-slate-300 border-t-[#0F4C3A]" />
+                        : <Key className="h-3.5 w-3.5" />}
+                      {isSendingReset ? 'Enviando...' : '¿Olvidaste tu contraseña?'}
+                    </button>
+                  </div>
                 </div>
 
                 {errorHeader && (
@@ -369,7 +371,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
                     <p className="text-red-600 text-xs ml-6 leading-relaxed">{errorDetail}</p>
                   </div>
                 )}
-                
+
                 {successMessage && (
                   <div className="relative overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50 via-white to-emerald-50 p-4 shadow-sm">
                     <div className="absolute -top-10 -right-10 h-24 w-24 bg-emerald-200/40 blur-3xl" aria-hidden="true" />
@@ -395,23 +397,20 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
                     </>
                   ) : (
                     <>
-                      {isRegistering ? 'Solicitar acceso' : 'Ingresar'}
-                      {isRegistering
-                        ? <UserPlus className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                        : <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />}
+                      Ingresar
+                      <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
                     </>
                   )}
                 </button>
               </form>
 
+              {/* Ya no hay alta propia: las cuentas las crea un administrador
+                  desde Accesos → Usuarios. */}
               <div className="mt-8 pt-5 border-t border-slate-100 text-center">
-                <button 
-                  onClick={() => { setIsRegistering(!isRegistering); setErrorHeader(''); setErrorDetail(''); setSuccessMessage(''); setSuccessTitle('Registro Exitoso'); }}
-                  className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-[#0F4C3A] transition-colors font-medium"
-                >
-                  {isRegistering ? <ArrowRight className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
-                  {isRegistering ? '¿Ya tienes cuenta? Inicia Sesión' : '¿No tienes cuenta? Solicitar Registro'}
-                </button>
+                <p className="inline-flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  ¿Necesitas una cuenta? Solicítala a un administrador del sistema.
+                </p>
               </div>
 
             </div>
@@ -506,7 +505,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
               style={{ background: 'radial-gradient(circle at 40% 40%, rgba(255,255,255,0.4), rgba(210,220,240,0.08))', filter: 'blur(58px)', animation: 'loginCloudFloat 48s ease-in-out infinite' }}
             ></div>
           </div>
-          
+
           {/* Overlay Gradients for readability */}
           <div className="absolute inset-0 bg-gradient-to-b from-slate-900/80 via-slate-900/60 to-slate-900/90 z-10"></div>
 };
