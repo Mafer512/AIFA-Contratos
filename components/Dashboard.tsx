@@ -32,6 +32,7 @@ const localizer = dateFnsLocalizer({
 
 import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff, AccessLogEntry } from '../types';
 import { supabase, supabaseOperaciones, supabaseSignUp } from '../services/supabaseClient';
+import { urlRetorno } from '../services/authLink';
 import { formatCurrency, isMonetaryField as shouldFormatAsCurrency, formatDuration, formatRelativeTime, describeDevice, isMobileDevice } from '../utils/formatters';
 import {
   RESPONSABLE_PROFILES,
@@ -2410,7 +2411,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setResetFeedback(null);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/`,
+        redirectTo: urlRetorno(),
       });
       if (error) throw error;
       setResetFeedback({ id: userId, ok: true, msg: `Correo enviado a ${email}` });
@@ -2487,7 +2488,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         email,
         password,
         options: {
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: urlRetorno(),
           data: { full_name: fullName, role: newUser.role },
         },
       });

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Lock, Mail, AlertTriangle, CheckCircle, Key, Eye, EyeOff, ShieldCheck, Info } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
+import { urlRetorno } from '../services/authLink';
 
 // === CONFIGURACIÓN DE IMÁGENES ===
 const AIFA_ASSETS = {
@@ -150,7 +151,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
     setIsSendingReset(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-        redirectTo: window.location.origin,
+        redirectTo: urlRetorno(),
       });
       if (error) throw error;
 

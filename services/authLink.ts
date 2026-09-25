@@ -108,6 +108,23 @@ export const limpiarRecovery = (): void => {
   recoveryDetectado = false;
 };
 
+/**
+ * La dirección a la que debe regresar el enlace del correo.
+ *
+ * Tiene que salir de un solo sitio porque Supabase compara esta cadena contra
+ * su lista blanca de forma literal: si el login mandaba "https://app.com" y el
+ * panel "https://app.com/", una de las dos podía no coincidir y Supabase la
+ * descartaba en silencio, mandando a la persona a la Site URL del proyecto —que
+ * puede ser un despliegue viejo— en vez de a donde estaba.
+ *
+ * Se incluye la barra final y en Supabase se registra con comodín
+ * (https://tu-dominio/**), que cubre cualquier ruta.
+ */
+export const urlRetorno = (): string => {
+  if (typeof window === 'undefined') return '/';
+  return `${window.location.origin}/`;
+};
+
 // Diagnóstico: si el enlace vuelve a fallar, esto dice exactamente con qué URL
 // se abrió la página, que es el dato que hace falta para saber por qué.
 if (typeof window !== 'undefined') {
