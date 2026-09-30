@@ -13810,7 +13810,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </div>
                           )}
 
-                          <div className="relative h-[calc(100vh-280px)] overflow-auto shadow-inner rounded-xl border border-slate-200">
+                          <div className="relative max-h-[calc(100vh-280px)] overflow-auto shadow-inner rounded-xl border border-slate-200">
                             <table className="min-w-full text-center border-collapse">
                               <thead className="sticky top-0 z-20 shadow-sm">
                                 {/* Gantt group-header row: colored label spanning each pair of date columns */}
@@ -13920,8 +13920,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 ) : filteredEstatus2026Data.length === 0 ? (
                                   <tr>
                                     <td colSpan={estatus2026TableColumns.length || 1} className="px-4 py-12 text-center text-slate-400">
-                                      <FileText className="h-10 w-10 mx-auto text-slate-300 mb-2" />
-                                      <p>No se encontraron registros en estatus_2026.</p>
+                                      {(() => {
+                                        // Distinguir "no hay datos" de "el filtro no encontró nada":
+                                        // decirle a alguien que la tabla está vacía cuando en realidad
+                                        // acaba de escribir en un buscador lo manda a revisar la base de
+                                        // datos en lugar de a corregir su búsqueda.
+                                        const hayBusquedaGlobal = tableFilters.estatus2026.trim().length > 0;
+                                        const hayFiltrosColumna = Object.keys(columnFilters.estatus2026 ?? {}).length > 0;
+                                        const hayBusquedaColumna = estatus2026ActiveColumnSearch.length > 0;
+                                        const hayFiltros = hayBusquedaGlobal || hayFiltrosColumna || hayBusquedaColumna;
+
+                                        if (!hayFiltros) {
+                                          return (
+                                            <>
+                                              <FileText className="h-10 w-10 mx-auto text-slate-300 mb-2" />
+                                              <p>No se encontraron registros en {tablaEstatusAnio}.</p>
+                                            </>
+                                          );
+                                        }
+
+                                        return (
+                                          <>
+                                            <Search className="h-10 w-10 mx-auto text-slate-300 mb-2" />
+                                            <p className="text-slate-600 font-semibold">Sin coincidencias</p>
+                                            <p className="text-sm mt-1">
+                                              Ningún servicio coincide con lo que buscaste.
+                                            </p>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setTableFilters((prev) => ({ ...prev, estatus2026: '' }));
+                                                setColumnFilters((prev) => ({ ...prev, estatus2026: {} }));
+                                                setEstatus2026ColumnSearch({});
+                                              }}
+                                              className="inline-flex items-center gap-1.5 mt-4 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-[#0F4C3A] transition-colors"
+                                            >
+                                              <XCircle className="h-3.5 w-3.5" />
+                                              Limpiar los filtros
+                                            </button>
+                                          </>
+                                        );
+                                      })()}
                                     </td>
                                   </tr>
                                 ) : (
@@ -13996,7 +14035,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           }
 
                                           const rawValue = row[column];
-                                          const columnMeta = estatus2026ColumnMeta.get(column)!;
+                                          // Sin "!": ese operador sólo calla a TypeScript, no existe en
+                                          // tiempo de ejecución. Si el Map no tuviera esta columna, la
+                                          // desestructuración de abajo lanzaría y React desmontaría toda la
+                                          // aplicación. Una celda sin metadatos se dibuja sin formato.
+                                          const columnMeta = estatus2026ColumnMeta.get(column) ?? {
+                                            isBoolean: false, isDate: false, isHighlighted: false,
+                                            isObservations: false, stickyConfig: undefined, isLastSticky: false,
+                                          };
 
                                           // Use pre-calculated types
                                           const { isBoolean, isDate, isHighlighted, isObservations, stickyConfig, isLastSticky } = columnMeta;
@@ -14518,7 +14564,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                         {renderActiveColumnFilterBadges('pagos2026')}
 
-                        <div className="relative h-[calc(100vh-280px)] overflow-auto shadow-inner rounded-xl border border-slate-200">
+                        <div className="relative max-h-[calc(100vh-280px)] overflow-auto shadow-inner rounded-xl border border-slate-200">
                           <table className="min-w-full text-center border-collapse">
                             <thead className="sticky top-0 z-[60] shadow-sm">
                               <tr className="text-xs uppercase tracking-wider text-white font-semibold">
@@ -14630,7 +14676,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <tr key={rowKey} className="hover:bg-slate-50 transition-colors group" style={rowStyle}>
                                       {pagos2026TableColumns.map((column) => {
                                         const rawValue = row[column];
-                                        const columnMeta = pagos2026ColumnMeta.get(column)!;
+                                        // Mismo motivo que en la tabla de estatus: el "!" no protege nada
+                                        // en tiempo de ejecución.
+                                        const columnMeta = pagos2026ColumnMeta.get(column) ?? {
+                                          isBoolean: false, isDate: false, isMonthRelated: false,
+                                          isNotaCredito: false, parentMonth: null,
+                                          stickyConfig: undefined, isLastSticky: false,
+                                        };
                                         const { isBoolean, isDate, isMonthRelated, isNotaCredito, parentMonth: colParentMonthCell, stickyConfig, isLastSticky } = columnMeta;
                                         const isIdColumn = ['id', 'ID', 'Id'].includes(column) || column.toLowerCase() === 'id' || column.toLowerCase() === 'no.' || column.toLowerCase() === 'numero';
                                         const isYearColumn = ['año', 'anio', 'year'].includes(column.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));

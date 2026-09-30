@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import ResetPassword from './components/ResetPassword';
+import ErrorBoundary from './components/ErrorBoundary';
 import { Screen, User, UserRole, BeforeInstallPromptEvent } from './types';
 import { supabase } from './services/supabaseClient';
 import { authLink, esFlujoRecovery, alDetectarRecovery, limpiarRecovery } from './services/authLink';
@@ -510,7 +511,11 @@ const App: React.FC = () => {
         <Login onLoginSuccess={handleLoginSuccess} externalSuccessMessage={authNotice ?? undefined} />
       )}
       {currentScreen === Screen.DASHBOARD && currentUser && (
-        <Dashboard user={currentUser} onLogout={handleLogout} />
+        // Un fallo dentro del dashboard ya no puede borrar la aplicación
+        // entera: se queda acotado aquí y se enseña qué pasó.
+        <ErrorBoundary nombre="el panel">
+          <Dashboard user={currentUser} onLogout={handleLogout} />
+        </ErrorBoundary>
       )}
 
       {/* ── Inactivity warning modal ─────────────────────────────────── */}
