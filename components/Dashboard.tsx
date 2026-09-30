@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard,
@@ -1242,6 +1242,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   });
 
   const [estatus2026ColumnSearch, setEstatus2026ColumnSearch] = useState<Record<string, string>>({});
+  /**
+   * Copia diferida de las búsquedas por columna.
+   *
+   * El cuadro de texto se pinta con el valor inmediato, así que cada tecla
+   * aparece al momento. El filtrado y el repintado de la tabla —que con 500
+   * servicios y 40 columnas son decenas de miles de celdas— se hacen con esta
+   * copia, que React actualiza con prioridad baja y puede interrumpir si la
+   * persona sigue escribiendo. Antes cada pulsación bloqueaba el hilo hasta
+   * terminar de redibujar toda la tabla, y por eso las letras salían tarde.
+   */
+  const estatus2026ColumnSearchDiferido = useDeferredValue(estatus2026ColumnSearch);
+
+  /** Lo mismo para el buscador general de la tabla de estatus. */
+  const estatus2026QueryDiferida = useDeferredValue(tableFilters.estatus2026);
+
+  /**
+   * true mientras la tabla todavía no refleja lo último que se escribió.
+   *
+   * Sirve para atenuarla un poco y decir "filtrando...". Sin esa señal, diferir
+   * el trabajo se siente como que la aplicación ignora las teclas; con ella se
+   * entiende que está alcanzando.
+   */
+  const estatus2026Filtrando =
+    estatus2026ColumnSearch !== estatus2026ColumnSearchDiferido ||
+    tableFilters.estatus2026 !== estatus2026QueryDiferida;
   const [pagos2026ColumnSearch, setPagos2026ColumnSearch] = useState<Record<string, string>>({});
 
   const updateColumnFilter = useCallback((tableKey: TableFilterKey, columnKey: string, values: string[] | null) => {
@@ -3115,13 +3140,36 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     });
   }, [servicios2026Data, tableFilters.servicios2026, columnFilters.servicios2026]);
 
+  /**
+   * Búsquedas por columna activas, ya resueltas.
+   *
+   * `isResponsable` y `expected` sólo dependen de la columna y del texto
+   * escrito, pero antes se calculaban DENTRO del bucle de filas: con 500
+   * servicios, normalizeAnnualKey (ocho reemplazos con expresión regular más
+   * una normalización Unicode) corría 500 veces por tecla para obtener siempre
+   * el mismo resultado. Aquí se resuelve una sola vez.
+   *
+   * Se alimenta del valor diferido, no del que escribe la persona: así el
+   * cuadro de texto responde al instante y la tabla se pone al día después.
+   */
   const estatus2026ActiveColumnSearch = useMemo(
-    () => Object.entries(estatus2026ColumnSearch ?? {}).filter(([, term]) => Boolean(term && term.trim().length > 0)).map(([key, term]) => [key, term.toLowerCase()] as const),
-    [estatus2026ColumnSearch]
+    () => Object.entries(estatus2026ColumnSearchDiferido ?? {})
+      .filter(([, term]) => Boolean(term && term.trim().length > 0))
+      .map(([key, term]) => {
+        const isResponsable = normalizeAnnualKey(key) === 'responsable';
+        return {
+          key,
+          isResponsable,
+          expected: isResponsable
+            ? normalizeResponsableKey(getCanonicalResponsableValue(term))
+            : term.toLowerCase(),
+        };
+      }),
+    [estatus2026ColumnSearchDiferido]
   );
 
   const filteredEstatus2026Data = useMemo(() => {
-    const query = tableFilters.estatus2026.trim();
+    const query = estatus2026QueryDiferida.trim();
     const columnMap = columnFilters.estatus2026;
     const hasColumnFilters = Object.keys(columnMap ?? {}).length > 0;
     const hasSearchFilters = estatus2026ActiveColumnSearch.length > 0;
@@ -3140,20 +3188,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       if (query && !rowMatchesFilter(row as Record<string, any>, query)) return false;
       if (hasColumnFilters && !rowMatchesColumnFilters(row as Record<string, any>, columnMap)) return false;
       if (hasSearchFilters) {
-        for (const [key, term] of estatus2026ActiveColumnSearch) {
-          const isResponsable = normalizeAnnualKey(key) === 'responsable';
+        for (const { key, isResponsable, expected } of estatus2026ActiveColumnSearch) {
           const val = isResponsable
             ? normalizeResponsableKey(getCanonicalResponsableValue(row[key]))
             : String(row[key] ?? '').toLowerCase();
-          const expected = isResponsable
-            ? normalizeResponsableKey(getCanonicalResponsableValue(term))
-            : term;
           if (!val.includes(expected)) return false;
         }
       }
       return true;
     });
-  }, [estatusAnioData, tableFilters.estatus2026, columnFilters.estatus2026, estatus2026ActiveColumnSearch, user.responsable]);
+  }, [estatusAnioData, estatus2026QueryDiferida, columnFilters.estatus2026, estatus2026ActiveColumnSearch, user.responsable, user.role, viewAllServices]);
 
   const filteredPagos2026Data = useMemo(() => {
     const query = tableFilters.pagos2026.trim();
@@ -5311,6 +5355,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     [estatus2026TableColumns]
   );
 
+  /**
+   * Las tres columnas de fecha que alimentan los contadores de días.
+   *
+   * Sólo dependen de qué columnas tiene la tabla, pero se buscaban dentro del
+   * render de CADA celda virtual: cada búsqueda recorría las ~40 columnas
+   * llamando dos veces a normalizeAnnualKey. Con 500 filas eso eran decenas de
+   * miles de recorridos por pulsación de tecla para llegar siempre al mismo
+   * resultado.
+   */
+  const estatus2026DiasColumns = useMemo(() => ({
+    remision: estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('remision') && normalizeAnnualKey(c).includes('investigacion')),
+    recepcion: estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('recepcion') && normalizeAnnualKey(c).includes('investigacion')),
+    validacion: estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('validacion') && normalizeAnnualKey(c).includes('area')),
+  }), [estatus2026TableColumns]);
+
   // Pre-calculate column metadata (types, sticky configs, highlights) to improve render performance
   const estatus2026ColumnMeta = useMemo(() => {
     const meta = new Map<string, {
@@ -5320,6 +5379,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       isObservations: boolean;
       stickyConfig?: { left: number; width: number };
       isLastSticky: boolean;
+      norm: string;
+      isIdColumn: boolean;
+      isResponsableCol: boolean;
+      isEstatusStatusCol: boolean;
+      isTipoServicioCol: boolean;
     }>();
 
     const highlightColumns = [
@@ -5335,7 +5399,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
       // Virtual day-counter columns
       if (column === '__dias_remision_recepcion' || column === '__dias_recepcion_validacion' || column === '__row_num') {
-        meta.set(column, { isBoolean: false, isDate: false, isHighlighted: false, isObservations: false, isLastSticky: false });
+        meta.set(column, {
+          isBoolean: false, isDate: false, isHighlighted: false, isObservations: false, isLastSticky: false,
+          norm: normalizeAnnualKey(column), isIdColumn: false, isResponsableCol: false,
+          isEstatusStatusCol: false, isTipoServicioCol: false,
+        });
         return;
       }
 
@@ -5385,13 +5453,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       const isHighlighted = highlightColumns.includes(norm);
       const isObservations = norm.includes('incidencia');
 
+      // Estas banderas se resolvían en cada celda. Son propiedades de la
+      // COLUMNA, no de la celda, así que se calculan aquí una vez y las 500
+      // filas las reutilizan.
+      const colNormGuion = column.toLowerCase().replace(/[\s_]+/g, '_');
+
       meta.set(column, {
         isBoolean,
         isDate,
         isHighlighted,
         isObservations,
         stickyConfig: estatus2026StickyInfo.meta.get(column),
-        isLastSticky: estatus2026LastStickyKey === column
+        isLastSticky: estatus2026LastStickyKey === column,
+        norm,
+        isIdColumn: norm === 'id',
+        isResponsableCol: norm === 'responsable',
+        isEstatusStatusCol: norm === 'estatus' || norm === 'status',
+        isTipoServicioCol: colNormGuion === 'tipo_de_servicio' || (colNormGuion.includes('tipo') && colNormGuion.includes('servicio')),
       });
     });
 
@@ -13824,7 +13902,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </div>
                           )}
 
-                          <div className="relative max-h-[calc(100vh-280px)] overflow-auto shadow-inner rounded-xl border border-slate-200">
+                          <div className={`relative max-h-[calc(100vh-280px)] overflow-auto shadow-inner rounded-xl border border-slate-200 transition-opacity ${estatus2026Filtrando ? 'opacity-60' : ''}`}>
+                            {estatus2026Filtrando && (
+                              <div className="sticky top-0 left-0 z-40 flex justify-center pointer-events-none">
+                                <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-900/80 px-3 py-1 text-[11px] font-semibold text-white shadow-lg">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Filtrando...
+                                </span>
+                              </div>
+                            )}
                             <table className="min-w-full text-center border-collapse">
                               <thead className="sticky top-0 z-20 shadow-sm">
                                 {/* Gantt group-header row: colored label spanning each pair of date columns */}
@@ -14018,9 +14104,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 </td>
                                               );
                                             }
-                                            const remisionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('remision') && normalizeAnnualKey(c).includes('investigacion'));
-                                            const recepcionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('recepcion') && normalizeAnnualKey(c).includes('investigacion'));
-                                            const validacionCol = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('validacion') && normalizeAnnualKey(c).includes('area'));
+                                            const { remision: remisionCol, recepcion: recepcionCol, validacion: validacionCol } = estatus2026DiasColumns;
                                             let fromDate: Date | null = null;
                                             let toDate: Date | null = null;
                                             if (column === '__dias_remision_recepcion') {
@@ -14056,17 +14140,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           const columnMeta = estatus2026ColumnMeta.get(column) ?? {
                                             isBoolean: false, isDate: false, isHighlighted: false,
                                             isObservations: false, stickyConfig: undefined, isLastSticky: false,
+                                            norm: '', isIdColumn: false, isResponsableCol: false,
+                                            isEstatusStatusCol: false, isTipoServicioCol: false,
                                           };
 
                                           // Use pre-calculated types
-                                          const { isBoolean, isDate, isHighlighted, isObservations, stickyConfig, isLastSticky } = columnMeta;
+                                          const {
+                                            isBoolean, isDate, isHighlighted, isObservations, stickyConfig, isLastSticky,
+                                            isIdColumn, isResponsableCol, isEstatusStatusCol, isTipoServicioCol,
+                                          } = columnMeta;
 
                                           const isCurrencyColumn = shouldFormatAsCurrency(column);
                                           const numeric = !isBoolean && !isDate && (typeof rawValue === 'number' || isCurrencyColumn);
                                           const isServiceNameCell = column === estatus2026ServiceNameFieldSummary;
                                           // Only one column normalises to 'id' now (dedup above ensures this),
                                           // so use the normalised check again — works regardless of case (id / ID).
-                                          const isIdColumn = normalizeAnnualKey(column) === 'id';
+                                          // isIdColumn viene de columnMeta (calculado una vez por columna).
                                           const isGarantiaRequirementCell = column === estatus2026GarantiaCumplimientoField;
                                           const isPolizaRequirementCell = column === estatus2026PolizaResponsabilidadCivilField;
                                           const isCalidadRequirementCell = column === estatus2026GarantiaCalidadField;
@@ -14160,11 +14249,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           const rowDeleteKey = `estatus_2026:id:${String(row?.id ?? row?.ID ?? row?.Id ?? rowKey)}`;
                                           const isDeletingThisRow = isDeletingRecord && deletingRecordKey === rowDeleteKey;
 
-                                          const _colNorm = column.toLowerCase().replace(/[\s_]+/g, '_');
-                                          const isTipoServicioCol = _colNorm === 'tipo_de_servicio' || (_colNorm.includes('tipo') && _colNorm.includes('servicio'));
-                                          const _colNormFull = normalizeAnnualKey(column);
-                                          const isEstatusStatusCol = _colNormFull === 'estatus' || _colNormFull === 'status';
-                                          const isResponsableCol = normalizeAnnualKey(column) === 'responsable';
+                                          // isTipoServicioCol, isEstatusStatusCol e isResponsableCol vienen de
+                                          // columnMeta: son propiedades de la columna, no de la celda.
 
                                           return (
                                             <td key={column} className={finalCellClasses} title={String(editingValue || isChecked)} style={stickyCellStyle}>

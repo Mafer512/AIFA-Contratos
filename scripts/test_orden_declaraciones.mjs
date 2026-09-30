@@ -57,6 +57,19 @@ if (usoFiltro !== -1) {
   ok('ese filtro ve la funcion ya inicializada', decl < usoFiltro, `declarada en ${decl + 1}, usada en ${usoFiltro + 1}`);
 }
 
+// Los valores diferidos son del mismo tipo de riesgo: son `const` dentro del
+// componente y varios useMemo los leen. Si alguien mueve su declaración por
+// debajo de esos useMemo, vuelve el mismo ReferenceError.
+for (const nombre of ['estatus2026ColumnSearchDiferido', 'estatus2026QueryDiferida']) {
+  const decl = lines.findIndex(l => new RegExp(`^  const ${nombre}\\b`).test(l));
+  const primerUso = lines.findIndex((l, i) => i !== decl && new RegExp(`\\b${nombre}\\b`).test(l));
+  ok(`${nombre} existe`, decl !== -1, decl !== -1 ? `linea ${decl + 1}` : 'NO ENCONTRADA');
+  if (decl !== -1 && primerUso !== -1) {
+    ok(`${nombre} se declara antes de usarse`, decl < primerUso,
+       `declarada en ${decl + 1}, primer uso en ${primerUso + 1}`);
+  }
+}
+
 // El contenedor de las tablas debe limitar su altura, no fijarla: con h- fija
 // quedaba un hueco blanco enorme al filtrar y dejar pocas filas.
 const alturaFija = lines.filter(l => l.includes('h-[calc(100vh-280px)]') && !l.includes('max-h-')).length;
