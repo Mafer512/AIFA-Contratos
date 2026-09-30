@@ -1,3 +1,5 @@
+import { ORGANIGRAMA_BASE, type DatosOrganicos, type NivelOrganico, type ClaveColor } from './organigrama.ts';  // extension explicita: asi los scripts de prueba de Node tambien lo resuelven
+
 export interface ResponsableProfile {
   fullName: string;
   catalogValue: string;
@@ -6,6 +8,21 @@ export interface ResponsableProfile {
   aifaTenure: string;
   photoUrl: string;
   aliases?: string[];
+
+  // ── Datos orgánicos ──
+  // Opcionales a propósito: alguien dado de alta desde la aplicación puede
+  // existir antes de que se le asigne lugar en la estructura, y no por eso
+  // debe desaparecer de las listas.
+  partida?: number;
+  puesto?: string;
+  nivelSalarial?: string;
+  nivelOrganico?: NivelOrganico;
+  /** catalogValue del jefe directo. */
+  reportaA?: string | null;
+  color?: ClaveColor;
+  activo?: boolean;
+  /** id en la tabla de Supabase; sólo lo traen los creados desde la aplicación. */
+  dbId?: number;
 }
 
 export const RESPONSABLE_PROFILES: readonly ResponsableProfile[] = [
@@ -114,7 +131,29 @@ export const RESPONSABLE_PROFILES: readonly ResponsableProfile[] = [
     aifaTenure: '4 años 3 meses 14 días',
     photoUrl: '/images/responsables/samuel-gomez-cerrada.jpg',
   },
+  {
+    fullName: 'Mari Carmen Alvarez Reyes',
+    catalogValue: 'MARI CARMEN ALVAREZ REYES',
+    employeeNumber: '1765',
+    academicDegree: 'Licenciatura en Administración',
+    aifaTenure: '14 días',
+    // Todavía sin fotografía: la tarjeta cae en las iniciales.
+    photoUrl: '',
+  },
 ] as const;
+
+/**
+ * Perfiles con su lugar en la estructura ya incorporado.
+ *
+ * ORGANIGRAMA_BASE se guarda aparte —indexado por catalogValue— para que la
+ * ficha de la persona y su posición en el organigrama se puedan editar sin
+ * pisarse: cambiar de jefe no obliga a tocar su grado académico ni su foto.
+ */
+export const RESPONSABLE_PROFILES_CON_ORGANIGRAMA: readonly ResponsableProfile[] =
+  RESPONSABLE_PROFILES.map((perfil) => {
+    const org: DatosOrganicos | undefined = ORGANIGRAMA_BASE[perfil.catalogValue];
+    return org ? { ...perfil, ...org } : { ...perfil, activo: true };
+  });
 
 export const RESPONSABLES = RESPONSABLE_PROFILES.map(({ catalogValue }) => catalogValue);
 

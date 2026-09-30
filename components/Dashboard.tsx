@@ -31,6 +31,9 @@ const localizer = dateFnsLocalizer({
 });
 
 import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff, AccessLogEntry } from '../types';
+import Organigrama from './Organigrama';
+import { ORGANIGRAMA_BASE } from '../data/organigrama';
+import { RESPONSABLE_PROFILES_CON_ORGANIGRAMA } from '../data/responsables';
 import { supabase, supabaseOperaciones, supabaseSignUp } from '../services/supabaseClient';
 import { urlRetorno } from '../services/authLink';
 import { formatCurrency, isMonetaryField as shouldFormatAsCurrency, formatDuration, formatRelativeTime, describeDevice, isMobileDevice } from '../utils/formatters';
@@ -197,6 +200,23 @@ const normalizeAnnualKey = (key: string) => key
   .replace(/\s+/g, ' ')
   .replace(/[º°#]/g, '')
   .trim();
+
+/**
+ * Copia de un objeto sin sus campos vacíos.
+ *
+ * Al fusionar la ficha del archivo con la de Supabase, un campo que la base
+ * trae en blanco no debe borrar el que ya se tenía: si a alguien todavía no le
+ * capturaron la foto en la tabla, conviene seguir mostrando la del archivo en
+ * vez de dejar el hueco.
+ */
+const quitarVacios = <T extends Record<string, any>>(obj: T): Partial<T> => {
+  const salida: Record<string, any> = {};
+  Object.entries(obj).forEach(([clave, valor]) => {
+    if (valor === null || valor === undefined || valor === '') return;
+    salida[clave] = valor;
+  });
+  return salida as Partial<T>;
+};
 
 const rowMatchesFilter = (row: Record<string, any>, query: string): boolean => {
   const normalizedQuery = normalizeSearchFragment(query ?? '').trim();
@@ -1100,9 +1120,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   // Responsables dados de alta desde la app (tabla "responsables") se combinan
   // con el catálogo fijo de data/responsables.ts para que participen en las
   // mismas tarjetas, selectores y validaciones que los responsables originales.
-  const combinedResponsableProfiles = useMemo(
-    () => [...RESPONSABLE_PROFILES, ...dbResponsables],
-    [dbResponsables]
+  /**
+   * Fichas del personal: las del archivo más las de Supabase, sin duplicados.
+   *
+   * Cuando alguien está en los dos lados gana la de Supabase, porque es la que
+   * el área puede corregir sin desplegar. Antes se concatenaban sin más y la
+   * misma persona salía dos veces en cuanto se editaba su ficha, con sus
+   * servicios repartidos entre las dos copias.
+   */
+  const combinedResponsableProfiles = useMemo(() => {
+    const porClave = new Map<string, ResponsableProfile>();
+    RESPONSABLE_PROFILES_CON_ORGANIGRAMA.forEach((p) => porClave.set(normalizeResponsableKey(p.catalogValue), p));
+    dbResponsables.forEach((p) => {
+      const clave = normalizeResponsableKey(p.catalogValue);
+      const previa = porClave.get(clave);
+      // Se conserva lo que el archivo sabía y que la base todavía no trae
+      // (por ejemplo la foto), en vez de dejarlo en blanco.
+      porClave.set(clave, previa ? { ...previa, ...quitarVacios(p) } : p);
+    });
+    return Array.from(porClave.values());
+  }, [dbResponsables]);
+
+  /** Sólo quienes siguen en el área, ordenados para el organigrama. */
+  const personasOrganigrama = useMemo(
+    () => combinedResponsableProfiles.filter((p) => p.activo !== false),
+    [combinedResponsableProfiles]
   );
 
   // Cerrar la foto con Escape, no sólo con el clic.
@@ -3037,16 +3079,119 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (compranetError) console.error('Error fetching procedimientos_compranet:', compranetError.message);
   };
 
+  /** Tarjeta de persona abierta en el organigrama. */
+  const [responsableAbierto, setResponsableAbierto] = useState<string | null>(null);
+  const [avisoTablaResponsables, setAvisoTablaResponsables] = useState<string | null>(null);
+
+  /**
+   * Guarda (alta o edición) a una persona de la estructura.
+   *
+   * upsert sobre catalog_value, no insert: esa columna es la llave con la que
+   * los servicios encuentran a su responsable, así que dos fichas con el mismo
+   * valor partirían sus servicios en dos montones.
+   */
+  const guardarPersonaOrganigrama = useCallback(async (persona: ResponsableProfile, esNueva: boolean) => {
+    if (!canManageRecords) {
+      throw new Error('Tu perfil no puede modificar la plantilla.');
+    }
+    setIsSavingResponsable(true);
+    try {
+      const fila = {
+        full_name: persona.fullName,
+        catalog_value: persona.catalogValue,
+        employee_number: persona.employeeNumber || null,
+        academic_degree: persona.academicDegree || null,
+        aifa_tenure: persona.aifaTenure || null,
+        puesto: persona.puesto || null,
+        nivel_salarial: persona.nivelSalarial || null,
+        photo_url: persona.photoUrl || null,
+        partida: persona.partida ?? null,
+        nivel_organico: persona.nivelOrganico ?? 'COLABORADOR',
+        reporta_a: persona.reportaA ?? null,
+        color: persona.color ?? 'sinEquipo',
+        activo: persona.activo !== false,
+      };
+
+      const { error } = await supabase
+        .from('responsables')
+        .upsert(fila, { onConflict: 'catalog_value' });
+
+      if (error) throw error;
+
+      await logChange({
+        table: 'responsables',
+        action: esNueva ? 'INSERT' : 'UPDATE',
+        recordId: persona.catalogValue,
+        before: null,
+        after: fila,
+      });
+
+      await fetchResponsablesData();
+    } finally {
+      setIsSavingResponsable(false);
+    }
+  }, [canManageRecords, logChange]);
+
+  /**
+   * Baja de una persona.
+   *
+   * Marca activo = false en vez de borrar el renglón. El nombre sigue vivo en
+   * el historial de cambios y en los servicios que atendió; si se borrara, ese
+   * historial quedaría apuntando a alguien que ya no existe.
+   */
+  const darDeBajaPersona = useCallback(async (persona: ResponsableProfile) => {
+    if (!canManageRecords) return;
+    const confirmado = window.confirm(
+      `¿Dar de baja a ${persona.fullName}?\n\n` +
+      'Desaparecerá del organigrama, pero se conserva su historial y los servicios que atendió. ' +
+      'Si tenía servicios asignados, reasígnalos después desde la tabla de estatus.'
+    );
+    if (!confirmado) return;
+
+    setIsSavingResponsable(true);
+    try {
+      const { error } = await supabase
+        .from('responsables')
+        .upsert({
+          full_name: persona.fullName,
+          catalog_value: persona.catalogValue,
+          activo: false,
+        }, { onConflict: 'catalog_value' });
+      if (error) throw error;
+
+      await logChange({
+        table: 'responsables',
+        action: 'UPDATE',
+        recordId: persona.catalogValue,
+        before: { activo: true },
+        after: { activo: false },
+      });
+
+      await fetchResponsablesData();
+    } catch (err: any) {
+      console.error('Error dando de baja:', err);
+      alert(`No se pudo dar de baja: ${err?.message ?? 'error desconocido'}`);
+    } finally {
+      setIsSavingResponsable(false);
+    }
+  }, [canManageRecords, logChange]);
+
   const fetchResponsablesData = async () => {
     const { data, error } = await supabase
       .from('responsables')
       .select('*')
-      .order('full_name', { ascending: true });
+      .order('partida', { ascending: true, nullsFirst: false });
 
     if (error) {
       console.error('Error fetching responsables:', error.message);
+      // Mientras la tabla no exista, el organigrama sigue viéndose con los
+      // datos del archivo; lo único que no se puede es editarlo.
+      if (error.code === '42P01' || error.code === 'PGRST205' || /schema cache/i.test(error.message ?? '')) {
+        setAvisoTablaResponsables('La tabla "responsables" todavía no existe en Supabase. Ejecuta la migración supabase/migrations/20260930000000_organigrama_responsables.sql para poder dar de alta y editar personal desde aquí. Mientras tanto se muestra la plantilla de septiembre 2026.');
+      }
       return;
     }
+    setAvisoTablaResponsables(null);
     if (data) {
       setDbResponsables(data.map((r: any) => ({
         fullName: r.full_name,
@@ -3055,6 +3200,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         academicDegree: r.academic_degree ?? '',
         aifaTenure: r.aifa_tenure ?? '',
         photoUrl: r.photo_url ?? '',
+        puesto: r.puesto ?? undefined,
+        nivelSalarial: r.nivel_salarial ?? undefined,
+        partida: r.partida ?? undefined,
+        nivelOrganico: r.nivel_organico ?? undefined,
+        reportaA: r.reporta_a ?? null,
+        color: r.color ?? undefined,
+        activo: r.activo !== false,
+        aliases: r.aliases ?? undefined,
+        dbId: r.id,
       })));
     }
   };
@@ -12474,6 +12628,98 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   : null;
                               }).filter((x): x is [string, { name: string; estatus: string; row: Record<string, any> }[]] => x !== null)
                             : sortedGroups;
+                          // La tabla de servicios de una persona. Se saca aqui para que la usen
+                          // tanto las fichas del organigrama como el bloque de servicios sin
+                          // responsable, sin duplicar el JSX ni que se desincronicen.
+                          const renderServiciosDeResponsable = (resp: string, services: { name: string; estatus: string; row: Record<string, any> }[]) => (
+                                    <div className="overflow-x-auto">
+                                      <table className="min-w-full divide-y divide-slate-200">
+                                        <thead className="bg-slate-50">
+                                          <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">#</th>
+                                            <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Nombre del Servicio</th>
+                                            <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Estatus</th>
+                                            <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Responsable</th>
+                                            <th className="px-6 py-3 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Acciones</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-slate-100">
+                                          {services.length === 0 && (
+                                            <tr>
+                                              <td colSpan={5} className="px-6 py-5 text-center text-sm text-slate-400">
+                                                Sin servicios asignados en este periodo.
+                                              </td>
+                                            </tr>
+                                          )}
+                                          {services.map((svc, idx) => {
+                                            const bgColor = (ESTATUS_2026_COLOR_MAP as Record<string, string>)[svc.estatus] ?? '#94A3B8';
+                                            const r = parseInt(bgColor.slice(1,3),16), g2 = parseInt(bgColor.slice(3,5),16), b2 = parseInt(bgColor.slice(5,7),16);
+                                            const light = (0.299*r + 0.587*g2 + 0.114*b2)/255 > 0.55;
+                                            const textCol = light ? '#713F12' : '#ffffff';
+                                            const borderCol = light ? '#92400E' : 'rgba(0,0,0,0.25)';
+                                            const svcDeleteKey = `${tablaEstatusAnio}:id:${String(svc.row?.id ?? svc.row?.ID ?? svc.row?.Id)}`;
+                                            const isDeletingThisSvc = isDeletingRecord && deletingRecordKey === svcDeleteKey;
+                                            return (
+                                              <tr key={idx} className={`hover:bg-purple-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                                                <td className="px-6 py-3 text-xs text-slate-400 font-mono">{idx + 1}</td>
+                                                <td className="px-6 py-3 text-sm text-slate-800">{svc.name}</td>
+                                                <td className="px-6 py-3">
+                                                  <span
+                                                    style={{
+                                                      display: 'inline-flex', alignItems: 'center',
+                                                      padding: '4px 12px', borderRadius: 9999,
+                                                      border: `2px solid ${borderCol}`,
+                                                      backgroundColor: bgColor,
+                                                      boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+                                                      fontSize: 12, fontWeight: 700,
+                                                      color: textCol, whiteSpace: 'nowrap',
+                                                    }}
+                                                  >{svc.estatus}</span>
+                                                </td>
+                                                <td className="px-6 py-3">
+                                                  <select
+                                                    className="w-full max-w-[240px] text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
+                                                    value={responsableCol ? getCombinedCanonicalResponsableValue(svc.row[responsableCol]) : ''}
+                                                    onChange={(e) => responsableCol && handleEstatus2026CellEdit(svc.row, responsableCol, e.target.value)}
+                                                  >
+                                                    <option value="">— Sin asignar —</option>
+                                                    {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
+                                                  </select>
+                                                </td>
+                                                <td className="px-6 py-3 text-center">
+                                                  <button
+                                                    onClick={() => handleDeleteGenericRecord(tablaEstatusAnio, svc.row, svc.name)}
+                                                    disabled={isDeletingRecord}
+                                                    title="Eliminar servicio"
+                                                    className={`inline-flex items-center justify-center h-7 w-7 rounded-md border transition-colors ${isDeletingRecord ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200'}`}
+                                                  >
+                                                    {isDeletingThisSvc ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                                  </button>
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                          {getCombinedResponsableProfile(resp) && (
+                                            <tr>
+                                              <td colSpan={5} className="px-6 py-3 text-center">
+                                                <button
+                                                  onClick={() => {
+                                                    setNewServiceForm(EMPTY_NEW_SERVICE_FORM);
+                                                    setServiceFormResponsable(resp);
+                                                  }}
+                                                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-dashed border-[#0F4C3A]/40 text-[#0F4C3A] text-xs font-semibold hover:bg-[#0F4C3A]/5 transition-colors"
+                                                >
+                                                  <Plus className="h-3.5 w-3.5" />
+                                                  Agregar servicio
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          )}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                          );
+
                           return (
                             <div className="space-y-4">
                               <div>
@@ -12516,155 +12762,48 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   />
                                 </div>
                               </div>
-                              {filteredGroups.length === 0 && (
-                                <p className="text-slate-400 text-sm py-6 text-center">Sin resultados para "{respSearch}"</p>
-                              )}
-                              {filteredGroups.map(([resp, services]) => {
-                                const profile = getCombinedResponsableProfile(resp);
+                              {/* La estructura, las fichas y el alta de personal viven en
+                                  components/Organigrama.tsx. Aqui solo se le entregan los datos
+                                  ya agrupados y la forma de dibujar los servicios de cada quien. */}
+                              <Organigrama
+                                personas={personasOrganigrama}
+                                serviciosPorPersona={new Map(filteredGroups)}
+                                personaAbierta={responsableAbierto}
+                                onAbrirPersona={setResponsableAbierto}
+                                onVerFoto={(url) => {
+                                  const perfil = personasOrganigrama.find((x) => x.photoUrl === url);
+                                  setFotoAmpliada({ url, nombre: perfil?.fullName ?? "" });
+                                }}
+                                puedeEditar={canManageRecords}
+                                onGuardar={guardarPersonaOrganigrama}
+                                onDarDeBaja={darDeBajaPersona}
+                                guardando={isSavingResponsable}
+                                avisoTabla={avisoTablaResponsables}
+                                renderServicios={renderServiciosDeResponsable}
+                              />
+
+                              {/* Servicios que todavia no tienen dueno.
+                                  Van fuera del organigrama porque no cuelgan de nadie, pero tienen que
+                                  verse: un servicio sin responsable que ademas no aparece en pantalla
+                                  es un servicio que nadie va a reclamar. */}
+                              {(() => {
+                                const sinDueno = filteredGroups.find(([r]) => r === '— Sin asignar —');
+                                if (!sinDueno || sinDueno[1].length === 0) return null;
                                 return (
-                                <div key={resp} className="bg-white rounded-xl border border-purple-100 shadow-sm overflow-hidden">
-                                  <div className="bg-[#0F4C3A] px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                    <div className="flex items-center gap-4 min-w-0">
-                                      {profile?.photoUrl ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => setFotoAmpliada({ url: profile.photoUrl, nombre: profile.fullName })}
-                                          title={`Ver la foto de ${profile.fullName} en grande`}
-                                          aria-label={`Ver la foto de ${profile.fullName} en grande`}
-                                          className="group/foto relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-xl border-2 border-white/50 bg-white/10 shadow-md cursor-zoom-in transition-shadow hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0F4C3A]"
-                                        >
-                                          <img
-                                            src={profile.photoUrl}
-                                            alt={`Fotografía de ${profile.fullName}`}
-                                            className="h-full w-full object-cover object-top transition-transform duration-200 group-hover/foto:scale-105"
-                                            loading="lazy"
-                                            decoding="async"
-                                          />
-                                          <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity duration-200 group-hover/foto:opacity-100">
-                                            <Maximize2 className="h-5 w-5 text-white" />
-                                          </span>
-                                        </button>
-                                      ) : (
-                                        <span className="h-12 w-12 flex-shrink-0 rounded-xl bg-white/10 flex items-center justify-center">
-                                          <Users className="h-6 w-6 text-white/70" />
-                                        </span>
-                                      )}
-                                      <div className="min-w-0">
-                                        <h3 className="text-base font-bold text-white leading-tight">{profile?.fullName ?? resp}</h3>
-                                        {profile && (
-                                          <div className="mt-2 space-y-1 text-xs text-emerald-50">
-                                            <div className="flex flex-wrap gap-x-4 gap-y-1">
-                                              <span><strong className="text-white">No. de empleado:</strong> {profile.employeeNumber}</span>
-                                              <span><strong className="text-white">Antigüedad en el AIFA:</strong> {profile.aifaTenure}</span>
-                                            </div>
-                                            <p className="leading-relaxed"><strong className="text-white">Grado académico:</strong> {profile.academicDegree}</p>
-                                          </div>
-                                        )}
-                                      </div>
+                                  <div className="rounded-2xl overflow-hidden border border-amber-300 mt-5">
+                                    <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-amber-500">
+                                      <p className="flex items-center gap-2 text-white font-bold text-sm">
+                                        <AlertCircle className="h-4 w-4" />
+                                        Servicios sin responsable asignado
+                                      </p>
+                                      <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-white/25 text-white text-[11px] font-bold">
+                                        {sinDueno[1].length} servicio{sinDueno[1].length !== 1 ? 's' : ''}
+                                      </span>
                                     </div>
-                                    <span className="self-start sm:self-center flex-shrink-0 text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-medium">{services.length} servicio{services.length !== 1 ? 's' : ''}</span>
+                                    <div className="bg-white">{renderServiciosDeResponsable(sinDueno[0], sinDueno[1])}</div>
                                   </div>
-                                  <div className="overflow-x-auto">
-                                    <table className="min-w-full divide-y divide-slate-200">
-                                      <thead className="bg-slate-50">
-                                        <tr>
-                                          <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">#</th>
-                                          <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Nombre del Servicio</th>
-                                          <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Estatus</th>
-                                          <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Responsable</th>
-                                          <th className="px-6 py-3 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Acciones</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="bg-white divide-y divide-slate-100">
-                                        {services.length === 0 && (
-                                          <tr>
-                                            <td colSpan={5} className="px-6 py-5 text-center text-sm text-slate-400">
-                                              Sin servicios asignados en este periodo.
-                                            </td>
-                                          </tr>
-                                        )}
-                                        {services.map((svc, idx) => {
-                                          const bgColor = (ESTATUS_2026_COLOR_MAP as Record<string, string>)[svc.estatus] ?? '#94A3B8';
-                                          const r = parseInt(bgColor.slice(1,3),16), g2 = parseInt(bgColor.slice(3,5),16), b2 = parseInt(bgColor.slice(5,7),16);
-                                          const light = (0.299*r + 0.587*g2 + 0.114*b2)/255 > 0.55;
-                                          const textCol = light ? '#713F12' : '#ffffff';
-                                          const borderCol = light ? '#92400E' : 'rgba(0,0,0,0.25)';
-                                          const svcDeleteKey = `${tablaEstatusAnio}:id:${String(svc.row?.id ?? svc.row?.ID ?? svc.row?.Id)}`;
-                                          const isDeletingThisSvc = isDeletingRecord && deletingRecordKey === svcDeleteKey;
-                                          return (
-                                            <tr key={idx} className={`hover:bg-purple-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
-                                              <td className="px-6 py-3 text-xs text-slate-400 font-mono">{idx + 1}</td>
-                                              <td className="px-6 py-3 text-sm text-slate-800">{svc.name}</td>
-                                              <td className="px-6 py-3">
-                                                <span
-                                                  style={{
-                                                    display: 'inline-flex', alignItems: 'center',
-                                                    padding: '4px 12px', borderRadius: 9999,
-                                                    border: `2px solid ${borderCol}`,
-                                                    backgroundColor: bgColor,
-                                                    boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
-                                                    fontSize: 12, fontWeight: 700,
-                                                    color: textCol, whiteSpace: 'nowrap',
-                                                  }}
-                                                >{svc.estatus}</span>
-                                              </td>
-                                              <td className="px-6 py-3">
-                                                <select
-                                                  className="w-full max-w-[240px] text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
-                                                  value={responsableCol ? getCombinedCanonicalResponsableValue(svc.row[responsableCol]) : ''}
-                                                  onChange={(e) => responsableCol && handleEstatus2026CellEdit(svc.row, responsableCol, e.target.value)}
-                                                >
-                                                  <option value="">— Sin asignar —</option>
-                                                  {combinedResponsablesList.map(r => <option key={r} value={r}>{r}</option>)}
-                                                </select>
-                                              </td>
-                                              <td className="px-6 py-3 text-center">
-                                                <button
-                                                  onClick={() => handleDeleteGenericRecord(tablaEstatusAnio, svc.row, svc.name)}
-                                                  disabled={isDeletingRecord}
-                                                  title="Eliminar servicio"
-                                                  className={`inline-flex items-center justify-center h-7 w-7 rounded-md border transition-colors ${isDeletingRecord ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-200'}`}
-                                                >
-                                                  {isDeletingThisSvc ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                                                </button>
-                                              </td>
-                                            </tr>
-                                          );
-                                        })}
-                                        {profile && (
-                                          <tr>
-                                            <td colSpan={5} className="px-6 py-3 text-center">
-                                              <button
-                                                onClick={() => {
-                                                  setNewServiceForm(EMPTY_NEW_SERVICE_FORM);
-                                                  setServiceFormResponsable(resp);
-                                                }}
-                                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-dashed border-[#0F4C3A]/40 text-[#0F4C3A] text-xs font-semibold hover:bg-[#0F4C3A]/5 transition-colors"
-                                              >
-                                                <Plus className="h-3.5 w-3.5" />
-                                                Agregar servicio
-                                              </button>
-                                            </td>
-                                          </tr>
-                                        )}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
                                 );
-                              })}
-                              <div className="flex justify-center pt-2">
-                                <button
-                                  onClick={() => {
-                                    setNewResponsableForm({ fullName: '', employeeNumber: '', academicDegree: '', aifaTenure: '' });
-                                    setIsAddResponsableOpen(true);
-                                  }}
-                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-dashed border-[#0F4C3A]/40 text-[#0F4C3A] text-sm font-semibold hover:bg-[#0F4C3A]/5 transition-colors"
-                                >
-                                  <UserPlus className="h-4 w-4" />
-                                  Agregar responsable
-                                </button>
-                              </div>
+                              })()}
                             </div>
                           );
                         })()}
