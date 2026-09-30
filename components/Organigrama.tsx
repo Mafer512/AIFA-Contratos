@@ -3,6 +3,7 @@ import {
   Users, UserPlus, Pencil, Trash2, X, Loader2, Search, AlertCircle,
   Briefcase, GraduationCap, CalendarClock, Hash, BadgeCheck, ChevronDown,
   Network, List, Maximize2, Minimize2,
+  HelpCircle, Image as ImageIcon, ListChecks, Save, UserMinus, Lightbulb,
 } from 'lucide-react';
 import {
   COLORES_EQUIPO, ETIQUETA_NIVEL, construirEstructura, contarPersonas,
@@ -393,6 +394,148 @@ const FichaPersona: React.FC<{
   );
 };
 
+/**
+ * Instructivo de alta de personal.
+ *
+ * Va dentro de la misma pantalla donde se da de alta, no en un manual aparte:
+ * una instrucción que hay que ir a buscar a otro lado es una instrucción que
+ * nadie lee. Está escrito para el personal del área, no para quien programó
+ * esto, así que no menciona tablas ni columnas de base de datos.
+ */
+const Instructivo: React.FC<{ onCerrar: () => void; puedeEditar: boolean }> = ({ onCerrar, puedeEditar }) => {
+  const pasos = [
+    {
+      icono: UserPlus,
+      titulo: 'Pulsa "Agregar persona"',
+      texto: 'El botón verde de arriba a la derecha. Se abre un formulario con todos sus datos.',
+    },
+    {
+      icono: Hash,
+      titulo: 'Escribe sus datos',
+      texto: 'Nombre completo, número de empleado, grado académico, antigüedad, puesto y nivel salarial. Tal como vienen en la plantilla del área.',
+    },
+    {
+      icono: Network,
+      titulo: 'Dile de quién depende',
+      texto: 'Esto es lo que la coloca en el organigrama. Elige a su coordinador en "Depende de" y su equipo en "Color de su coordinación". Si no lo haces, aparecerá abajo en "Sin coordinación asignada" hasta que se lo asignes.',
+    },
+    {
+      icono: Save,
+      titulo: 'Guarda',
+      texto: 'Ya aparece en el organigrama, en su equipo y en el orden que le corresponde. Todos los que entren al sistema la ven.',
+    },
+    {
+      icono: ListChecks,
+      titulo: 'Asígnale sus servicios',
+      texto: 'Eso se hace desde 2026 → Estatus servicios, en la columna "Responsable": ahí ya sale su nombre en la lista. Cada servicio que le pongas se cuenta solo en su tarjeta.',
+    },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)' }}
+      onClick={onCerrar}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-6 py-4 bg-[#0F4C3A] rounded-t-2xl flex-shrink-0">
+          <div>
+            <h3 className="text-base font-bold text-white">Cómo agregar a alguien</h3>
+            <p className="text-xs text-emerald-200 mt-0.5">Cinco pasos. No hace falta saber nada técnico.</p>
+          </div>
+          <button onClick={onCerrar} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors flex-shrink-0">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5 overflow-y-auto">
+          {!puedeEditar && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+              <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800">
+                Tu perfil es de <strong>solo lectura</strong>, así que no verás el botón para agregar.
+                Pide a un administrador que te dé permiso de Operador.
+              </p>
+            </div>
+          )}
+
+          <ol className="space-y-4">
+            {pasos.map((paso, i) => (
+              <li key={paso.titulo} className="flex gap-3.5">
+                <span className="flex h-8 w-8 rounded-xl bg-[#0F4C3A] text-white items-center justify-center font-black text-sm flex-shrink-0">
+                  {i + 1}
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <p className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
+                    <paso.icono className="h-3.5 w-3.5 text-[#0F4C3A]" />
+                    {paso.titulo}
+                  </p>
+                  <p className="text-[13px] text-slate-600 leading-relaxed mt-0.5">{paso.texto}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-slate-500">
+              <Lightbulb className="h-3.5 w-3.5" />
+              Bueno saber
+            </p>
+
+            <div className="flex gap-2.5">
+              <ImageIcon className="h-4 w-4 text-slate-400 flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-slate-600 leading-relaxed">
+                <strong className="text-slate-800">La fotografía es opcional.</strong> Si la dejas vacía,
+                su tarjeta muestra sus iniciales sobre el color de su equipo. Para ponerle una, guarda el
+                archivo en la carpeta <code className="bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">public/images/responsables/</code> y
+                escribe esa ruta en el formulario.
+              </p>
+            </div>
+
+            <div className="flex gap-2.5">
+              <UserMinus className="h-4 w-4 text-slate-400 flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-slate-600 leading-relaxed">
+                <strong className="text-slate-800">Si alguien se va,</strong> usa el bote de basura de su
+                tarjeta. Desaparece del organigrama, pero <strong>no se borra su historial</strong>: los
+                servicios que atendió y los cambios que hizo siguen registrados a su nombre. Antes de
+                darla de baja, pásale sus servicios a quien los vaya a tomar.
+              </p>
+            </div>
+
+            <div className="flex gap-2.5">
+              <Pencil className="h-4 w-4 text-slate-400 flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-slate-600 leading-relaxed">
+                <strong className="text-slate-800">Todo se puede corregir después.</strong> El lápiz de
+                cada tarjeta abre el mismo formulario. Cambiar a alguien de coordinación es sólo cambiar
+                el campo "Depende de".
+              </p>
+            </div>
+
+            <div className="flex gap-2.5">
+              <Briefcase className="h-4 w-4 text-slate-400 flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-slate-600 leading-relaxed">
+                <strong className="text-slate-800">Los jefes no llevan servicios propios.</strong> En la
+                tarjeta de un coordinador el número que sale es el de toda su coordinación, y en la del
+                gerente el de la gerencia completa.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex-shrink-0">
+          <button
+            type="button"
+            onClick={onCerrar}
+            className="px-5 py-2.5 text-sm font-bold rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0d3f30] transition-colors"
+          >
+            Entendido
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Organigrama: React.FC<Props> = ({
   personas, serviciosPorPersona, personaAbierta, onAbrirPersona, onVerFoto,
   puedeEditar, onGuardar, onDarDeBaja, renderServicios, guardando, avisoTabla,
@@ -400,6 +543,7 @@ const Organigrama: React.FC<Props> = ({
 }) => {
   const [busqueda, setBusqueda] = useState('');
   const [vista, setVista] = useState<'lista' | 'mapa'>('lista');
+  const [verInstructivo, setVerInstructivo] = useState(false);
   // En el mapa, las cajas sin foto ni puesto caben muchas más por pantalla.
   const [mapaCompacto, setMapaCompacto] = useState(false);
   const [editando, setEditando] = useState<ResponsableProfile | null>(null);
@@ -613,6 +757,17 @@ const Organigrama: React.FC<Props> = ({
               className="pl-9 pr-3 py-2.5 w-72 max-w-full text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30"
             />
           </div>
+          {/* Va pegado al botón de agregar: es justo donde surge la duda. */}
+          <button
+            type="button"
+            onClick={() => setVerInstructivo(true)}
+            title="Cómo agregar a alguien al organigrama"
+            className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-xl hover:bg-slate-50 hover:text-[#0F4C3A] transition-colors"
+          >
+            <HelpCircle className="h-4 w-4" />
+            ¿Cómo agrego a alguien?
+          </button>
+
           {puedeEditar && (
             <button
               type="button"
@@ -910,6 +1065,8 @@ const Organigrama: React.FC<Props> = ({
         estructura.sinAsignar.filter(coincide).length === 0 && (
           <p className="text-center text-sm text-slate-400 py-10">Nadie coincide con "{busqueda}".</p>
         )}
+
+      {verInstructivo && <Instructivo onCerrar={() => setVerInstructivo(false)} puedeEditar={puedeEditar} />}
 
       {/* ── Alta y edición ── */}
       {editando && (
