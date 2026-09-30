@@ -12779,6 +12779,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 onDarDeBaja={darDeBajaPersona}
                                 guardando={isSavingResponsable}
                                 avisoTabla={avisoTablaResponsables}
+                                colorEstatus={(e) => ESTATUS_2026_COLOR_MAP[e] ?? '#EAB308'}
                                 renderServicios={renderServiciosDeResponsable}
                               />
 

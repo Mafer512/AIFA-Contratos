@@ -42,6 +42,30 @@ interface Props {
   renderServicios: (catalogValue: string, servicios: ServicioResumen[]) => React.ReactNode;
   guardando: boolean;
   avisoTabla?: string | null;
+  /** Color de cada estatus, para que el resumen use la misma paleta que las tablas. */
+  colorEstatus?: (estatus: string) => string;
+}
+
+/**
+ * Lo que responde una persona, según su lugar en la estructura.
+ *
+ * Un gerente no lleva expedientes en la mano: responde por los de toda su
+ * gerencia. Decirle "0 servicios a su cargo" era literal y falso a la vez, y
+ * además dejaba su tarjeta vacía justo en la parte que más se mira.
+ */
+interface ResumenAlcance {
+  /** Servicios del área completa de esa persona (los suyos más los de su gente). */
+  total: number;
+  /** Los que lleva personalmente. Para jefes suele ser 0, y está bien. */
+  propios: number;
+  /** Cuánta gente cuelga de ella. */
+  personas: number;
+  /** Cómo se reparte el total: por coordinación para el gerente, por persona para un coordinador. */
+  reparto: { etiqueta: string; cantidad: number; color: string }[];
+  /** Cuántos servicios hay en cada estatus. */
+  porEstatus: { estatus: string; cantidad: number }[];
+  /** Cómo llamar a ese alcance en la tarjeta. */
+  ambito: string;
 }
 
 const iniciales = (nombre: string) =>
@@ -96,11 +120,28 @@ const Dato: React.FC<{ icono: React.ElementType; etiqueta: string; valor?: strin
   );
 };
 
+/** Barra proporcional de un reparto. Una sola serie, así que un solo tono. */
+const BarraReparto: React.FC<{ etiqueta: string; cantidad: number; maximo: number; color: string }> = ({ etiqueta, cantidad, maximo, color }) => (
+  <div className="flex items-center gap-3">
+    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+    <span className="text-[12px] text-slate-600 truncate flex-1 min-w-0" title={etiqueta}>{etiqueta}</span>
+    <div className="w-24 h-1.5 rounded-full bg-slate-100 overflow-hidden flex-shrink-0">
+      <div
+        className="h-full rounded-full transition-all"
+        style={{ width: `${maximo ? Math.max(4, (cantidad / maximo) * 100) : 0}%`, backgroundColor: color }}
+      />
+    </div>
+    <span className="text-[12px] font-bold text-slate-800 tabular-nums w-7 text-right flex-shrink-0">{cantidad}</span>
+  </div>
+);
+
 const FichaPersona: React.FC<{
   persona: ResponsableProfile;
   color: ClaveColor;
   esJefe: boolean;
   servicios: ServicioResumen[];
+  resumen: ResumenAlcance;
+  colorEstatus: (estatus: string) => string;
   abierta: boolean;
   onAbrir: () => void;
   onVerFoto: (url: string) => void;
@@ -108,8 +149,10 @@ const FichaPersona: React.FC<{
   onEditar: () => void;
   onDarDeBaja: () => void;
   children?: React.ReactNode;
-}> = ({ persona, color, esJefe, servicios, abierta, onAbrir, onVerFoto, puedeEditar, onEditar, onDarDeBaja, children }) => {
+}> = ({ persona, color, esJefe, servicios, resumen, colorEstatus, abierta, onAbrir, onVerFoto, puedeEditar, onEditar, onDarDeBaja, children }) => {
   const paleta = COLORES_EQUIPO[color] ?? COLORES_EQUIPO.sinEquipo;
+  const mandaGente = resumen.personas > 0;
+  const maxReparto = Math.max(1, ...resumen.reparto.map((r) => r.cantidad));
 
   return (
     <div
@@ -180,15 +223,87 @@ const FichaPersona: React.FC<{
           onClick={onAbrir}
           className="w-full mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/70 hover:bg-white transition-colors"
         >
-          <span className="flex items-center gap-2 text-[12px] font-bold text-slate-700">
-            <Briefcase className="h-3.5 w-3.5" style={{ color: paleta.texto }} />
-            {servicios.length} servicio{servicios.length !== 1 ? 's' : ''} a su cargo
+          <span className="flex items-center gap-2 text-[12px] font-bold text-slate-700 min-w-0">
+            {mandaGente
+              ? <Users className="h-3.5 w-3.5 flex-shrink-0" style={{ color: paleta.texto }} />
+              : <Briefcase className="h-3.5 w-3.5 flex-shrink-0" style={{ color: paleta.texto }} />}
+            <span className="truncate">
+              {resumen.total} servicio{resumen.total !== 1 ? 's' : ''} {resumen.ambito}
+            </span>
+            {mandaGente && (
+              <span className="hidden sm:inline text-[11px] font-medium text-slate-400 flex-shrink-0">
+                · {resumen.personas} persona{resumen.personas !== 1 ? 's' : ''}
+                {resumen.propios > 0 && ` · ${resumen.propios} propio${resumen.propios !== 1 ? 's' : ''}`}
+              </span>
+            )}
           </span>
-          <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${abierta ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`h-4 w-4 text-slate-400 flex-shrink-0 transition-transform ${abierta ? 'rotate-180' : ''}`} />
         </button>
       </div>
 
-      {abierta && <div className="bg-white border-t" style={{ borderColor: paleta.borde }}>{children}</div>}
+      {abierta && (
+        <div className="bg-white border-t" style={{ borderColor: paleta.borde }}>
+          {/* Panel de alcance: sólo para quien manda gente. A un colaborador
+              esto le diría lo mismo que su propia lista, así que se le ahorra. */}
+          {mandaGente && (
+            <div className="p-4 border-b border-slate-100 bg-slate-50/60 space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className="inline-flex items-baseline gap-1.5 px-3 py-1.5 rounded-xl text-white"
+                  style={{ backgroundColor: paleta.banda }}
+                >
+                  <span className="text-xl font-black tabular-nums leading-none">{resumen.total}</span>
+                  <span className="text-[11px] font-semibold opacity-90">servicios</span>
+                </span>
+                {/* Cada estatus lleva su número y su nombre: el color acompaña,
+                    no es el único que informa. */}
+                {resumen.porEstatus.map(({ estatus, cantidad }) => (
+                  <span
+                    key={estatus}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-white text-[11px] font-semibold text-slate-600"
+                    style={{ borderColor: `${colorEstatus(estatus)}80` }}
+                    title={`${cantidad} en "${estatus}"`}
+                  >
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: colorEstatus(estatus) }} />
+                    <span className="tabular-nums font-black text-slate-800">{cantidad}</span>
+                    <span className="truncate max-w-[150px]">{estatus}</span>
+                  </span>
+                ))}
+              </div>
+
+              {resumen.reparto.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+                    {persona.nivelOrganico === 'GERENTE' ? 'Por coordinación' : 'Por persona'}
+                  </p>
+                  <div className="space-y-1.5">
+                    {resumen.reparto.map((r) => (
+                      <BarraReparto key={r.etiqueta} etiqueta={r.etiqueta} cantidad={r.cantidad} maximo={maxReparto} color={r.color} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {servicios.length > 0 ? (
+            <>
+              {mandaGente && (
+                <p className="px-4 pt-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  Servicios que lleva personalmente
+                </p>
+              )}
+              {children}
+            </>
+          ) : mandaGente ? (
+            <p className="px-4 py-4 text-[12px] text-slate-400">
+              No lleva servicios personalmente; los atiende su equipo.
+            </p>
+          ) : (
+            children
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -196,6 +311,7 @@ const FichaPersona: React.FC<{
 const Organigrama: React.FC<Props> = ({
   personas, serviciosPorPersona, personaAbierta, onAbrirPersona, onVerFoto,
   puedeEditar, onGuardar, onDarDeBaja, renderServicios, guardando, avisoTabla,
+  colorEstatus = () => '#94A3B8',
 }) => {
   const [busqueda, setBusqueda] = useState('');
   const [editando, setEditando] = useState<ResponsableProfile | null>(null);
@@ -223,6 +339,79 @@ const Organigrama: React.FC<Props> = ({
   };
 
   const servicios = (p: ResponsableProfile) => serviciosPorPersona.get(p.catalogValue) ?? [];
+
+  /** Cuántos servicios hay en cada estatus, de mayor a menor. */
+  const desglosarEstatus = (lista: ServicioResumen[]) => {
+    const cuenta = new Map<string, number>();
+    lista.forEach((s) => {
+      const clave = (s.estatus ?? '').trim() || 'Sin estatus';
+      cuenta.set(clave, (cuenta.get(clave) ?? 0) + 1);
+    });
+    return Array.from(cuenta.entries())
+      .map(([estatus, cantidad]) => ({ estatus, cantidad }))
+      .sort((a, b) => b.cantidad - a.cantidad);
+  };
+
+  /**
+   * Qué responde cada quien.
+   *
+   * Un colaborador responde por sus servicios. Un coordinador, por los de toda
+   * su coordinación. El gerente, por los de la gerencia entera. Contar sólo lo
+   * que tienen asignado en la columna "Responsable" dejaba a los jefes en cero,
+   * que es justo lo contrario de lo que significan en la estructura.
+   */
+  const alcanceDe = (persona: ResponsableProfile): ResumenAlcance => {
+    const propios = servicios(persona);
+    const paleta = COLORES_EQUIPO[(persona.color ?? 'sinEquipo') as ClaveColor] ?? COLORES_EQUIPO.sinEquipo;
+
+    if (persona.nivelOrganico === 'GERENTE') {
+      // Toda la gerencia, incluida la gente que todavía no tiene coordinación.
+      const todas = [
+        ...estructura.coordinaciones.flatMap(({ persona: c, equipo }) => [c, ...equipo]),
+        ...estructura.sinAsignar,
+      ];
+      const todosLosServicios = [propios, ...todas.map(servicios)].flat();
+      return {
+        total: todosLosServicios.length,
+        propios: propios.length,
+        personas: todas.length,
+        ambito: 'en la Gerencia',
+        porEstatus: desglosarEstatus(todosLosServicios),
+        reparto: estructura.coordinaciones.map(({ persona: c, equipo }) => ({
+          etiqueta: c.fullName,
+          cantidad: [c, ...equipo].reduce((n, q) => n + servicios(q).length, 0),
+          color: (COLORES_EQUIPO[(c.color ?? 'sinEquipo') as ClaveColor] ?? COLORES_EQUIPO.sinEquipo).banda,
+        })),
+      };
+    }
+
+    if (persona.nivelOrganico === 'COORDINADOR') {
+      const nodo = estructura.coordinaciones.find((c) => c.persona.catalogValue === persona.catalogValue);
+      const equipo = nodo?.equipo ?? [];
+      const todosLosServicios = [propios, ...equipo.map(servicios)].flat();
+      return {
+        total: todosLosServicios.length,
+        propios: propios.length,
+        personas: equipo.length,
+        ambito: 'en su coordinación',
+        porEstatus: desglosarEstatus(todosLosServicios),
+        reparto: equipo.map((q) => ({
+          etiqueta: q.fullName,
+          cantidad: servicios(q).length,
+          color: paleta.banda,
+        })).sort((a, b) => b.cantidad - a.cantidad),
+      };
+    }
+
+    return {
+      total: propios.length,
+      propios: propios.length,
+      personas: 0,
+      ambito: 'a su cargo',
+      porEstatus: desglosarEstatus(propios),
+      reparto: [],
+    };
+  };
 
   const abrirNueva = () => {
     setEsNueva(true);
@@ -337,6 +526,8 @@ const Organigrama: React.FC<Props> = ({
             color="gerencia"
             esJefe
             servicios={servicios(estructura.gerente)}
+            resumen={alcanceDe(estructura.gerente)}
+            colorEstatus={colorEstatus}
             abierta={personaAbierta === estructura.gerente.catalogValue}
             onAbrir={() => onAbrirPersona(personaAbierta === estructura.gerente!.catalogValue ? null : estructura.gerente!.catalogValue)}
             onVerFoto={onVerFoto}
@@ -377,6 +568,8 @@ const Organigrama: React.FC<Props> = ({
                   color={color}
                   esJefe
                   servicios={servicios(coord)}
+                  resumen={alcanceDe(coord)}
+                  colorEstatus={colorEstatus}
                   abierta={personaAbierta === coord.catalogValue}
                   onAbrir={() => onAbrirPersona(personaAbierta === coord.catalogValue ? null : coord.catalogValue)}
                   onVerFoto={onVerFoto}
@@ -399,6 +592,8 @@ const Organigrama: React.FC<Props> = ({
                       color={color}
                       esJefe={false}
                       servicios={servicios(p)}
+                      resumen={alcanceDe(p)}
+                      colorEstatus={colorEstatus}
                       abierta={personaAbierta === p.catalogValue}
                       onAbrir={() => onAbrirPersona(personaAbierta === p.catalogValue ? null : p.catalogValue)}
                       onVerFoto={onVerFoto}
@@ -434,6 +629,8 @@ const Organigrama: React.FC<Props> = ({
                 color="sinEquipo"
                 esJefe={false}
                 servicios={servicios(p)}
+                resumen={alcanceDe(p)}
+                colorEstatus={colorEstatus}
                 abierta={personaAbierta === p.catalogValue}
                 onAbrir={() => onAbrirPersona(personaAbierta === p.catalogValue ? null : p.catalogValue)}
                 onVerFoto={onVerFoto}

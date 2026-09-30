@@ -86,5 +86,46 @@ const e5 = construirEstructura(sinAcentos);
 const equipoDaniela = e5.coordinaciones.find(c => c.persona.catalogValue === 'DANIELA ELIZABETH MERCADO ISLAS');
 ok('el jefe se encuentra aunque falten acentos', equipoDaniela?.equipo.length === 3, `${equipoDaniela?.equipo.length}`);
 
+
+// ── Alcance de cada quien ──────────────────────────────────────────────────
+// Un jefe no lleva expedientes en la mano: responde por los de su area. Estas
+// pruebas fijan esa regla, que es la que hacia que al gerente le saliera
+// "0 servicios a su cargo".
+console.log('\n=== Alcance: que responde cada quien ===\n');
+
+// Servicios de mentiras: 2 por colaborador, ninguno para los jefes.
+const colaboradores = personas.filter(p => p.nivelOrganico === 'COLABORADOR');
+const servicios = new Map(colaboradores.map(p => [p.catalogValue, [
+  { name: `Servicio A de ${p.fullName}`, estatus: 'Adjudicado', row: {} },
+  { name: `Servicio B de ${p.fullName}`, estatus: 'Cancelado', row: {} },
+]]));
+
+const e6 = construirEstructura(personas);
+const propios = (p) => (servicios.get(p.catalogValue) ?? []).length;
+
+const totalGerencia = [
+  ...e6.coordinaciones.flatMap(({ persona, equipo }) => [persona, ...equipo]),
+  ...e6.sinAsignar,
+  e6.gerente,
+].reduce((n, p) => n + propios(p), 0);
+
+ok('10 colaboradores con 2 servicios = 20', totalGerencia === 20, `${totalGerencia}`);
+ok('el gerente NO lleva servicios propios', propios(e6.gerente) === 0, `${propios(e6.gerente)}`);
+ok('pero responde por los 20 de la gerencia', totalGerencia === 20, `${totalGerencia}`);
+
+for (const { persona: coord, equipo } of e6.coordinaciones) {
+  const delEquipo = [coord, ...equipo].reduce((n, p) => n + propios(p), 0);
+  ok(`${coord.fullName.split(' ')[0]} responde por ${equipo.length * 2}`,
+     delEquipo === equipo.length * 2, `${delEquipo}`);
+  ok(`  y no lleva ninguno personalmente`, propios(coord) === 0, `${propios(coord)}`);
+}
+
+// La suma de las coordinaciones tiene que dar el total de la gerencia: si no,
+// hay servicios contados dos veces o perdidos.
+const sumaCoordinaciones = e6.coordinaciones
+  .reduce((n, { persona, equipo }) => n + [persona, ...equipo].reduce((m, p) => m + propios(p), 0), 0);
+ok('las coordinaciones suman el total, sin duplicar', sumaCoordinaciones === totalGerencia,
+   `${sumaCoordinaciones} vs ${totalGerencia}`);
+
 console.log('\n' + (fallos === 0 ? 'TODAS LAS PRUEBAS PASARON' : `${fallos} PRUEBA(S) FALLARON`));
 process.exit(fallos === 0 ? 0 : 1);
