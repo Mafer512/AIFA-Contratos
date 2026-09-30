@@ -1136,7 +1136,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       const previa = porClave.get(clave);
       // Se conserva lo que el archivo sabía y que la base todavía no trae
       // (por ejemplo la foto), en vez de dejarlo en blanco.
-      porClave.set(clave, previa ? { ...previa, ...quitarVacios(p) } : p);
+      // quitarVacios protege los campos que la base todavía no trae, pero la
+      // FOTO es distinta: vaciarla es una decisión, no un dato faltante. Si se
+      // filtrara como los demás, quitarle la foto a alguien no surtiría efecto
+      // porque volvería a salir la del archivo.
+      porClave.set(clave, previa ? { ...previa, ...quitarVacios(p), photoUrl: p.photoUrl ?? '' } : p);
     });
     return Array.from(porClave.values());
   }, [dbResponsables]);

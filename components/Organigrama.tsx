@@ -4,7 +4,9 @@ import {
   Briefcase, GraduationCap, CalendarClock, Hash, BadgeCheck, ChevronDown,
   Network, List, Maximize2, Minimize2,
   HelpCircle, Image as ImageIcon, ListChecks, Save, UserMinus, Lightbulb,
+  Upload, Camera, Check,
 } from 'lucide-react';
+import { subirFoto, eliminarFoto, formatearPeso } from '../services/fotosResponsables.ts';
 import {
   COLORES_EQUIPO, ETIQUETA_NIVEL, construirEstructura, contarPersonas,
   type ClaveColor, type NivelOrganico,
@@ -485,10 +487,11 @@ const Instructivo: React.FC<{ onCerrar: () => void; puedeEditar: boolean }> = ({
             <div className="flex gap-2.5">
               <ImageIcon className="h-4 w-4 text-slate-400 flex-shrink-0 mt-0.5" />
               <p className="text-[13px] text-slate-600 leading-relaxed">
-                <strong className="text-slate-800">La fotografía es opcional.</strong> Si la dejas vacía,
-                su tarjeta muestra sus iniciales sobre el color de su equipo. Para ponerle una, guarda el
-                archivo en la carpeta <code className="bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">public/images/responsables/</code> y
-                escribe esa ruta en el formulario.
+                <strong className="text-slate-800">La fotografía se sube desde el mismo formulario.</strong> Pulsa
+                "Subir foto" y elige la imagen: se recorta en cuadro y se reduce sola, así que puedes usarla
+                tal como salió del celular. Es opcional — si la dejas vacía, su tarjeta muestra sus iniciales
+                sobre el color de su equipo. Para cambiarla después, abre el lápiz de su tarjeta y pulsa
+                "Cambiar foto".
               </p>
             </div>
 
@@ -549,6 +552,31 @@ const Organigrama: React.FC<Props> = ({
   const [editando, setEditando] = useState<ResponsableProfile | null>(null);
   const [esNueva, setEsNueva] = useState(false);
   const [errorForm, setErrorForm] = useState('');
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const [acuseFoto, setAcuseFoto] = useState<string | null>(null);
+  // Foto que quedó reemplazada: se borra del almacén al guardar, no antes, por
+  // si la persona cancela y hay que dejar todo como estaba.
+  const [fotoAReemplazar, setFotoAReemplazar] = useState<string | null>(null);
+  const inputFotoRef = React.useRef<HTMLInputElement | null>(null);
+
+  const elegirFoto = async (archivo: File | undefined) => {
+    if (!archivo || !editando) return;
+    setSubiendoFoto(true);
+    setErrorForm('');
+    setAcuseFoto(null);
+    try {
+      const anterior = editando.photoUrl;
+      const { url, bytes } = await subirFoto(archivo, editando.catalogValue || editando.fullName || 'persona');
+      setEditando((prev) => (prev ? { ...prev, photoUrl: url } : prev));
+      if (anterior) setFotoAReemplazar(anterior);
+      setAcuseFoto(`Listo · ${formatearPeso(bytes)}`);
+    } catch (err: any) {
+      setErrorForm(err?.message ?? 'No se pudo subir la fotografía.');
+    } finally {
+      setSubiendoFoto(false);
+      if (inputFotoRef.current) inputFotoRef.current.value = '';
+    }
+  };
 
   const estructura = useMemo(() => construirEstructura(personas), [personas]);
   const total = useMemo(() => contarPersonas(estructura), [estructura]);
@@ -683,7 +711,14 @@ const Organigrama: React.FC<Props> = ({
 
     try {
       await onGuardar({ ...editando, fullName: nombre, catalogValue }, esNueva);
+      // Sólo ahora: si el guardado hubiera fallado, borrar la foto anterior
+      // habría dejado a la persona sin ninguna de las dos.
+      if (fotoAReemplazar) {
+        void eliminarFoto(fotoAReemplazar);
+        setFotoAReemplazar(null);
+      }
       setEditando(null);
+      setAcuseFoto(null);
     } catch (err: any) {
       setErrorForm(err?.message ?? 'No se pudo guardar.');
     }
@@ -1181,23 +1216,80 @@ const Organigrama: React.FC<Props> = ({
                   />
                 ))}
 
-                {campo('Ruta de la fotografía', (
-                  <input
-                    type="text" value={editando.photoUrl}
-                    onChange={(e) => setEditando({ ...editando, photoUrl: e.target.value })}
-                    placeholder="/images/responsables/nombre-apellido.jpg" className={claseInput}
-                  />
-                ), 'md:col-span-2')}
-              </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                    Fotografía
+                  </label>
+                  <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    {/* Vista previa: se ve el recorte cuadrado real, no una
+                        versión estirada que luego no corresponde. */}
+                    {editando.photoUrl ? (
+                      <img
+                        src={editando.photoUrl}
+                        alt="Vista previa"
+                        className="h-20 w-20 rounded-xl object-cover flex-shrink-0 border border-slate-200"
+                      />
+                    ) : (
+                      <div className="h-20 w-20 rounded-xl flex items-center justify-center bg-slate-200 text-slate-500 font-black text-xl flex-shrink-0">
+                        {iniciales(editando.fullName || '?')}
+                      </div>
+                    )}
 
-              <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
-                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
-                <span>
-                  Si dejas la fotografía vacía, la tarjeta muestra sus iniciales. Para poner una, guarda
-                  el archivo en <code className="bg-slate-100 px-1 rounded">public/images/responsables/</code> y
-                  escribe aquí su ruta.
-                </span>
-              </p>
+                    <div className="min-w-0 flex-1">
+                      <input
+                        ref={inputFotoRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => elegirFoto(e.target.files?.[0])}
+                      />
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => inputFotoRef.current?.click()}
+                          disabled={subiendoFoto}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#0F4C3A] text-white hover:bg-[#0d3f30] disabled:opacity-60 transition-colors"
+                        >
+                          {subiendoFoto
+                            ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Subiendo...</>
+                            : <><Upload className="h-3.5 w-3.5" /> {editando.photoUrl ? 'Cambiar foto' : 'Subir foto'}</>}
+                        </button>
+
+                        {editando.photoUrl && !subiendoFoto && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFotoAReemplazar(editando.photoUrl);
+                              setEditando({ ...editando, photoUrl: '' });
+                              setAcuseFoto(null);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-200 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Quitar
+                          </button>
+                        )}
+
+                        {acuseFoto && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+                            <Check className="h-3.5 w-3.5" />
+                            {acuseFoto}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="flex items-start gap-1.5 text-[11px] text-slate-400 mt-2 leading-relaxed">
+                        <Camera className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                        <span>
+                          JPG, PNG o WEBP. Se recorta en cuadro y se reduce sola, así que puedes subir
+                          la foto tal como salió del celular. Si la dejas vacía, la tarjeta muestra sus iniciales.
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {errorForm && (
                 <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3">
@@ -1208,7 +1300,7 @@ const Organigrama: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex-shrink-0">
-              <button type="button" onClick={() => setEditando(null)}
+              <button type="button" onClick={() => { setEditando(null); setAcuseFoto(null); setFotoAReemplazar(null); }}
                 className="px-4 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">
                 Cancelar
               </button>
