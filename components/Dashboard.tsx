@@ -171,6 +171,33 @@ const buildSearchableText = (row: Record<string, any>): string => {
   return fragments.join(' ');
 };
 
+/**
+ * Normaliza el nombre de una columna para poder compararla: sin acentos, sin
+ * mayusculas, sin puntuacion y con los espacios colapsados.
+ *
+ * Vive en el ambito del modulo, NO dentro del componente. Estaba declarada
+ * dentro, cerca de la linea 3900, y varios useMemo de mas arriba la llamaban
+ * durante el render: al ser un `const`, todavia estaba en su zona muerta
+ * temporal y lanzaba "Cannot access 'normalizeAnnualKey' before
+ * initialization", que dejaba la aplicacion en blanco.
+ *
+ * El fallo solo aparecia al escribir en un buscador por columna, porque esa es
+ * la unica rama del filtro que la llamaba tan pronto. Aqui arriba no puede
+ * volver a pasar: la funcion existe antes de que el componente se monte.
+ */
+const normalizeAnnualKey = (key: string) => key
+  .toString()
+  .trim()
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ')
+  .replace(/[()]/g, '')
+  .replace(/[\.\-_]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .replace(/[º°#]/g, '')
+  .trim();
+
 const rowMatchesFilter = (row: Record<string, any>, query: string): boolean => {
   const normalizedQuery = normalizeSearchFragment(query ?? '').trim();
   if (!normalizedQuery) return true;
@@ -3939,19 +3966,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
     return 0;
   };
-
-  const normalizeAnnualKey = (key: string) => key
-    .toString()
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/[()]/g, '')
-    .replace(/[\.\-_]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/[º°#]/g, '')
-    .trim();
 
   const normalizeValueToken = (value: any) => {
     if (value === null || value === undefined) return '';
