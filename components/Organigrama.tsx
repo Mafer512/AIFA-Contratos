@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Users, UserPlus, Pencil, Trash2, X, Loader2, Search, AlertCircle,
   Briefcase, GraduationCap, CalendarClock, Hash, BadgeCheck, ChevronDown,
+  Network, List, Maximize2, Minimize2,
 } from 'lucide-react';
 import {
   COLORES_EQUIPO, ETIQUETA_NIVEL, construirEstructura, contarPersonas,
@@ -133,6 +134,90 @@ const BarraReparto: React.FC<{ etiqueta: string; cantidad: number; maximo: numbe
     </div>
     <span className="text-[12px] font-bold text-slate-800 tabular-nums w-7 text-right flex-shrink-0">{cantidad}</span>
   </div>
+);
+
+/**
+ * Una caja del mapa.
+ *
+ * Deliberadamente pequeña: en un organigrama lo que se lee es la FORMA —quién
+ * cuelga de quién—, no la ficha completa. Los datos de cada quien ya están en
+ * la vista de lista, y meterlos aquí obligaría a cajas tan grandes que la
+ * estructura dejaría de caber en la pantalla.
+ */
+const NodoMapa: React.FC<{
+  persona: ResponsableProfile;
+  color: ClaveColor;
+  servicios: number;
+  tamano: 'gerente' | 'coordinador' | 'colaborador';
+  compacto: boolean;
+  seleccionada: boolean;
+  onClick: () => void;
+}> = ({ persona, color, servicios, tamano, compacto, seleccionada, onClick }) => {
+  const paleta = COLORES_EQUIPO[color] ?? COLORES_EQUIPO.sinEquipo;
+  const anchos = { gerente: 'w-64', coordinador: 'w-60', colaborador: 'w-56' } as const;
+  const retrato = tamano === 'gerente' ? 44 : tamano === 'coordinador' ? 38 : 32;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${persona.fullName}\n${persona.puesto ?? ''}\nVer su ficha completa`}
+      className={`${anchos[tamano]} text-left bg-white rounded-xl border transition-all hover:shadow-lg hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
+        seleccionada ? 'shadow-lg ring-2' : 'shadow-sm'
+      }`}
+      style={{
+        borderColor: paleta.borde,
+        borderTopWidth: 4,
+        borderTopColor: paleta.banda,
+        ...(seleccionada ? ({ ['--tw-ring-color' as any]: paleta.banda }) : {}),
+      }}
+    >
+      <div className={`flex items-center gap-2.5 ${compacto ? 'p-2' : 'p-3'}`}>
+        {!compacto && (
+          persona.photoUrl ? (
+            <img
+              src={persona.photoUrl} alt=""
+              className="rounded-lg object-cover flex-shrink-0"
+              style={{ width: retrato, height: retrato }}
+              loading="lazy"
+            />
+          ) : (
+            <div
+              className="rounded-lg flex items-center justify-center font-black text-white flex-shrink-0"
+              style={{ width: retrato, height: retrato, background: paleta.banda, fontSize: retrato / 3 }}
+            >
+              {iniciales(persona.fullName)}
+            </div>
+          )
+        )}
+        <div className="min-w-0 flex-1">
+          <p className={`font-bold text-slate-900 leading-tight truncate ${tamano === 'colaborador' ? 'text-[12px]' : 'text-[13px]'}`}>
+            {persona.fullName}
+          </p>
+          {!compacto && (
+            <p className="text-[10px] leading-snug mt-0.5 line-clamp-2" style={{ color: paleta.texto }}>
+              {persona.puesto ?? 'Sin puesto'}
+            </p>
+          )}
+          <div className="flex items-center gap-1.5 mt-1">
+            {persona.nivelSalarial && (
+              <span className="px-1.5 py-px rounded text-[9px] font-black text-white" style={{ backgroundColor: paleta.banda }}>
+                {persona.nivelSalarial}
+              </span>
+            )}
+            <span className="text-[10px] font-semibold text-slate-400 tabular-nums">
+              {servicios} serv.
+            </span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+};
+
+/** Tramos de línea que unen las cajas. Divs y no SVG: siguen al contenido aunque los nombres cambien de largo. */
+const LineaVertical: React.FC<{ alto?: number }> = ({ alto = 24 }) => (
+  <div className="w-px bg-slate-300 flex-shrink-0" style={{ height: alto }} />
 );
 
 const FichaPersona: React.FC<{
@@ -314,6 +399,9 @@ const Organigrama: React.FC<Props> = ({
   colorEstatus = () => '#94A3B8',
 }) => {
   const [busqueda, setBusqueda] = useState('');
+  const [vista, setVista] = useState<'lista' | 'mapa'>('lista');
+  // En el mapa, las cajas sin foto ni puesto caben muchas más por pantalla.
+  const [mapaCompacto, setMapaCompacto] = useState(false);
   const [editando, setEditando] = useState<ResponsableProfile | null>(null);
   const [esNueva, setEsNueva] = useState(false);
   const [errorForm, setErrorForm] = useState('');
@@ -484,6 +572,37 @@ const Organigrama: React.FC<Props> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-0.5">
+            {([
+              { id: 'lista' as const, label: 'Lista', icono: List },
+              { id: 'mapa' as const, label: 'Mapa', icono: Network },
+            ]).map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => setVista(v.id)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                  vista === v.id ? 'bg-white text-[#0F4C3A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <v.icono className="h-3.5 w-3.5" />
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {vista === 'mapa' && (
+            <button
+              type="button"
+              onClick={() => setMapaCompacto((v) => !v)}
+              title={mapaCompacto ? 'Mostrar fotos y puestos' : 'Ver más gente en pantalla'}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-xl hover:bg-slate-50 transition-colors"
+            >
+              {mapaCompacto ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+              {mapaCompacto ? 'Ampliar' : 'Compactar'}
+            </button>
+          )}
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
             <input
@@ -517,8 +636,148 @@ const Organigrama: React.FC<Props> = ({
         </div>
       )}
 
+      {/* ══════════════════════════════════════════════════════════════════
+          MAPA
+          ══════════════════════════════════════════════════════════════════ */}
+      {vista === 'mapa' && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/60 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 bg-white">
+            <p className="text-[11px] font-semibold text-slate-500">
+              Toca cualquier caja para abrir su ficha completa.
+            </p>
+            <div className="flex items-center gap-3 text-[10px] font-semibold text-slate-400">
+              {estructura.coordinaciones.map(({ persona: c }) => {
+                const pal = COLORES_EQUIPO[(c.color ?? 'sinEquipo') as ClaveColor] ?? COLORES_EQUIPO.sinEquipo;
+                return (
+                  <span key={c.catalogValue} className="hidden md:inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: pal.banda }} />
+                    {c.fullName.split(' ')[0]}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* overflow-x-auto: un organigrama no se debe apretar hasta volverse
+              ilegible. Si no cabe, se desplaza. */}
+          <div className="overflow-x-auto p-6">
+            <div className="min-w-max mx-auto flex flex-col items-center">
+
+              {estructura.gerente && (
+                <>
+                  <NodoMapa
+                    persona={estructura.gerente}
+                    color="gerencia"
+                    servicios={alcanceDe(estructura.gerente).total}
+                    tamano="gerente"
+                    compacto={mapaCompacto}
+                    seleccionada={personaAbierta === estructura.gerente.catalogValue}
+                    onClick={() => { setVista('lista'); onAbrirPersona(estructura.gerente!.catalogValue); }}
+                  />
+                  <LineaVertical alto={20} />
+                </>
+              )}
+
+              {estructura.coordinaciones.length > 0 && (
+                <div className="flex items-start">
+                  {estructura.coordinaciones.map(({ persona: coord, equipo }, i) => {
+                    const color = (coord.color ?? 'sinEquipo') as ClaveColor;
+                    const paleta = COLORES_EQUIPO[color] ?? COLORES_EQUIPO.sinEquipo;
+                    const esPrimera = i === 0;
+                    const esUltima = i === estructura.coordinaciones.length - 1;
+                    const unica = estructura.coordinaciones.length === 1;
+
+                    return (
+                      <div key={coord.catalogValue} className="flex flex-col items-center px-3">
+                        {/* Barra que reparte desde la gerencia: media línea en los
+                            extremos para que no sobresalga del último hermano. */}
+                        <div className="relative w-full h-5">
+                          {!unica && (
+                            <div
+                              className="absolute top-0 h-px bg-slate-300"
+                              style={{ left: esPrimera ? '50%' : 0, right: esUltima ? '50%' : 0 }}
+                            />
+                          )}
+                          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-5 bg-slate-300" />
+                        </div>
+
+                        <NodoMapa
+                          persona={coord}
+                          color={color}
+                          servicios={alcanceDe(coord).total}
+                          tamano="coordinador"
+                          compacto={mapaCompacto}
+                          seleccionada={personaAbierta === coord.catalogValue}
+                          onClick={() => { setVista('lista'); onAbrirPersona(coord.catalogValue); }}
+                        />
+
+                        {equipo.length > 0 && (
+                          <>
+                            <LineaVertical alto={16} />
+                            {/* Espina vertical con ramitas: los nombres son largos,
+                                así que el equipo se apila en vez de extenderse. */}
+                            <div className="relative pl-5 pt-1">
+                              <div
+                                className="absolute left-0 top-0 w-px bg-slate-300"
+                                style={{ height: 'calc(100% - 1.25rem)' }}
+                              />
+                              <div className="flex flex-col gap-2">
+                                {equipo.map((miembro) => (
+                                  <div key={miembro.catalogValue} className="relative flex items-center">
+                                    <span className="absolute -left-5 w-5 h-px bg-slate-300" />
+                                    <NodoMapa
+                                      persona={miembro}
+                                      color={color}
+                                      servicios={servicios(miembro).length}
+                                      tamano="colaborador"
+                                      compacto={mapaCompacto}
+                                      seleccionada={personaAbierta === miembro.catalogValue}
+                                      onClick={() => { setVista('lista'); onAbrirPersona(miembro.catalogValue); }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        {equipo.length === 0 && (
+                          <p className="mt-2 text-[10px] text-slate-400 italic">Sin personal a su cargo</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {estructura.sinAsignar.length > 0 && (
+                <div className="mt-8 pt-5 border-t border-dashed border-slate-300 w-full">
+                  <p className="flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400 mb-3">
+                    <AlertCircle className="h-3 w-3" />
+                    Sin coordinación asignada
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {estructura.sinAsignar.map((p) => (
+                      <NodoMapa
+                        key={p.catalogValue}
+                        persona={p}
+                        color="sinEquipo"
+                        servicios={servicios(p).length}
+                        tamano="colaborador"
+                        compacto={mapaCompacto}
+                        seleccionada={personaAbierta === p.catalogValue}
+                        onClick={() => { setVista('lista'); onAbrirPersona(p.catalogValue); }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Gerencia ── */}
-      {estructura.gerente && coincide(estructura.gerente) && (
+      {vista === 'lista' && estructura.gerente && coincide(estructura.gerente) && (
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Gerencia</p>
           <FichaPersona
@@ -541,7 +800,7 @@ const Organigrama: React.FC<Props> = ({
       )}
 
       {/* ── Coordinaciones ── */}
-      {estructura.coordinaciones.map(({ persona: coord, equipo }) => {
+      {vista === 'lista' && estructura.coordinaciones.map(({ persona: coord, equipo }) => {
         const color = (coord.color ?? 'sinEquipo') as ClaveColor;
         const paleta = COLORES_EQUIPO[color] ?? COLORES_EQUIPO.sinEquipo;
         const visibles = [coord, ...equipo].filter(coincide);
@@ -615,7 +874,7 @@ const Organigrama: React.FC<Props> = ({
           No se ocultan: una persona que desaparece de la pantalla por tener un
           campo vacío es peor que una fuera de lugar, porque nadie se entera de
           que hay que acomodarla. */}
-      {estructura.sinAsignar.filter(coincide).length > 0 && (
+      {vista === 'lista' && estructura.sinAsignar.filter(coincide).length > 0 && (
         <div className="rounded-2xl overflow-hidden border border-slate-300">
           <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-500">
             <AlertCircle className="h-4 w-4 text-white" />
@@ -645,7 +904,7 @@ const Organigrama: React.FC<Props> = ({
         </div>
       )}
 
-      {busqueda.trim() && total > 0 &&
+      {vista === 'lista' && busqueda.trim() && total > 0 &&
         !estructura.coordinaciones.some(({ persona, equipo }) => [persona, ...equipo].some(coincide)) &&
         !(estructura.gerente && coincide(estructura.gerente)) &&
         estructura.sinAsignar.filter(coincide).length === 0 && (
