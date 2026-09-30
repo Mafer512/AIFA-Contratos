@@ -32,6 +32,7 @@ const localizer = dateFnsLocalizer({
 
 import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff, AccessLogEntry } from '../types';
 import Organigrama from './Organigrama';
+import ServicioDetalle, { type DatosServicio } from './ServicioDetalle';
 import { ORGANIGRAMA_BASE } from '../data/organigrama';
 import { RESPONSABLE_PROFILES_CON_ORGANIGRAMA } from '../data/responsables';
 import { supabase, supabaseOperaciones, supabaseSignUp } from '../services/supabaseClient';
@@ -1218,6 +1219,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [respSearch, setRespSearch] = useState('');
   const [viewAllServices, setViewAllServices] = useState(false);
   const [ganttModalService, setGanttModalService] = useState<Record<string, any> | null>(null);
+
+  /**
+   * Servicios abiertos en el explorador: una barra de una gráfica, un renglón
+   * de una tabla o un servicio suelto. Null cuando no hay nada abierto.
+   */
+  const [explorador, setExplorador] = useState<{ titulo: string; subtitulo?: string; filas: Record<string, any>[] } | null>(null);
   const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null}[]>([]);
   const [savingResponsable, setSavingResponsable] = useState<string | null>(null);
   // Restablecimiento de contraseña: guarda el id del usuario en curso y el
@@ -6664,6 +6671,126 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }).sort((a, b) => b.paid - a.paid);
   }, [pagos2026Data, pagos2026ServiceFieldSummary, pagos2026MontoMaxFieldSummary]);
 
+  /**
+   * Columnas de la ficha de contrato, resueltas una vez.
+   *
+   * Los nombres reales varían entre tablas y entre años ("No. de contrato",
+   * "no_contrato", "No. Contrato"...), así que se buscan por fragmento en vez
+   * de darlos por sabidos. Lo que no exista queda en null y la ficha lo dice,
+   * en lugar de enseñar un hueco.
+   */
+  const camposFichaServicio = useMemo(() => {
+    const buscar = (...fragmentos: string[][]) => {
+      for (const grupo of fragmentos) {
+        const hallada = estatus2026TableColumns.find((c) => {
+          const n = normalizeAnnualKey(c);
+          return grupo.every((f) => n.includes(f));
+        });
+        if (hallada) return hallada;
+      }
+      return null;
+    };
+    return {
+      noContrato: buscar(['no', 'contrato'], ['numero', 'contrato'], ['contrato']),
+      proveedor: buscar(['proveedor'], ['empresa']),
+      administrador: buscar(['administrador']),
+      vigenciaInicio: buscar(['vigencia', 'inicio']),
+      vigenciaTermino: buscar(['vigencia', 'termino'], ['vigencia', 'fin']),
+      // No existe hoy en la tabla; si algún día se agrega, la ficha la toma sola.
+      penas: buscar(['pena'], ['deductiv']),
+      cucop: buscar(['cucop']),
+      tipoServicio: buscar(['tipo', 'servicio']),
+      montoMaximo: buscar(['monto', 'maximo', String(anioActivo)], ['monto', 'maximo'], ['monto', 'suficiencia']),
+    };
+  }, [estatus2026TableColumns, anioActivo]);
+
+  /** Lo ejercido por servicio, indexado por nombre, para el avance financiero. */
+  const ejercidoPorServicio = useMemo(() => {
+    const mapa = new Map<string, number>();
+    pagos2026ServicePaymentProgress.forEach((r) => {
+      mapa.set(normalizeAnnualKey(r.service), r.paid);
+    });
+    return mapa;
+  }, [pagos2026ServicePaymentProgress]);
+
+  /** Convierte una fila de estatus en la ficha que consume el explorador. */
+  const construirDatosServicio = useCallback((row: Record<string, any>, idx: number): DatosServicio => {
+    const leer = (col: string | null | undefined) => {
+      if (!col) return undefined;
+      const v = row[col];
+      const t = String(v ?? '').trim();
+      return t || undefined;
+    };
+
+    const nombre = estatus2026ServiceNameFieldSummary
+      ? String(row[estatus2026ServiceNameFieldSummary] ?? '').trim() || 'Servicio sin nombre'
+      : 'Servicio sin nombre';
+
+    const estatusCol = estatus2026TableColumns.find((c) => normalizeAnnualKey(c) === 'estatus') ?? estatus2026StatusFieldSummary;
+    const estatus = estatusCol ? String(row[estatusCol] ?? '').trim() : '';
+
+    const req = getEstatus2026PaymentRequirementState(row);
+
+    return {
+      id: row.id ?? row.ID ?? `svc-${idx}`,
+      nombre,
+      estatus,
+      colorEstatus: ESTATUS_2026_COLOR_MAP[estatus] ?? '#94A3B8',
+      claveCucop: leer(camposFichaServicio.cucop),
+      subdireccion: estatus2026SubdirFieldSummary ? leer(estatus2026SubdirFieldSummary) : undefined,
+      gerencia: estatus2026GerenciaFieldSummary ? leer(estatus2026GerenciaFieldSummary) : undefined,
+      responsable: leer('Responsable'),
+      tipoServicio: leer(camposFichaServicio.tipoServicio),
+      noContrato: leer(camposFichaServicio.noContrato),
+      proveedor: leer(camposFichaServicio.proveedor),
+      administrador: leer(camposFichaServicio.administrador),
+      vigenciaInicio: leer(camposFichaServicio.vigenciaInicio),
+      vigenciaTermino: leer(camposFichaServicio.vigenciaTermino),
+      montoMaximo: parseNumericValue(camposFichaServicio.montoMaximo ? row[camposFichaServicio.montoMaximo] : null),
+      montoEjercido: ejercidoPorServicio.get(normalizeAnnualKey(nombre)) ?? 0,
+      penas: leer(camposFichaServicio.penas),
+      garantias: [
+        { etiqueta: 'Garantía de cumplimiento', ok: req.garantiaOk },
+        { etiqueta: 'Póliza de responsabilidad civil', ok: req.polizaOk },
+        { etiqueta: 'Garantía de calidad', ok: req.calidadOk },
+      ],
+      row,
+      // El Gantt necesita al menos una fecha de proceso; si no hay ninguna, el
+      // botón se deshabilita en vez de abrir un diagrama vacío.
+      tieneGantt: Object.keys(row).some((k) => /^fecha /i.test(k) && String(row[k] ?? '').trim()),
+    };
+  }, [
+    estatus2026ServiceNameFieldSummary, estatus2026TableColumns, estatus2026StatusFieldSummary,
+    estatus2026SubdirFieldSummary, estatus2026GerenciaFieldSummary,
+    camposFichaServicio, ejercidoPorServicio, getEstatus2026PaymentRequirementState,
+  ]);
+
+  /** Abre el explorador con los servicios de un grupo (una barra de una gráfica). */
+  const abrirServicios = useCallback((titulo: string, filas: Record<string, any>[], subtitulo?: string) => {
+    if (!filas.length) return;
+    setExplorador({ titulo, filas, subtitulo });
+  }, []);
+
+  /**
+   * Servicios de una gerencia o una subdirección, respetando el trimestre que
+   * esté seleccionado arriba.
+   *
+   * Compara normalizado: las gráficas muestran los nombres con los acentos ya
+   * corregidos ("Ingeniería") y en la tabla pueden venir sin ellos, así que una
+   * comparación literal dejaría barras que al pulsarlas no abrirían nada.
+   */
+  const filasDeGrupo = useCallback((campo: string | null, valor: string) => {
+    if (!campo) return [] as Record<string, any>[];
+    const objetivo = normalizeAnnualKey(valor);
+    const base = resumenActiveMonthIdxs
+      ? estatusAnioData.filter((row) => {
+          const mi = getEstatus2026RowMonth(row);
+          return mi !== null && resumenActiveMonthIdxs.includes(mi);
+        })
+      : estatusAnioData;
+    return base.filter((row) => normalizeAnnualKey(String(row[campo] ?? '')) === objetivo);
+  }, [estatusAnioData, resumenActiveMonthIdxs]);
+
   const pagos2026ProgressTotals = useMemo(() => {
     const totalToPay = pagos2026ServicePaymentProgress.reduce((acc, row) => acc + row.total, 0);
     const totalPaid = pagos2026ServicePaymentProgress.reduce((acc, row) => acc + row.paid, 0);
@@ -12023,7 +12150,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         const fixAccent = (s: string) => acento.reduce((t, [a, b]) => t.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), s);
                                         const proveedorField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('proveedor'));
                                         return (
-                                          <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                          <tr
+                                            onClick={() => abrirServicios(String(row[estatus2026ServiceNameFieldSummary ?? ""] ?? "Servicio"), [row])}
+                                            title="Ver la ficha del servicio"
+                                            key={idx} className={`hover:bg-slate-50 transition-colors cursor-pointer ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                             <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>{estVal || '—'}</span></td>
                                             <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">{estatus2026SubdirFieldSummary ? fixAccent(String(row[estatus2026SubdirFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
@@ -12145,7 +12275,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         })()}
 
                         {/* ── Gantt Modal Portal (single service) ── */}
-                        {ganttModalService !== null && createPortal((() => {
+                        {/* Explorador de servicios: se abre desde cualquier barra o renglón y
+            lleva a la ficha del servicio. Un solo camino para todos. */}
+        {explorador && createPortal(
+          <ServicioDetalle
+            titulo={explorador.titulo}
+            subtitulo={explorador.subtitulo}
+            servicios={explorador.filas.map(construirDatosServicio)}
+            onCerrar={() => setExplorador(null)}
+            onVerGantt={(row) => { setExplorador(null); setGanttModalService(row); }}
+          />,
+          document.body
+        )}
+
+        {ganttModalService !== null && createPortal((() => {
                           const DO_COLOR = '#111827';
                           const DA_COLOR = '#60A5FA';
                           const MONTHS_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -12467,7 +12610,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         const fixAccent = (s: string) => acento.reduce((t, [a, b]) => t.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), s);
                                         const proveedorField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('proveedor'));
                                         return (
-                                          <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                          <tr
+                                            onClick={() => abrirServicios(String(row[estatus2026ServiceNameFieldSummary ?? ""] ?? "Servicio"), [row])}
+                                            title="Ver la ficha del servicio"
+                                            key={idx} className={`hover:bg-slate-50 transition-colors cursor-pointer ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                             <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
                                             <td className="px-6 py-4 text-sm text-center text-slate-600">{proveedorField ? String(row[proveedorField] ?? '—') : '—'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">{estatus2026SubdirFieldSummary ? fixAccent(String(row[estatus2026SubdirFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
@@ -12546,7 +12692,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         const montoField = estatus2026TableColumns.find(c => normalizeAnnualKey(c).includes('monto maximo 2026') || normalizeAnnualKey(c).includes('monto maximo'));
                                         const monto = montoField ? parseFloat(String(row[montoField] ?? '0').replace(/[$,]/g, '')) : 0;
                                         return (
-                                          <tr key={idx} className={`hover:bg-red-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-red-50/20'}`}>
+                                          <tr
+                                            onClick={() => abrirServicios(String(row[estatus2026ServiceNameFieldSummary ?? ""] ?? "Servicio"), [row])}
+                                            title="Ver la ficha del servicio"
+                                            key={idx} className={`hover:bg-red-50/40 transition-colors cursor-pointer ${idx % 2 === 0 ? 'bg-white' : 'bg-red-50/20'}`}>
                                             <td className="px-6 py-4 text-sm font-semibold text-slate-800 max-w-xs">{estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '—') : '—'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">{estatus2026SubdirFieldSummary ? fixAccent(String(row[estatus2026SubdirFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
                                             <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">{estatus2026GerenciaFieldSummary ? fixAccent(String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}</span></td>
@@ -12666,7 +12815,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             return (
                                               <tr key={idx} className={`hover:bg-purple-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
                                                 <td className="px-6 py-3 text-xs text-slate-400 font-mono">{idx + 1}</td>
-                                                <td className="px-6 py-3 text-sm text-slate-800">{svc.name}</td>
+                                                <td className="px-6 py-3 text-sm text-slate-800">
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); abrirServicios(svc.name, [svc.row]); }}
+                                                    title="Ver la ficha del servicio"
+                                                    className="text-left hover:text-[#0F4C3A] hover:underline underline-offset-2 transition-colors"
+                                                  >
+                                                    {svc.name}
+                                                  </button>
+                                                </td>
                                                 <td className="px-6 py-3">
                                                   <span
                                                     style={{
@@ -12930,7 +13088,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   });
                                 })()
                                   .map((row, idx) => (
-                                    <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                    <tr
+                                      onClick={() => abrirServicios(String(row[estatus2026ServiceNameFieldSummary ?? ""] ?? "Servicio"), [row])}
+                                      title="Ver la ficha del servicio"
+                                      key={idx} className={`hover:bg-slate-50 transition-colors cursor-pointer ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                       <td className="px-6 py-4 text-sm font-semibold text-slate-800">
                                         {estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? 'Sin nombre') : 'Sin nombre'}
                                       </td>
@@ -13363,6 +13524,52 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
 
 
+                        {/* Las tres gráficas siguen la jerarquía real del área: primero la
+                            Subdirección, que está por encima; luego la Gerencia; y al final el
+                            presupuesto de cada gerencia. Antes se leían al revés. */}
+                        <div className="grid grid-cols-1 gap-6">
+                          {/* Subdirección 2026 */}
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-bold text-slate-800">Servicios {anioActivo} por Subdirección</h3>
+                              <span className="text-xs font-medium text-slate-400">{activeSubdirTotal} total</span>
+                            </div>
+                            <div className="space-y-3">
+                              {activeSubdirData.length > 0 ? (() => {
+                                const maxVal = Math.max(...activeSubdirData.map(e => e.value), 1);
+                                return activeSubdirData.map((entry, index) => {
+                                  const barWidth = Math.round((entry.value / maxVal) * 100);
+                                  const pct = activeSubdirTotal > 0 ? Math.round((entry.value / activeSubdirTotal) * 100) : 0;
+                                  const color = chartPalette[index % chartPalette.length];
+return (
+                                    <button
+                                      key={entry.name}
+                                      type="button"
+                                      onClick={() => abrirServicios(
+                                        entry.name,
+                                        filasDeGrupo(estatus2026SubdirFieldSummary, entry.name),
+                                        `${entry.value} servicio${entry.value !== 1 ? 's' : ''} · ${pct}% del total`
+                                      )}
+                                      title={`Ver los ${entry.value} servicios de ${entry.name}`}
+                                      className="w-full text-left space-y-1 rounded-lg px-1 py-0.5 -mx-1 hover:bg-slate-50 transition-colors group/b"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-xs font-medium text-slate-700 leading-snug group-hover/b:text-[#0F4C3A] group-hover/b:font-semibold transition-colors">{entry.name}</span>
+                                        <span className="text-xs font-bold flex-shrink-0 tabular-nums" style={{ color }}>{entry.value} <span className="text-slate-400 font-normal">({pct}%)</span></span>
+                                      </div>
+                                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                        <div className="h-2 rounded-full transition-all duration-500 group-hover/b:brightness-110" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                                      </div>
+                                    </button>
+                                  );
+                                });
+                              })() : (
+                                <div className="flex items-center justify-center py-10 text-slate-400 text-sm">Sin datos de subdirección</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-1 gap-6">
                           {/* Bar chart: Servicios por Gerencia – HTML/CSS (no SVG clipping) */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
@@ -13382,10 +13589,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       ? ((entry.value / activeGerenciaTotal) * 100).toFixed(1)
                                       : '0';
                                     const color = chartPalette[index % chartPalette.length];
-                                    return (
-                                      <div key={entry.name} className="flex items-center gap-3">
+return (
+                                      <button
+                                        key={entry.name}
+                                        type="button"
+                                        onClick={() => abrirServicios(
+                                          entry.name,
+                                          filasDeGrupo(estatus2026GerenciaFieldSummary, entry.name),
+                                          `${entry.value} servicio${entry.value !== 1 ? 's' : ''} · ${pct}% del total`
+                                        )}
+                                        title={`Ver los ${entry.value} servicios de ${entry.name}`}
+                                        className="w-full flex items-center gap-3 rounded-lg px-1 py-0.5 -mx-1 hover:bg-slate-50 transition-colors group/b"
+                                      >
                                         <div
-                                          className="text-xs text-slate-700 text-right leading-tight shrink-0"
+                                          className="text-xs text-slate-700 text-right leading-tight shrink-0 group-hover/b:text-[#0F4C3A] group-hover/b:font-semibold transition-colors"
                                           style={{ width: '38%', wordBreak: 'break-word' }}
                                         >
                                           {entry.name}
@@ -13393,15 +13610,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <div className="flex-1 flex items-center gap-2 min-w-0">
                                           <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
                                             <div
-                                              className="h-full rounded-full transition-all duration-500"
+                                              className="h-full rounded-full transition-all duration-500 group-hover/b:brightness-110"
                                               style={{ width: `${barWidth}%`, backgroundColor: color }}
                                             />
                                           </div>
-                                          <span className="text-xs text-slate-500 shrink-0 font-medium">
+                                          <span className="text-xs text-slate-500 shrink-0 font-medium tabular-nums">
                                             {entry.value} ({pct}%)
                                           </span>
                                         </div>
-                                      </div>
+                                      </button>
                                     );
                                   })}
                                 </div>
@@ -13414,38 +13631,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </div>
                         </div>
 
-                        {/* ── Subdirección 2026 + Presupuesto por Gerencia 2026 ──────── */}
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                          {/* Subdirección 2026 */}
-                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                            <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-bold text-slate-800">Servicios {anioActivo} por Subdirección</h3>
-                              <span className="text-xs font-medium text-slate-400">{activeSubdirTotal} total</span>
-                            </div>
-                            <div className="space-y-3">
-                              {activeSubdirData.length > 0 ? (() => {
-                                const maxVal = Math.max(...activeSubdirData.map(e => e.value), 1);
-                                return activeSubdirData.map((entry, index) => {
-                                  const barWidth = Math.round((entry.value / maxVal) * 100);
-                                  const pct = activeSubdirTotal > 0 ? Math.round((entry.value / activeSubdirTotal) * 100) : 0;
-                                  const color = chartPalette[index % chartPalette.length];
-                                  return (
-                                    <div key={entry.name} className="space-y-1">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <span className="text-xs font-medium text-slate-700 leading-snug">{entry.name}</span>
-                                        <span className="text-xs font-bold flex-shrink-0" style={{ color }}>{entry.value} <span className="text-slate-400 font-normal">({pct}%)</span></span>
-                                      </div>
-                                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                                        <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
-                                      </div>
-                                    </div>
-                                  );
-                                });
-                              })() : (
-                                <div className="flex items-center justify-center py-10 text-slate-400 text-sm">Sin datos de subdirección</div>
-                              )}
-                            </div>
-                          </div>
+                        <div className="grid grid-cols-1 gap-6">
                           {/* Presupuesto por Gerencia 2026 */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                             <div className="flex items-center justify-between mb-4">
@@ -13458,16 +13644,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 return activeMontoByGerenciaData.map((entry, index) => {
                                   const barWidth = Math.round((entry.value / maxVal) * 100);
                                   const color = chartPalette[index % chartPalette.length];
-                                  return (
-                                    <div key={entry.name} className="space-y-1">
+return (
+                                    <button
+                                      key={entry.name}
+                                      type="button"
+                                      onClick={() => abrirServicios(
+                                        entry.name,
+                                        filasDeGrupo(estatus2026GerenciaFieldSummary, entry.name),
+                                        `Presupuesto ${formatCurrency(entry.value)}`
+                                      )}
+                                      title={`Ver los servicios de ${entry.name}`}
+                                      className="w-full text-left space-y-1 rounded-lg px-1 py-0.5 -mx-1 hover:bg-slate-50 transition-colors group/b"
+                                    >
                                       <div className="flex items-center justify-between gap-2">
-                                        <span className="text-xs font-medium text-slate-700 leading-snug">{entry.name}</span>
-                                        <span className="text-[11px] font-bold flex-shrink-0" style={{ color }}>{formatCurrency(entry.value)}</span>
+                                        <span className="text-xs font-medium text-slate-700 leading-snug group-hover/b:text-[#0F4C3A] group-hover/b:font-semibold transition-colors">{entry.name}</span>
+                                        <span className="text-[11px] font-bold flex-shrink-0 tabular-nums" style={{ color }}>{formatCurrency(entry.value)}</span>
                                       </div>
                                       <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                                        <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+                                        <div className="h-2 rounded-full transition-all duration-500 group-hover/b:brightness-110" style={{ width: `${barWidth}%`, backgroundColor: color }} />
                                       </div>
-                                    </div>
+                                    </button>
                                   );
                                 });
                               })() : (
@@ -13527,7 +13723,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     return displayLabel === selectedEstatus2026Phase;
                                   })
                                   .map((row, idx) => (
-                                    <tr key={idx} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                    <tr
+                                      onClick={() => abrirServicios(String(row[estatus2026ServiceNameFieldSummary ?? ""] ?? "Servicio"), [row])}
+                                      title="Ver la ficha del servicio"
+                                      key={idx} className={`hover:bg-slate-50 transition-colors cursor-pointer ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                       <td className="px-6 py-4 text-sm font-semibold text-slate-800">
                                         {estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? 'Sin nombre') : 'Sin nombre'}
                                       </td>
