@@ -10,7 +10,8 @@ import {
   CreditCard, Calendar as CalendarIcon, FileSpreadsheet, Menu, History, ArrowLeft, Maximize2, Minimize2,
   Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, RefreshCw,
   Users, Plane, Activity, Info, XCircle, Clock, Globe, UserPlus,
-  LogIn, KeyRound, ShieldCheck, Monitor, Smartphone, Timer, CheckCircle2
+  LogIn, KeyRound, ShieldCheck, Monitor, Smartphone, Timer, CheckCircle2,
+  Eye, EyeOff, Copy, ShieldAlert, Mail, UserCog, Wand2, ClipboardCheck
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
@@ -50,6 +51,42 @@ const invoicesPalette = ['#0F4C3A', '#B38E5D', '#2563EB', '#F97316', '#9E1B32', 
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const CONTRACT_SOON_WINDOW_DAYS = 60;
+
+// Alta de usuarios. Mismo mínimo que exige la función crear-usuario.
+const MIN_TEMP_PASSWORD = 8;
+
+/** Contraseña temporal legible para dictarla por teléfono. */
+const randomTempPassword = () => {
+  // Sin I, l, O, 0 ni 1: son las que se confunden al leerlas en voz alta.
+  const abc = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = new Uint32Array(12);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => abc[b % abc.length]).join('');
+};
+
+/** 0 a 4, para la barrita de seguridad de la contraseña temporal. */
+const passwordStrength = (pwd: string): { score: number; label: string; bar: string; text: string } => {
+  if (!pwd) return { score: 0, label: '', bar: 'bg-slate-200', text: 'text-slate-400' };
+  let score = 0;
+  if (pwd.length >= MIN_TEMP_PASSWORD) score++;
+  if (pwd.length >= 12) score++;
+  if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
+  if (/\d/.test(pwd) || /[^A-Za-z0-9]/.test(pwd)) score++;
+  if (pwd.length < MIN_TEMP_PASSWORD) score = Math.min(score, 1);
+  return [
+    { score: 0, label: 'Muy corta', bar: 'bg-red-400', text: 'text-red-600' },
+    { score: 1, label: 'Muy corta', bar: 'bg-red-400', text: 'text-red-600' },
+    { score: 2, label: 'Aceptable', bar: 'bg-amber-400', text: 'text-amber-600' },
+    { score: 3, label: 'Buena', bar: 'bg-emerald-400', text: 'text-emerald-600' },
+    { score: 4, label: 'Excelente', bar: 'bg-emerald-500', text: 'text-emerald-700' },
+  ][score];
+};
+
+const NEW_USER_ROLE_OPTIONS: { role: UserRole; label: string; desc: string; icon: React.ComponentType<{ className?: string }>; on: string; dot: string }[] = [
+  { role: UserRole.VIEWER, label: 'Solo lectura', desc: 'Consulta tablas y reportes. No cambia nada.', icon: Eye, on: 'border-slate-500 bg-slate-50 ring-slate-500/20', dot: 'bg-slate-500' },
+  { role: UserRole.OPERATOR, label: 'Operador', desc: 'Captura y edita la información. No borra.', icon: Pencil, on: 'border-blue-500 bg-blue-50/60 ring-blue-500/20', dot: 'bg-blue-500' },
+  { role: UserRole.ADMIN, label: 'Administrador', desc: 'Control total: usuarios, bitácora y borrado.', icon: ShieldCheck, on: 'border-amber-500 bg-amber-50/60 ring-amber-500/20', dot: 'bg-amber-500' },
+];
 
 // Reuse the PNG logo within the dashboard shell.
 const AifaLogo = ({ className = 'h-32 w-auto' }: { className?: string }) => (
@@ -1225,7 +1262,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
    * de una tabla o un servicio suelto. Null cuando no hay nada abierto.
    */
   const [explorador, setExplorador] = useState<{ titulo: string; subtitulo?: string; filas: Record<string, any>[] } | null>(null);
-  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null}[]>([]);
+  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null; is_superadmin?: boolean}[]>([]);
+  // Cambio de contraseña por el superadmin: fila abierta, lo escrito y el
+  // resultado. La contraseña vive sólo aquí y se borra al cerrar el panel.
+  const [pwdPanelUserId, setPwdPanelUserId] = useState<string | null>(null);
+  const [pwdDraft, setPwdDraft] = useState('');
+  const [showPwdDraft, setShowPwdDraft] = useState(false);
+  const [savingPwd, setSavingPwd] = useState(false);
+  const [pwdResult, setPwdResult] = useState<{ id: string; ok: boolean; msg: string; email?: string; password?: string } | null>(null);
+  const [pwdCopied, setPwdCopied] = useState(false);
   const [savingResponsable, setSavingResponsable] = useState<string | null>(null);
   // Restablecimiento de contraseña: guarda el id del usuario en curso y el
   // resultado del último envío, para dar acuse junto a la fila del usuario.
@@ -1245,6 +1290,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     responsable: '',
   });
   const [newUserFeedback, setNewUserFeedback] = useState<{ ok: boolean; title: string; msg: string } | null>(null);
+  const [showNewUserPassword, setShowNewUserPassword] = useState(false);
+  // Datos de acceso del último alta, para entregárselos a la persona. Viven
+  // sólo en memoria y se borran al cerrar el aviso.
+  const [createdCredentials, setCreatedCredentials] = useState<{
+    fullName: string; email: string; password: string; role: UserRole; responsable: string | null;
+  } | null>(null);
+  const [credentialsCopied, setCredentialsCopied] = useState(false);
+  // Un error del alta deja de aplicar en cuanto se corrige el formulario: si se
+  // quedara, "Ese correo ya tiene cuenta" seguiría ahí con otro correo escrito.
+  useEffect(() => {
+    setNewUserFeedback(prev => (prev && !prev.ok ? null : prev));
+  }, [newUser]);
   const [userSearch, setUserSearch] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -2272,10 +2329,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const userRoleMeta = useMemo(() => {
     switch (user.role) {
       case UserRole.ADMIN:
-        return {
-          label: 'Administrador',
-          badgeClass: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
-        };
+        return user.isSuperAdmin
+          ? { label: 'Superadmin', badgeClass: 'bg-amber-100 text-amber-800 border border-amber-300' }
+          : { label: 'Administrador', badgeClass: 'bg-emerald-100 text-emerald-700 border border-emerald-200' };
       case UserRole.OPERATOR:
         return {
           label: 'Operador',
@@ -2292,7 +2348,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           badgeClass: 'bg-slate-100 text-slate-600 border border-slate-200',
         };
     }
-  }, [user.role]);
+  }, [user.role, user.isSuperAdmin]);
 
   // Dos permisos distintos, a propósito:
   //
@@ -2315,6 +2371,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     () => user.role === UserRole.ADMIN,
     [user.role]
   );
+
+  // Encima de isAdmin: fijar contraseñas ajenas. La función cambiar-password lo
+  // vuelve a comprobar en el servidor; esto sólo decide qué botones se ven.
+  const isSuperAdmin = isAdmin && user.isSuperAdmin === true;
 
   const requireManagePermission = () => {
     if (canManageRecords) return true;
@@ -2454,19 +2514,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setUsersError(null);
     try {
       // profiles nació antes que estas migraciones y en algunas instalaciones
-      // no tiene columna email. Si falta, PostgREST rechaza el select entero y
-      // la lista se quedaría vacía; por eso se reintenta sin ella. La
-      // consecuencia es sólo que el botón de contraseña queda deshabilitado
-      // hasta que se corra la migración que agrega la columna.
-      const withEmail = await supabase
-        .schema('public')
-        .from('profiles')
-        .select('id, full_name, responsable, role, email')
-        .order('full_name');
-
-      if (!withEmail.error) {
-        setResponsableAdminData((withEmail.data ?? []) as any);
-        return;
+      // no tiene las columnas email o is_superadmin. Si falta una, PostgREST
+      // rechaza el select entero y la lista se quedaría vacía; por eso se
+      // reintenta sin ellas. La consecuencia es sólo que los botones que las
+      // necesitan quedan deshabilitados hasta que se corra la migración.
+      const columnas = [
+        'id, full_name, responsable, role, email, is_superadmin',
+        'id, full_name, responsable, role, email',
+      ];
+      for (const cols of columnas) {
+        const intento = await supabase.schema('public').from('profiles').select(cols).order('full_name');
+        if (!intento.error) {
+          setResponsableAdminData((intento.data ?? []) as any);
+          return;
+        }
       }
 
       const fallback = await supabase
@@ -2491,9 +2552,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
 
   const saveResponsable = async (userId: string, newResponsable: string | null) => {
+    if (!isAdmin) return;
     setSavingResponsable(userId);
-    await supabase.schema('public').from('profiles').update({ responsable: newResponsable }).eq('id', userId);
-    setResponsableAdminData(prev => prev.map(u => u.id === userId ? { ...u, responsable: newResponsable } : u));
+    // Antes se ignoraba el error y la lista mostraba el cambio aunque la base lo
+    // hubiera rechazado. Ahora sólo se refleja lo que de verdad se guardó.
+    const { error } = await supabase.schema('public').from('profiles').update({ responsable: newResponsable }).eq('id', userId);
+    if (error) {
+      console.error('Error cambiando los servicios:', error.message);
+      setResetFeedback({ id: userId, ok: false, msg: `No se pudieron cambiar sus servicios: ${error.message}` });
+    } else {
+      setResponsableAdminData(prev => prev.map(u => u.id === userId ? { ...u, responsable: newResponsable } : u));
+      setResetFeedback({ id: userId, ok: true, msg: 'Servicios actualizados. Aplica en su próximo inicio de sesión.' });
+    }
     setSavingResponsable(null);
   };
 
@@ -2558,21 +2628,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   /**
    * Da de alta a una persona desde el panel de administración.
    *
-   * Usa supabaseSignUp, no el cliente principal: signUp() inicia sesión con la
-   * cuenta nueva, y con el cliente principal el administrador terminaría dentro
-   * del sistema suplantando al empleado que acaba de crear.
+   * La cuenta la crea la función crear-usuario en el servidor: comprueba que
+   * quien llama es ADMIN, crea la cuenta con la llave service_role y escribe el
+   * perfil en un solo paso (si el perfil falla, deshace la cuenta). Así el
+   * registro público de Supabase puede quedar cerrado, que es lo que impide que
+   * cualquiera con la llave del bundle se cree una cuenta.
    *
-   * El perfil (nombre, rol, responsable) se escribe después con el cliente del
-   * administrador, que es quien tiene permiso sobre la tabla profiles.
+   * Respaldo: si la función todavía no está desplegada se usa el camino viejo
+   * (signUp con supabaseSignUp + perfil con la sesión del administrador). Sólo
+   * funciona mientras el registro público siga abierto; en cuanto se cierra, la
+   * función es la única vía.
    */
-  const createUser = async () => {
-    if (!isAdmin) return;
+  const createUser = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!isAdmin || creatingUser) return;
 
-    const fullName = newUser.fullName.trim();
+    const fullName = newUser.fullName.trim().replace(/\s+/g, ' ');
     const email = newUser.email.trim().toLowerCase();
     const password = newUser.password;
+    const role = newUser.role;
+    const responsable = newUser.responsable || null;
 
-    if (!fullName) {
+    if (fullName.length < 3) {
       setNewUserFeedback({ ok: false, title: 'Falta el nombre', msg: 'Escribe el nombre completo de la persona.' });
       return;
     }
@@ -2580,8 +2657,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setNewUserFeedback({ ok: false, title: 'Correo inválido', msg: 'Revisa la dirección de correo.' });
       return;
     }
-    if (password.length < 6) {
-      setNewUserFeedback({ ok: false, title: 'Contraseña muy corta', msg: 'La contraseña temporal necesita al menos 6 caracteres.' });
+    if (responsableAdminData.some(u => (u.email ?? '').toLowerCase() === email)) {
+      setNewUserFeedback({ ok: false, title: 'Ese correo ya tiene cuenta', msg: 'Búscalo en la lista de abajo y ajusta sus permisos ahí.' });
+      return;
+    }
+    if (password.length < MIN_TEMP_PASSWORD) {
+      setNewUserFeedback({ ok: false, title: 'Contraseña muy corta', msg: `La contraseña temporal necesita al menos ${MIN_TEMP_PASSWORD} caracteres. Usa el botón para generar una.` });
       return;
     }
 
@@ -2589,63 +2670,85 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setNewUserFeedback(null);
 
     try {
-      const { data, error } = await supabaseSignUp.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: urlRetorno(),
-          data: { full_name: fullName, role: newUser.role },
-        },
+      let createdId: string | null = null;
+      let viaFuncion = true;
+
+      const { data, error } = await supabase.functions.invoke('crear-usuario', {
+        body: { fullName, email, password, role, responsable },
       });
 
-      if (error) throw error;
-
-      const createdId = data.user?.id;
-      if (!createdId) {
-        throw new Error('Supabase no devolvió el usuario creado.');
-      }
-
-      // La sesión de la cuenta nueva no debe quedar viva ni en memoria.
-      await supabaseSignUp.auth.signOut();
-
-      // El perfil puede existir ya, si el proyecto tiene un trigger que lo crea
-      // al registrarse. Por eso es upsert y no insert.
-      const { error: profileError } = await supabase
-        .schema('public')
-        .from('profiles')
-        .upsert({
-          id: createdId,
-          full_name: fullName,
-          role: newUser.role,
-          responsable: newUser.responsable || null,
-          email,
-        }, { onConflict: 'id' });
-
-      if (profileError) {
-        // La cuenta sí quedó creada; lo que falló es el perfil. Hay que decirlo
-        // tal cual: repetir el alta daría "usuario ya registrado" y confundiría.
-        console.error('Error creando el perfil:', profileError);
-        setNewUserFeedback({
-          ok: false,
-          title: 'Cuenta creada, perfil incompleto',
-          msg: `La cuenta de ${email} sí se creó, pero no se pudo guardar su rol ni su responsable (${profileError.message}). Ajústalos desde la lista de abajo.`,
-        });
+      if (error) {
+        // FunctionsHttpError trae la respuesta de la función: su mensaje ya
+        // está en español y listo para mostrarse. Un 404 (o no poder ni
+        // llegar) quiere decir que la función no está desplegada.
+        const res: Response | undefined = (error as any)?.context;
+        const status = res?.status;
+        if (res && typeof res.json === 'function' && status !== 404) {
+          const detalle = await res.json().catch(() => null);
+          const titulos: Record<string, string> = {
+            duplicado: 'Ese correo ya tiene cuenta',
+            permiso: 'Sin permiso',
+            sesion: 'Sesión expirada',
+            password: 'Contraseña rechazada',
+          };
+          setNewUserFeedback({
+            ok: false,
+            title: titulos[detalle?.code] ?? 'No se pudo crear la cuenta',
+            msg: detalle?.error ?? `La función respondió ${status}.`,
+          });
+          return;
+        }
+        viaFuncion = false;
       } else {
-        // signUp devuelve sesión cuando el proyecto no exige confirmar el
-        // correo. Sirve para decirle al administrador qué pasa ahora sin que
-        // tenga que adivinar si la persona puede entrar ya o no.
-        const entraYa = Boolean(data.session);
-        setNewUserFeedback({
-          ok: true,
-          title: 'Usuario creado',
-          msg: entraYa
-            ? `${fullName} ya puede entrar con ${email} y la contraseña temporal que le diste.`
-            : `Se creó la cuenta de ${fullName}. Antes de entrar debe abrir el enlace de confirmación que le llegó a ${email}.`,
-        });
-        setNewUser({ fullName: '', email: '', password: '', role: UserRole.OPERATOR, responsable: '' });
-        setShowNewUserForm(false);
+        createdId = data?.user?.id ?? null;
       }
 
+      if (!viaFuncion) {
+        const { data: su, error: suError } = await supabaseSignUp.auth.signUp({
+          email,
+          password,
+          // Sin rol en los metadatos: el navegador no decide permisos. El rol
+          // se escribe abajo en profiles, con la sesión del administrador.
+          options: { emailRedirectTo: urlRetorno(), data: { full_name: fullName } },
+        });
+        if (suError) throw suError;
+        createdId = su.user?.id ?? null;
+        await supabaseSignUp.auth.signOut();
+        if (!createdId) throw new Error('Supabase no devolvió el usuario creado.');
+
+        const { error: profileError } = await supabase
+          .schema('public')
+          .from('profiles')
+          .upsert({ id: createdId, full_name: fullName, role, responsable, email }, { onConflict: 'id' });
+
+        if (profileError) {
+          // La cuenta sí quedó creada; lo que falló es el perfil. Repetir el
+          // alta daría "ya registrado", así que hay que decirlo tal cual.
+          console.error('Error creando el perfil:', profileError);
+          setNewUserFeedback({
+            ok: false,
+            title: 'Cuenta creada, perfil incompleto',
+            msg: `La cuenta de ${email} sí se creó, pero no se pudo guardar su rol (${profileError.message}). Ajústalo desde la lista de abajo.`,
+          });
+          await fetchResponsableAdmin();
+          return;
+        }
+      }
+
+      void logChange({
+        table: 'profiles',
+        action: 'INSERT',
+        recordId: createdId,
+        before: null,
+        after: { full_name: fullName, email, role, responsable },
+      });
+
+      setCreatedCredentials({ fullName, email, password, role, responsable });
+      setCredentialsCopied(false);
+      setNewUserFeedback(null);
+      setNewUser({ fullName: '', email: '', password: '', role: UserRole.OPERATOR, responsable: '' });
+      setShowNewUserPassword(false);
+      setShowNewUserForm(false);
       await fetchResponsableAdmin();
     } catch (err: any) {
       console.error('Error creando usuario:', err);
@@ -2654,6 +2757,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         setNewUserFeedback({ ok: false, title: 'Ese correo ya tiene cuenta', msg: 'Busca a la persona en la lista de abajo en vez de crearla otra vez.' });
       } else if (msg.includes('rate limit')) {
         setNewUserFeedback({ ok: false, title: 'Demasiadas altas seguidas', msg: 'Supabase limita cuántas cuentas se crean por hora. Espera unos minutos.' });
+      } else if (msg.includes('signups not allowed') || msg.includes('signup is disabled')) {
+        setNewUserFeedback({ ok: false, title: 'Falta desplegar la función de altas', msg: 'El registro público está cerrado y la función crear-usuario no responde. Despliégala con: supabase functions deploy crear-usuario' });
       } else {
         setNewUserFeedback({ ok: false, title: 'No se pudo crear la cuenta', msg: err?.message ?? 'Error inesperado.' });
       }
@@ -2662,14 +2767,116 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   };
 
-  /** Genera una contraseña temporal legible para dictarla por teléfono. */
   const generateTempPassword = () => {
-    // Sin I, l, O, 0, 1 ni O: son las que se confunden al leerlas en voz alta.
-    const abc = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-    const bytes = new Uint32Array(12);
-    window.crypto.getRandomValues(bytes);
-    const pwd = Array.from(bytes, b => abc[b % abc.length]).join('');
-    setNewUser(prev => ({ ...prev, password: pwd }));
+    setNewUser(prev => ({ ...prev, password: randomTempPassword() }));
+    setShowNewUserPassword(true);
+  };
+
+  /** Texto listo para pegar en un correo o mensaje a la persona dada de alta. */
+  const copyCreatedCredentials = async () => {
+    if (!createdCredentials) return;
+    const texto = [
+      `Acceso a AIFA Contratos — ${createdCredentials.fullName}`,
+      `Dirección: ${urlRetorno()}`,
+      `Correo: ${createdCredentials.email}`,
+      `Contraseña temporal: ${createdCredentials.password}`,
+      '',
+      'Al entrar por primera vez, cámbiala desde "¿Olvidaste tu contraseña?".',
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCredentialsCopied(true);
+      window.setTimeout(() => setCredentialsCopied(false), 2500);
+    } catch {
+      window.prompt('Copia los datos de acceso:', texto);
+    }
+  };
+
+  // ── Cambio de contraseña (sólo superadmin) ────────────────────────────────
+
+  const openPwdPanel = (userId: string) => {
+    setPwdPanelUserId(prev => (prev === userId ? null : userId));
+    setPwdDraft('');
+    setShowPwdDraft(false);
+    setPwdResult(null);
+    setPwdCopied(false);
+  };
+
+  const closePwdPanel = () => {
+    setPwdPanelUserId(null);
+    setPwdDraft('');
+    setPwdResult(null);
+    setPwdCopied(false);
+  };
+
+  /**
+   * Fija la contraseña de otra persona. Lo hace la función cambiar-password,
+   * que vuelve a comprobar en el servidor que quien llama es el superadmin:
+   * esconder el botón a los demás administradores no bastaría.
+   */
+  const changeUserPassword = async (target: { id: string; full_name: string | null; email: string | null }) => {
+    if (!isSuperAdmin || savingPwd) return;
+    const password = pwdDraft;
+    if (password.length < MIN_TEMP_PASSWORD) {
+      setPwdResult({ id: target.id, ok: false, msg: `La contraseña necesita al menos ${MIN_TEMP_PASSWORD} caracteres.` });
+      return;
+    }
+
+    setSavingPwd(true);
+    setPwdResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('cambiar-password', {
+        body: { userId: target.id, password },
+      });
+
+      if (error) {
+        const res: Response | undefined = (error as any)?.context;
+        const detalle = res && typeof res.json === 'function' ? await res.json().catch(() => null) : null;
+        setPwdResult({
+          id: target.id,
+          ok: false,
+          msg: detalle?.error ?? (res?.status === 404
+            ? 'La función cambiar-password no está desplegada.'
+            : 'No se pudo cambiar la contraseña. Intenta de nuevo.'),
+        });
+        return;
+      }
+
+      const cerradas = Number(data?.sesionesCerradas) || 0;
+      setPwdResult({
+        id: target.id,
+        ok: true,
+        email: data?.email ?? target.email ?? undefined,
+        password,
+        msg: cerradas > 0
+          ? `Contraseña cambiada. ${cerradas === 1 ? 'Se cerró 1 sesión abierta' : `Se cerraron ${cerradas} sesiones abiertas`}: tendrá que entrar con la nueva.`
+          : 'Contraseña cambiada. Ya puede entrar con la nueva.',
+      });
+      setPwdDraft('');
+      void fetchChangeHistory();
+    } catch (err: any) {
+      console.error('Error cambiando contraseña:', err);
+      setPwdResult({ id: target.id, ok: false, msg: err?.message ?? 'Error inesperado.' });
+    } finally {
+      setSavingPwd(false);
+    }
+  };
+
+  const copyPwdResult = async (fullName: string | null) => {
+    if (!pwdResult?.ok || !pwdResult.password) return;
+    const texto = [
+      `Acceso a AIFA Contratos — ${fullName ?? ''}`.trim(),
+      `Dirección: ${urlRetorno()}`,
+      `Correo: ${pwdResult.email ?? ''}`,
+      `Contraseña nueva: ${pwdResult.password}`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(texto);
+      setPwdCopied(true);
+      window.setTimeout(() => setPwdCopied(false), 2500);
+    } catch {
+      window.prompt('Copia los datos de acceso:', texto);
+    }
   };
 
   const filteredAdminUsers = useMemo(() => {
@@ -11321,7 +11528,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   {accesosView === 'usuarios' && (
                     <button
                       type="button"
-                      onClick={() => { setShowNewUserForm(v => !v); setNewUserFeedback(null); }}
+                      onClick={() => { setShowNewUserForm(v => !v); setNewUserFeedback(null); setCreatedCredentials(null); }}
                       className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl transition-all shadow-sm ${
                         showNewUserForm
                           ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -11736,168 +11943,285 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 {accesosView === 'usuarios' && (
                   <>
                     {/* ── Alta de usuario ── */}
-                    {showNewUserForm && (
-                      <div className="rounded-2xl border-2 border-[#0F4C3A]/20 bg-gradient-to-br from-emerald-50/50 to-white p-6 shadow-sm">
-                        <div className="flex items-center gap-2 mb-5">
-                          <span className="flex h-9 w-9 rounded-xl bg-[#0F4C3A] text-white items-center justify-center flex-shrink-0">
-                            <UserPlus className="h-4.5 w-4.5" />
-                          </span>
-                          <div>
-                            <h2 className="text-base font-bold text-slate-900">Dar de alta a una persona</h2>
-                            <p className="text-xs text-slate-500">Podrá entrar con el correo y la contraseña temporal que le des.</p>
+                    {showNewUserForm && (() => {
+                      const fuerza = passwordStrength(newUser.password);
+                      const inputCls = 'w-full pl-10 pr-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-4 focus:ring-[#0F4C3A]/10 outline-none transition-all placeholder:text-slate-300';
+                      const labelCls = 'block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5';
+                      return (
+                      <form
+                        onSubmit={createUser}
+                        noValidate
+                        className="rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-900/5 overflow-hidden"
+                      >
+                        {/* Encabezado */}
+                        <div className="relative px-6 py-5 text-white overflow-hidden" style={{ background: 'linear-gradient(120deg, #0F4C3A 0%, #14533f 45%, #1B3A5E 100%)' }}>
+                          <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/5" />
+                          <div className="absolute right-16 -bottom-14 h-32 w-32 rounded-full bg-[#B38E5D]/15" />
+                          <div className="relative flex items-center gap-3">
+                            <span className="flex h-11 w-11 rounded-2xl bg-white/10 ring-1 ring-white/20 items-center justify-center flex-shrink-0">
+                              <UserPlus className="h-5 w-5" />
+                            </span>
+                            <div className="min-w-0">
+                              <h2 className="text-lg font-bold leading-tight">Dar de alta a una persona</h2>
+                              <p className="text-xs text-white/70 mt-0.5">Entrará con su correo y la contraseña temporal que le entregues.</p>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                              Nombre completo
-                            </label>
-                            <input
-                              type="text"
-                              value={newUser.fullName}
-                              onChange={e => setNewUser(prev => ({ ...prev, fullName: e.target.value }))}
-                              placeholder="María Fernanda López García"
-                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all placeholder:text-slate-300"
-                            />
-                          </div>
+                        <div className="p-6 space-y-6">
+                          {/* 1 · Datos */}
+                          <section>
+                            <p className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-3">
+                              <span className="flex h-5 w-5 rounded-full bg-[#0F4C3A] text-white text-[10px] items-center justify-center">1</span>
+                              ¿Quién es?
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label htmlFor="alta-nombre" className={labelCls}>Nombre completo</label>
+                                <div className="relative">
+                                  <UserCog className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
+                                  <input
+                                    id="alta-nombre"
+                                    type="text"
+                                    autoComplete="off"
+                                    maxLength={120}
+                                    autoFocus
+                                    value={newUser.fullName}
+                                    onChange={e => setNewUser(prev => ({ ...prev, fullName: e.target.value }))}
+                                    placeholder="María Fernanda López García"
+                                    className={inputCls}
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label htmlFor="alta-correo" className={labelCls}>Correo institucional</label>
+                                <div className="relative">
+                                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
+                                  <input
+                                    id="alta-correo"
+                                    type="email"
+                                    autoComplete="off"
+                                    maxLength={254}
+                                    value={newUser.email}
+                                    onChange={e => setNewUser(prev => ({ ...prev, email: e.target.value }))}
+                                    placeholder="nombre@aifa.aero"
+                                    className={inputCls}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </section>
 
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                              Correo institucional
-                            </label>
-                            <input
-                              type="email"
-                              value={newUser.email}
-                              onChange={e => setNewUser(prev => ({ ...prev, email: e.target.value }))}
-                              placeholder="nombre@aifa.aero"
-                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all placeholder:text-slate-300"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                          {/* 2 · Contraseña */}
+                          <section>
+                            <p className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-3">
+                              <span className="flex h-5 w-5 rounded-full bg-[#0F4C3A] text-white text-[10px] items-center justify-center">2</span>
                               Contraseña temporal
-                            </label>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={newUser.password}
-                                onChange={e => setNewUser(prev => ({ ...prev, password: e.target.value }))}
-                                placeholder="Mínimo 6 caracteres"
-                                className="flex-1 min-w-0 px-3 py-2.5 text-sm font-mono bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all placeholder:text-slate-300 placeholder:font-sans"
-                              />
+                            </p>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              <div className="relative flex-1 min-w-0">
+                                <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
+                                <input
+                                  id="alta-password"
+                                  aria-label="Contraseña temporal"
+                                  type={showNewUserPassword ? 'text' : 'password'}
+                                  autoComplete="new-password"
+                                  maxLength={72}
+                                  value={newUser.password}
+                                  onChange={e => setNewUser(prev => ({ ...prev, password: e.target.value }))}
+                                  placeholder={`Mínimo ${MIN_TEMP_PASSWORD} caracteres`}
+                                  className={`${inputCls} pr-11 font-mono tracking-wide placeholder:font-sans placeholder:tracking-normal`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowNewUserPassword(v => !v)}
+                                  aria-label={showNewUserPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                                >
+                                  {showNewUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                              </div>
                               <button
                                 type="button"
                                 onClick={generateTempPassword}
-                                title="Generar una contraseña fácil de dictar"
-                                className="px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-[#0F4C3A] hover:border-[#0F4C3A]/40 transition-colors flex-shrink-0"
+                                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[#0F4C3A]/20 bg-emerald-50 text-[#0F4C3A] text-sm font-semibold hover:bg-emerald-100 transition-colors flex-shrink-0"
                               >
-                                <RefreshCw className="h-4 w-4" />
+                                <Wand2 className="h-4 w-4" />
+                                Generar una segura
                               </button>
                             </div>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              Se la das a la persona; ella puede cambiarla con "¿Olvidaste tu contraseña?".
+                            <div className="mt-2 flex items-center gap-3">
+                              <div className="flex flex-1 gap-1">
+                                {[1, 2, 3, 4].map(n => (
+                                  <span key={n} className={`h-1.5 flex-1 rounded-full transition-colors ${fuerza.score >= n ? fuerza.bar : 'bg-slate-100'}`} />
+                                ))}
+                              </div>
+                              <span className={`text-[11px] font-semibold w-20 text-right ${fuerza.text}`}>{fuerza.label}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1.5">
+                              Se la entregas a la persona; después ella la cambia con "¿Olvidaste tu contraseña?".
                             </p>
-                          </div>
+                          </section>
 
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                              Permisos
-                            </label>
-                            <select
-                              value={newUser.role}
-                              onChange={e => setNewUser(prev => ({ ...prev, role: e.target.value as UserRole }))}
-                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all"
-                            >
-                              <option value={UserRole.OPERATOR}>Operador — captura y edita las tablas</option>
-                              <option value={UserRole.VIEWER}>Solo lectura — únicamente consulta</option>
-                              <option value={UserRole.ADMIN}>Administrador — todo, incluida esta pantalla</option>
-                            </select>
-                          </div>
+                          {/* 3 · Permisos */}
+                          <section>
+                            <p className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-3">
+                              <span className="flex h-5 w-5 rounded-full bg-[#0F4C3A] text-white text-[10px] items-center justify-center">3</span>
+                              ¿Qué podrá hacer?
+                            </p>
+                            <div role="radiogroup" aria-label="Permisos" className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              {NEW_USER_ROLE_OPTIONS.map(opt => {
+                                const activo = newUser.role === opt.role;
+                                return (
+                                  <button
+                                    key={opt.role}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={activo}
+                                    onClick={() => setNewUser(prev => ({ ...prev, role: opt.role }))}
+                                    className={`relative text-left rounded-2xl border-2 p-4 transition-all ${
+                                      activo ? `${opt.on} ring-4 shadow-sm` : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                                    }`}
+                                  >
+                                    <span className={`absolute top-3 right-3 h-4 w-4 rounded-full border-2 flex items-center justify-center ${activo ? 'border-transparent' : 'border-slate-300'}`}>
+                                      {activo && <span className={`h-4 w-4 rounded-full ${opt.dot} flex items-center justify-center`}><span className="h-1.5 w-1.5 rounded-full bg-white" /></span>}
+                                    </span>
+                                    <opt.icon className={`h-5 w-5 mb-2 ${activo ? 'text-slate-800' : 'text-slate-400'}`} />
+                                    <p className="text-sm font-bold text-slate-800">{opt.label}</p>
+                                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug pr-2">{opt.desc}</p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {newUser.role === UserRole.ADMIN && (
+                              <p className="flex items-start gap-2 mt-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-[11px] text-amber-800">
+                                <ShieldAlert className="h-4 w-4 flex-shrink-0 text-amber-600" />
+                                <span>Un administrador puede crear cuentas, cambiar permisos de cualquiera y borrar registros. Dalo sólo a quien de verdad lo necesite.</span>
+                              </p>
+                            )}
+                          </section>
 
-                          <div className="md:col-span-2">
-                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                              Servicios que verá
-                            </label>
+                          {/* 4 · Servicios */}
+                          <section>
+                            <p className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-3">
+                              <span className="flex h-5 w-5 rounded-full bg-[#0F4C3A] text-white text-[10px] items-center justify-center">4</span>
+                              ¿Qué servicios verá?
+                            </p>
                             <select
+                              aria-label="Servicios que verá"
                               value={newUser.responsable}
                               onChange={e => setNewUser(prev => ({ ...prev, responsable: e.target.value }))}
-                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-2 focus:ring-[#0F4C3A]/15 outline-none transition-all"
+                              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0F4C3A] focus:ring-4 focus:ring-[#0F4C3A]/10 outline-none transition-all"
                             >
-                              <option value="">— Todos los servicios —</option>
+                              <option value="">Todos los servicios</option>
                               {combinedResponsablesList.map(r => <option key={r} value={r}>Sólo los de {r}</option>)}
                             </select>
-                          </div>
-                        </div>
+                          </section>
 
-                        {newUserFeedback && (
-                          <div className={`flex items-start gap-2.5 mt-4 rounded-xl border p-3.5 ${
-                            newUserFeedback.ok
-                              ? 'border-emerald-200 bg-emerald-50'
-                              : 'border-red-200 bg-red-50'
-                          }`}>
-                            {newUserFeedback.ok
-                              ? <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600 flex-shrink-0 mt-px" />
-                              : <AlertCircle className="h-4.5 w-4.5 text-red-600 flex-shrink-0 mt-px" />}
-                            <div>
-                              <p className={`text-sm font-bold ${newUserFeedback.ok ? 'text-emerald-800' : 'text-red-800'}`}>
-                                {newUserFeedback.title}
-                              </p>
-                              <p className={`text-xs mt-0.5 ${newUserFeedback.ok ? 'text-emerald-700' : 'text-red-700'}`}>
-                                {newUserFeedback.msg}
-                              </p>
+                          {newUserFeedback && !newUserFeedback.ok && (
+                            <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5">
+                              <AlertCircle className="h-4.5 w-4.5 text-red-600 flex-shrink-0 mt-px" />
+                              <div>
+                                <p className="text-sm font-bold text-red-800">{newUserFeedback.title}</p>
+                                <p className="text-xs mt-0.5 text-red-700">{newUserFeedback.msg}</p>
+                              </div>
                             </div>
+                          )}
+                        </div>
+
+                        {/* Pie */}
+                        <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+                          <p className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                            <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                            El servidor verifica que seas administrador antes de crear la cuenta.
+                          </p>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => { setShowNewUserForm(false); setNewUserFeedback(null); }}
+                              className="px-4 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={creatingUser}
+                              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0d3f30] disabled:opacity-60 transition-colors shadow-lg shadow-[#0F4C3A]/25"
+                            >
+                              {creatingUser
+                                ? <><Loader2 className="h-4 w-4 animate-spin" /> Creando cuenta...</>
+                                : <><UserPlus className="h-4 w-4" /> Crear usuario</>}
+                            </button>
                           </div>
-                        )}
-
-                        <div className="flex items-center justify-end gap-2 mt-5">
-                          <button
-                            type="button"
-                            onClick={() => { setShowNewUserForm(false); setNewUserFeedback(null); }}
-                            className="px-4 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={createUser}
-                            disabled={creatingUser}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0d3f30] disabled:opacity-60 transition-colors shadow-sm shadow-[#0F4C3A]/25"
-                          >
-                            {creatingUser
-                              ? <><Loader2 className="h-4 w-4 animate-spin" /> Creando...</>
-                              : <><UserPlus className="h-4 w-4" /> Crear usuario</>}
-                          </button>
                         </div>
-                      </div>
-                    )}
+                      </form>
+                      );
+                    })()}
 
-                    {/* Acuse del alta cuando el formulario ya se cerró */}
-                    {!showNewUserForm && newUserFeedback && (
-                      <div className={`flex items-start gap-2.5 rounded-2xl border p-4 ${
-                        newUserFeedback.ok ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'
-                      }`}>
-                        {newUserFeedback.ok
-                          ? <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-px" />
-                          : <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-px" />}
-                        <div className="flex-1">
-                          <p className={`text-sm font-bold ${newUserFeedback.ok ? 'text-emerald-800' : 'text-red-800'}`}>
-                            {newUserFeedback.title}
-                          </p>
-                          <p className={`text-xs mt-0.5 ${newUserFeedback.ok ? 'text-emerald-700' : 'text-red-700'}`}>
-                            {newUserFeedback.msg}
+                    {/* Datos de acceso del alta recién hecha */}
+                    {!showNewUserForm && createdCredentials && (() => {
+                      const rolMeta = NEW_USER_ROLE_OPTIONS.find(o => o.role === createdCredentials.role);
+                      return (
+                        <div role="status" className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white p-5 sm:p-6 shadow-sm">
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-11 w-11 rounded-2xl bg-emerald-500 text-white items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-500/30">
+                              <CheckCircle2 className="h-6 w-6" />
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-base font-bold text-slate-900">¡Listo! {createdCredentials.fullName} ya tiene cuenta</p>
+                              <p className="text-xs text-slate-500 mt-0.5">Ya puede entrar. Entrégale estos datos por un medio privado.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setCreatedCredentials(null); setCredentialsCopied(false); }}
+                              aria-label="Cerrar"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-px rounded-2xl overflow-hidden border border-slate-200 bg-slate-200">
+                            {[
+                              { k: 'Correo', v: createdCredentials.email, mono: false },
+                              { k: 'Contraseña temporal', v: createdCredentials.password, mono: true },
+                              { k: 'Permisos', v: rolMeta?.label ?? createdCredentials.role, mono: false },
+                              { k: 'Servicios', v: createdCredentials.responsable ?? 'Todos', mono: false },
+                            ].map(item => (
+                              <div key={item.k} className="bg-white px-4 py-3 min-w-0">
+                                <dt className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{item.k}</dt>
+                                <dd className={`text-sm font-semibold text-slate-800 truncate ${item.mono ? 'font-mono tracking-wide' : ''}`} title={item.v}>{item.v}</dd>
+                              </div>
+                            ))}
+                          </dl>
+
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={copyCreatedCredentials}
+                              className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${
+                                credentialsCopied ? 'bg-emerald-600 text-white' : 'bg-[#0F4C3A] text-white hover:bg-[#0d3f30] shadow-lg shadow-[#0F4C3A]/20'
+                              }`}
+                            >
+                              {credentialsCopied ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              {credentialsCopied ? '¡Copiado!' : 'Copiar datos de acceso'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setCreatedCredentials(null); setCredentialsCopied(false); setShowNewUserForm(true); }}
+                              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                            >
+                              <UserPlus className="h-4 w-4" />
+                              Dar de alta a otra persona
+                            </button>
+                          </div>
+                          <p className="flex items-center gap-1.5 mt-3 text-[11px] text-slate-400">
+                            <Info className="h-3.5 w-3.5 flex-shrink-0" />
+                            La contraseña no se guarda en ningún lado: al cerrar este aviso desaparece de la pantalla.
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setNewUserFeedback(null)}
-                          className="text-slate-400 hover:text-slate-600 flex-shrink-0"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* ── Lista de usuarios ── */}
                     <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
@@ -11950,9 +12274,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             const initials = (u.full_name ?? '?').trim().split(/\s+/).slice(0, 2)
                               .map(w => w.charAt(0).toUpperCase()).join('') || '?';
                             const esYo = u.id === user.id;
+                            // La cuenta del superadmin sólo la toca él (la base lo exige igual).
+                            const protegido = u.is_superadmin === true && !isSuperAdmin;
+                            // Supabase cierra las sesiones de quien cambia de contraseña: en la
+                            // propia fila sacaría al superadmin. Para la suya, "Enviar enlace".
+                            const puedeFijarPwd = isSuperAdmin && !esYo;
+                            const panelAbierto = puedeFijarPwd && pwdPanelUserId === u.id;
+                            const pwdRes = pwdResult?.id === u.id ? pwdResult : null;
+                            const fuerzaPwd = passwordStrength(pwdDraft);
 
                             return (
-                              <div key={u.id} className="px-5 py-4 hover:bg-slate-50/60 transition-colors">
+                              <div key={u.id} className={`px-5 py-4 transition-colors ${panelAbierto ? 'bg-amber-50/40' : 'hover:bg-slate-50/60'}`}>
                                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                                   {/* Identidad */}
                                   <div className="flex items-center gap-3 min-w-0 lg:w-64 flex-shrink-0">
@@ -11972,6 +12304,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             Tú
                                           </span>
                                         )}
+                                        {u.is_superadmin && (
+                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[9px] font-bold uppercase tracking-wider flex-shrink-0">
+                                            <ShieldCheck className="h-2.5 w-2.5" />
+                                            Superadmin
+                                          </span>
+                                        )}
                                       </div>
                                       <p className="text-[11px] text-slate-400 truncate" title={u.email ?? ''}>
                                         {u.email ?? 'Sin correo registrado'}
@@ -11988,7 +12326,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       <select
                                         aria-label={`Rol de ${u.full_name}`}
                                         value={u.role ?? UserRole.VIEWER}
-                                        disabled={savingRole === u.id}
+                                        disabled={savingRole === u.id || protegido}
+                                        title={protegido ? 'Sólo el superadmin puede modificar su propia cuenta' : undefined}
                                         onChange={e => saveUserRole(u.id, e.target.value)}
                                         className={`flex-1 min-w-0 text-xs font-semibold border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30 disabled:opacity-50 ${uRoleMeta.cls}`}
                                       >
@@ -12010,7 +12349,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         aria-label={`Servicios que ve ${u.full_name}`}
                                         className="flex-1 min-w-0 text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30 disabled:opacity-50"
                                         value={getCombinedCanonicalResponsableValue(u.responsable)}
-                                        disabled={savingResponsable === u.id}
+                                        disabled={savingResponsable === u.id || protegido}
+                                        title={protegido ? 'Sólo el superadmin puede modificar su propia cuenta' : undefined}
                                         onChange={e => saveResponsable(u.id, e.target.value || null)}
                                       >
                                         <option value="">— Todos —</option>
@@ -12021,7 +12361,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   </div>
 
                                   {/* Contraseña */}
-                                  <div className="flex-shrink-0">
+                                  <div className="flex flex-wrap gap-2 flex-shrink-0">
                                     <button
                                       type="button"
                                       onClick={() => sendPasswordReset(u.id, u.email)}
@@ -12033,11 +12373,145 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     >
                                       {sendingReset === u.id
                                         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        : <KeyRound className="h-3.5 w-3.5" />}
-                                      Restablecer contraseña
+                                        : <Mail className="h-3.5 w-3.5" />}
+                                      Enviar enlace
                                     </button>
+                                    {puedeFijarPwd && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openPwdPanel(u.id)}
+                                        aria-expanded={panelAbierto}
+                                        title={`Fijar una contraseña nueva para ${u.full_name ?? 'este usuario'}`}
+                                        className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-colors ${
+                                          panelAbierto
+                                            ? 'bg-amber-500 border-amber-500 text-white'
+                                            : 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                        }`}
+                                      >
+                                        <KeyRound className="h-3.5 w-3.5" />
+                                        Cambiar contraseña
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
+
+                                {/* Panel del superadmin para fijar la contraseña */}
+                                {panelAbierto && (
+                                  <form
+                                    onSubmit={e => { e.preventDefault(); void changeUserPassword(u); }}
+                                    className="mt-4 rounded-2xl border border-amber-200 bg-white p-4 shadow-sm"
+                                  >
+                                    {pwdRes?.ok ? (
+                                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                        <span className="flex h-10 w-10 rounded-xl bg-emerald-500 text-white items-center justify-center flex-shrink-0 shadow-md shadow-emerald-500/30">
+                                          <CheckCircle2 className="h-5 w-5" />
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-bold text-slate-800">{pwdRes.msg}</p>
+                                          <p className="text-xs text-slate-500 mt-0.5">
+                                            Nueva contraseña: <span className="font-mono font-semibold text-slate-800 tracking-wide">{pwdRes.password}</span>
+                                          </p>
+                                        </div>
+                                        <div className="flex gap-2 flex-shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => copyPwdResult(u.full_name)}
+                                            className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-colors ${
+                                              pwdCopied ? 'bg-emerald-600 text-white' : 'bg-[#0F4C3A] text-white hover:bg-[#0d3f30]'
+                                            }`}
+                                          >
+                                            {pwdCopied ? <ClipboardCheck className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                            {pwdCopied ? '¡Copiado!' : 'Copiar datos'}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={closePwdPanel}
+                                            className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                          >
+                                            Listo
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <ShieldAlert className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                                          <p className="text-xs font-bold text-slate-700">
+                                            Nueva contraseña para {u.full_name ?? 'este usuario'}
+                                          </p>
+                                        </div>
+                                        <div className="flex flex-col sm:flex-row gap-2">
+                                          <div className="relative flex-1 min-w-0">
+                                            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
+                                            <input
+                                              aria-label={`Nueva contraseña para ${u.full_name ?? 'el usuario'}`}
+                                              type={showPwdDraft ? 'text' : 'password'}
+                                              autoComplete="new-password"
+                                              autoFocus
+                                              maxLength={72}
+                                              value={pwdDraft}
+                                              onChange={e => { setPwdDraft(e.target.value); setPwdResult(null); }}
+                                              placeholder={`Mínimo ${MIN_TEMP_PASSWORD} caracteres`}
+                                              className="w-full pl-10 pr-11 py-2.5 text-sm font-mono tracking-wide bg-white border border-slate-200 rounded-xl focus:border-amber-500 focus:ring-4 focus:ring-amber-500/15 outline-none transition-all placeholder:text-slate-300 placeholder:font-sans placeholder:tracking-normal"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => setShowPwdDraft(v => !v)}
+                                              aria-label={showPwdDraft ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                                              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                                            >
+                                              {showPwdDraft ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                            </button>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => { setPwdDraft(randomTempPassword()); setShowPwdDraft(true); setPwdResult(null); }}
+                                            className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors flex-shrink-0"
+                                          >
+                                            <Wand2 className="h-4 w-4" />
+                                            Generar
+                                          </button>
+                                          <button
+                                            type="submit"
+                                            disabled={savingPwd}
+                                            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 disabled:opacity-60 transition-colors shadow-md shadow-amber-500/25 flex-shrink-0"
+                                          >
+                                            {savingPwd ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                                            {savingPwd ? 'Guardando...' : 'Guardar contraseña'}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={closePwdPanel}
+                                            className="px-3 py-2.5 text-xs font-semibold text-slate-500 hover:text-slate-700 flex-shrink-0"
+                                          >
+                                            Cancelar
+                                          </button>
+                                        </div>
+                                        <div className="mt-2 flex items-center gap-3">
+                                          <div className="flex flex-1 gap-1">
+                                            {[1, 2, 3, 4].map(n => (
+                                              <span key={n} className={`h-1 flex-1 rounded-full transition-colors ${fuerzaPwd.score >= n ? fuerzaPwd.bar : 'bg-slate-100'}`} />
+                                            ))}
+                                          </div>
+                                          <span className={`text-[11px] font-semibold w-20 text-right ${fuerzaPwd.text}`}>{fuerzaPwd.label}</span>
+                                        </div>
+                                        {pwdRes && !pwdRes.ok && (
+                                          <p role="alert" className="flex items-center gap-1.5 mt-2 text-[11px] font-medium text-red-600">
+                                            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                                            {pwdRes.msg}
+                                          </p>
+                                        )}
+                                        <p className="flex items-start gap-1.5 mt-2 text-[11px] text-slate-400">
+                                          <Info className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                                          <span>
+                                            Se cerrarán sus sesiones abiertas y tendrá que entrar con la nueva.
+                                            Queda en el Historial que la cambiaste; la contraseña no se guarda.
+                                          </span>
+                                        </p>
+                                      </>
+                                    )}
+                                  </form>
+                                )}
 
                                 {feedback && (
                                   <p className={`flex items-center gap-1.5 mt-2.5 text-[11px] font-medium ${feedback.ok ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -12057,8 +12531,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         <p className="flex items-start gap-1.5 text-[11px] text-slate-500">
                           <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
                           <span>
-                            <strong>Restablecer contraseña</strong> envía a la persona un correo para que ella misma la cambie.
-                            Nadie más, ni un administrador, llega a verla.
+                            <strong>Enviar enlace</strong> manda a la persona un correo para que ella misma cambie su contraseña.
+                            Nadie más llega a verla.
+                          </span>
+                        </p>
+                        <p className="flex items-start gap-1.5 text-[11px] text-slate-500">
+                          <KeyRound className="h-3.5 w-3.5 flex-shrink-0 mt-px text-amber-600" />
+                          <span>
+                            {isSuperAdmin
+                              ? <><strong>Cambiar contraseña</strong> la fija tú directamente. Sólo el superadmin tiene este botón.</>
+                              : <>Fijar la contraseña de otra persona es exclusivo del superadmin.</>}
                           </span>
                         </p>
                         <p className="flex items-start gap-1.5 text-[11px] text-slate-400">

@@ -9,3 +9,16 @@ entrypoint = "./functions/send-feedback-email/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/send-feedback-email/*.html" ]
+
+[functions.crear-usuario]
+enabled = true
+# El gateway rechaza llamadas sin sesión; la función además comprueba que
+# quien llama sea ADMIN leyendo profiles con service_role.
+verify_jwt = true
+entrypoint = "./functions/crear-usuario/index.ts"
+
+[functions.cambiar-password]
+enabled = true
+# Sólo el superadmin: la función lo comprueba leyendo profiles con service_role.
+verify_jwt = true
+entrypoint = "./functions/cambiar-password/index.ts"

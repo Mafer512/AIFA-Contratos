@@ -16,7 +16,9 @@ export interface User {
   email: string;
   role: UserRole;
   avatar?: string;
-  responsable?: string | null; // null = super admin (ve todos los servicios)
+  responsable?: string | null; // null = ve todos los servicios
+  /** profiles.is_superadmin: único que puede fijar contraseñas ajenas. */
+  isSuperAdmin?: boolean;
 }
 
 export interface OperationData {

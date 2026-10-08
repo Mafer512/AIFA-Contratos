@@ -296,16 +296,28 @@ const App: React.FC = () => {
     const meta = user.user_metadata ?? {};
 
     let fullName = meta.full_name || user.email?.split('@')[0] || 'Usuario';
-    let role: UserRole = (meta.role as UserRole) || UserRole.OPERATOR;
+    // El rol sólo sale de profiles. user_metadata lo escribe el navegador al
+    // registrarse, así que leerlo de ahí dejaba a cualquiera presentarse como
+    // ADMIN. Sin perfil válido, la cuenta entra con lo mínimo: solo lectura.
+    let role: UserRole = UserRole.VIEWER;
     let responsable: string | null = null;
+    let isSuperAdmin = false;
 
     try {
-      const { data: profile, error } = await supabase
+      const leerPerfil = (columnas: string) => supabase
         .schema('public')
         .from('profiles')
-        .select('full_name, role, responsable')
+        .select(columnas)
         .eq('id', user.id)
-        .maybeSingle();
+        .maybeSingle<{ full_name: string | null; role: string | null; responsable: string | null; is_superadmin?: boolean }>();
+
+      let { data: profile, error } = await leerPerfil('full_name, role, responsable, is_superadmin');
+
+      // Sin la migración del superadmin la columna no existe y PostgREST
+      // rechazaría el select entero: todos entrarían como Solo lectura.
+      if (error?.code === '42703') {
+        ({ data: profile, error } = await leerPerfil('full_name, role, responsable'));
+      }
 
       if (error) {
         console.error('Error fetching profile data:', error.message);
@@ -325,6 +337,7 @@ const App: React.FC = () => {
         }
 
         responsable = profile.responsable ?? null;
+        isSuperAdmin = role === UserRole.ADMIN && profile.is_superadmin === true;
       }
     } catch (error) {
       console.error('Unexpected error fetching profile:', error);
@@ -336,6 +349,7 @@ const App: React.FC = () => {
       name: fullName,
       role,
       responsable,
+      isSuperAdmin,
     };
 
     setCurrentUser(appUser);
