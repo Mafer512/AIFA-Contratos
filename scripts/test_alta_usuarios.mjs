@@ -39,7 +39,7 @@ globalThis.Deno = {
 const SUPER = '11111111-1111-4111-8111-111111111111';
 const DEST = '44444444-4444-4444-8444-444444444444';
 const TOKENS = { 'Bearer admin': 'id-admin', 'Bearer operador': 'id-oper', 'Bearer super': SUPER };
-let perfiles, cuentas, llamadas, falloPerfil, passwords, historial;
+let perfiles, cuentas, llamadas, falloPerfil, passwords, historial, bans, falloMarca;
 const reiniciar = () => {
   perfiles = {
     'id-admin': { role: 'ADMIN', is_superadmin: false, full_name: 'Admin Normal', email: 'admin@aifa.aero' },
@@ -51,6 +51,8 @@ const reiniciar = () => {
   llamadas = [];
   falloPerfil = false;
   passwords = {};
+  bans = {};
+  falloMarca = false;
   historial = [];
 };
 
@@ -91,8 +93,17 @@ globalThis.fetch = async (url, init = {}) => {
     if (auth !== 'Bearer service') return resp(401, {});
     const id = u.pathname.split('/').pop();
     if (!perfiles[id]) return resp(404, { error_code: 'user_not_found', msg: 'User not found' });
-    passwords[id] = JSON.parse(init.body).password;
+    const cambio = JSON.parse(init.body);
+    if ('ban_duration' in cambio) bans[id] = cambio.ban_duration;
+    if ('password' in cambio) passwords[id] = cambio.password;
     return resp(200, { id });
+  }
+  if (u.pathname === '/rest/v1/profiles' && metodo === 'PATCH') {
+    if (auth !== 'Bearer service') return resp(401, {});
+    if (falloMarca) return resp(500, { message: 'boom' });
+    const id = u.searchParams.get('id').replace('eq.', '');
+    Object.assign(perfiles[id], JSON.parse(init.body));
+    return new Response(null, { status: 204 });
   }
   if (u.pathname === '/rest/v1/rpc/revocar_sesiones') {
     return auth === 'Bearer service' ? resp(200, 2) : resp(401, {});
@@ -108,6 +119,8 @@ await import('../supabase/functions/crear-usuario/index.ts');
 const handlerCrear = handler;
 await import('../supabase/functions/cambiar-password/index.ts');
 const handlerCambiar = handler;
+await import('../supabase/functions/baja-usuario/index.ts');
+const handlerBaja = handler;
 
 const valido = { fullName: '  Ana   Pérez Ruiz ', email: ' Ana.Perez@AIFA.aero ', password: 'Temporal2026', role: 'operator', responsable: 'Mantenimiento' };
 const llamar = async (token, body = valido, metodo = 'POST') => {
@@ -241,6 +254,73 @@ ok('su propia contraseña → 400 propia', `${r.status} ${r.body?.code}`, '400 p
 ok('su propia contraseña no cambia nada', Object.keys(passwords).length, 0);
 ok('ni le cierra la sesión', llamadas.some(l => l.ruta === '/rest/v1/rpc/revocar_sesiones'), false);
 
+console.log('\n=== Función baja-usuario: quién puede ===');
+const bajaFn = async (token, body) => {
+  const headers = token ? { Authorization: token } : {};
+  const res = await handlerBaja(new Request('http://f/baja-usuario', { method: 'POST', headers, body: JSON.stringify(body) }));
+  return { status: res.status, body: await res.json().catch(() => null) };
+};
+
+reiniciar();
+r = await bajaFn(null, { userId: DEST, accion: 'baja' });
+ok('sin sesión → 401', r.status, 401);
+
+reiniciar();
+r = await bajaFn('Bearer operador', { userId: DEST, accion: 'baja' });
+ok('operador → 403', r.status, 403);
+
+reiniciar();
+r = await bajaFn('Bearer admin', { userId: DEST, accion: 'baja' });
+ok('ADMIN normal → 403', r.status, 403);
+ok('ADMIN normal no bloquea a nadie', Object.keys(bans).length, 0);
+
+reiniciar();
+perfiles[SUPER].baja_at = '2026-01-01T00:00:00Z';
+r = await bajaFn('Bearer super', { userId: DEST, accion: 'baja' });
+ok('superadmin dado de baja → 403', r.status, 403);
+
+console.log('\n=== Función baja-usuario: validaciones ===');
+for (const [nombre, body, esperado, prep] of [
+  ['usuario que no es uuid', { userId: 'id-oper', accion: 'baja' }, '400 usuario'],
+  ['acción inventada', { userId: DEST, accion: 'borrar' }, '400 accion'],
+  ['darse de baja a sí mismo', { userId: SUPER, accion: 'baja' }, '400 propia'],
+  ['dar de baja a otro superadmin', { userId: DEST, accion: 'baja' }, '400 superadmin', () => { perfiles[DEST].is_superadmin = true; }],
+  ['usuario que no existe', { userId: '99999999-9999-4999-8999-999999999999', accion: 'baja' }, '404 usuario'],
+  ['reactivar a quien ya está activo', { userId: DEST, accion: 'reactivar' }, '409 ya'],
+]) {
+  reiniciar();
+  prep?.();
+  r = await bajaFn('Bearer super', body);
+  ok(`${nombre} → ${esperado}`, `${r.status} ${r.body?.code}`, esperado);
+  ok(`${nombre} no bloquea a nadie`, Object.keys(bans).length, 0);
+}
+
+console.log('\n=== Función baja-usuario: baja y reactivación ===');
+reiniciar();
+r = await bajaFn('Bearer super', { userId: DEST, accion: 'baja' });
+ok('superadmin → 200', r.status, 200);
+ok('Auth bloquea la cuenta', bans[DEST], '876000h');
+ok('perfil marcado con fecha de baja', Boolean(perfiles[DEST].baja_at), true);
+ok('perfil marcado con quién la dio', perfiles[DEST].baja_por, SUPER);
+ok('cierra sus sesiones', llamadas.some(l => l.ruta === '/rest/v1/rpc/revocar_sesiones' && l.body?.p_user === DEST), true);
+ok('queda en el historial', historial[0]?.changes?.[0]?.after, 'dado de baja');
+
+r = await bajaFn('Bearer super', { userId: DEST, accion: 'baja' });
+ok('dar de baja otra vez → 409', r.status, 409);
+
+historial = [];
+r = await bajaFn('Bearer super', { userId: DEST, accion: 'reactivar' });
+ok('reactivar → 200', r.status, 200);
+ok('Auth desbloquea la cuenta', bans[DEST], 'none');
+ok('perfil sin fecha de baja', perfiles[DEST].baja_at, null);
+ok('reactivación en el historial', historial[0]?.changes?.[0]?.after, 'activo');
+
+reiniciar();
+falloMarca = true;
+r = await bajaFn('Bearer super', { userId: DEST, accion: 'baja' });
+ok('si no se puede marcar el perfil → 500', r.status, 500);
+ok('y se deshace el bloqueo', bans[DEST], 'none');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PARTE 2 — en vivo
 // ─────────────────────────────────────────────────────────────────────────────
@@ -364,6 +444,11 @@ if (process.argv.includes('--vivo')) {
       const marca = await sb.from('profiles').update({ is_superadmin: true }).eq('id', id);
       ok('no puede marcarse superadmin', marca.error?.code, '42501');
 
+      const bajaFnVivo = await sb.functions.invoke('baja-usuario', { body: { userId: nuevoId, accion: 'baja' } });
+      ok('baja-usuario le responde 403', bajaFnVivo.error?.context?.status, 403);
+      const bajaDirecta = await sb.from('profiles').update({ baja_at: new Date().toISOString() }).eq('id', nuevoId);
+      ok('no puede marcar la baja directo en la base', bajaDirecta.error?.code, '42501');
+
       // Mismo valor que ya tiene: si el guardia fallara, no cambiaría nada.
       const { data: supers } = await sb.from('profiles').select('id, full_name').eq('is_superadmin', true).limit(1);
       if (supers?.[0]) {
@@ -389,6 +474,35 @@ if (process.argv.includes('--vivo')) {
       const { data: hist } = await sb.from('change_history').select('changes, new_data').eq('record_id', nuevoId).order('created_at', { ascending: false }).limit(1);
       ok('queda en el historial', hist?.[0]?.changes?.[0]?.field, 'contraseña');
       ok('el historial no guarda la contraseña', JSON.stringify(hist).includes(nueva), false);
+
+      console.log('\n=== En vivo: el superadmin da de baja y reactiva ===');
+      // "tercera" sigue con sesión: se comprueba que la baja la deje sin rol.
+      const baja = await sb.functions.invoke('baja-usuario', { body: { userId: nuevoId, accion: 'baja' } });
+      ok('la función la da de baja', baja.data?.ok, true);
+      ok('cerró su sesión abierta', (baja.data?.sesionesCerradas ?? 0) >= 1, true);
+
+      const { data: rolTrasBaja } = await tercera.rpc('current_app_role');
+      ok('su token aún vivo ya no tiene rol en la base', rolTrasBaja, null);
+      const renovarTrasBaja = await tercera.auth.refreshSession();
+      ok('su sesión ya no se puede renovar', Boolean(renovarTrasBaja.error), true);
+
+      const cuarta = createClient(url, key, { auth: { persistSession: false } });
+      const entrarDeBaja = await cuarta.auth.signInWithPassword({ email: nuevoEmail, password: nueva });
+      ok('ya no puede entrar (cuenta bloqueada)', /banned/i.test(entrarDeBaja.error?.message ?? ''), true);
+
+      const { data: marcado } = await sb.from('profiles').select('baja_at, baja_por').eq('id', nuevoId).maybeSingle();
+      ok('el perfil queda marcado con fecha', Boolean(marcado?.baja_at), true);
+      ok('y con quién la dio de baja', marcado?.baja_por, id);
+
+      const otraVez = await sb.functions.invoke('baja-usuario', { body: { userId: nuevoId, accion: 'baja' } });
+      ok('dar de baja otra vez → 409', otraVez.error?.context?.status, 409);
+
+      const reac = await sb.functions.invoke('baja-usuario', { body: { userId: nuevoId, accion: 'reactivar' } });
+      ok('la función la reactiva', reac.data?.ok, true);
+      const entrarReactivada = await cuarta.auth.signInWithPassword({ email: nuevoEmail, password: nueva });
+      ok('ya puede entrar otra vez', Boolean(entrarReactivada.data.session), true);
+      const { data: rolReactivada } = await cuarta.rpc('current_app_role');
+      ok('con su rol de antes', rolReactivada, 'OPERATOR');
     }
   }
 }

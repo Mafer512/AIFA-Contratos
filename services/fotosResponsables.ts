@@ -78,21 +78,37 @@ export interface ResultadoSubida {
 }
 
 /**
- * Sube la fotografía de alguien y devuelve su URL pública.
- *
- * El bucket es público: estas fotos ya se servían desde public/images/, así que
- * no cambia quién las puede ver, y una URL pública se puede poner directo en un
- * <img> sin tener que renovar enlaces firmados cada hora.
+ * Valida la imagen y la deja exactamente como se guardará (recortada en
+ * cuadro y reducida). Sirve para enseñarla antes de subirla: lo que se ve en
+ * la vista previa es, byte por byte, lo que después sube subirFoto.
  */
-export const subirFoto = async (archivo: File, catalogValue: string): Promise<ResultadoSubida> => {
+export const prepararFoto = async (archivo: File): Promise<Blob> => {
   if (!TIPOS_ACEPTADOS.includes(archivo.type)) {
     throw new Error('Elige una imagen (JPG, PNG o WEBP).');
   }
   if (archivo.size > MAX_BYTES_ORIGEN) {
     throw new Error('La imagen pesa más de 12 MB. Usa una más ligera.');
   }
+  try {
+    return await redimensionar(archivo);
+  } catch {
+    // Típico de HEIC en Chrome: el navegador no la sabe abrir.
+    throw new Error('El navegador no pudo abrir esta imagen. Usa una JPG, PNG o WEBP.');
+  }
+};
 
-  const blob = await redimensionar(archivo);
+/**
+ * Sube la fotografía de alguien y devuelve su URL pública.
+ *
+ * Acepta el archivo tal cual (se prepara aquí) o lo que ya devolvió
+ * prepararFoto, para no procesar dos veces la imagen que se previsualizó.
+ *
+ * El bucket es público: estas fotos ya se servían desde public/images/, así que
+ * no cambia quién las puede ver, y una URL pública se puede poner directo en un
+ * <img> sin tener que renovar enlaces firmados cada hora.
+ */
+export const subirFoto = async (archivo: File | Blob, catalogValue: string): Promise<ResultadoSubida> => {
+  const blob = archivo instanceof File ? await prepararFoto(archivo) : archivo;
   const ruta = nombreArchivo(catalogValue);
 
   const { error } = await supabase.storage

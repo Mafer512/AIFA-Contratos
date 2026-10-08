@@ -22,6 +22,10 @@
 -- control al único que puede cambiar contraseñas.
 --
 -- IDEMPOTENTE: se puede correr más de una vez.
+--
+-- OJO: 20261008030000_baja_usuarios.sql reemplaza profiles_guard() y
+-- current_is_superadmin(). Si se vuelve a correr ésta, hay que correr aquella
+-- después.
 -- =============================================================================
 
 begin;

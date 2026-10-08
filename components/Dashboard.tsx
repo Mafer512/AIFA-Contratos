@@ -11,7 +11,8 @@ import {
   Search, Filter, Layers, Sparkles, CalendarDays, ChevronRight, ChevronDown, RefreshCw,
   Users, Plane, Activity, Info, XCircle, Clock, Globe, UserPlus,
   LogIn, KeyRound, ShieldCheck, Monitor, Smartphone, Timer, CheckCircle2,
-  Eye, EyeOff, Copy, ShieldAlert, Mail, UserCog, Wand2, ClipboardCheck
+  Eye, EyeOff, Copy, ShieldAlert, Mail, UserCog, Wand2, ClipboardCheck, UserX, UserCheck,
+  Camera, Upload, MousePointerClick
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
@@ -33,10 +34,13 @@ const localizer = dateFnsLocalizer({
 
 import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, ProcedureStatusItem, ProcedureRecord, UserRole, ChangeLogEntry, ChangeDiff, AccessLogEntry } from '../types';
 import Organigrama from './Organigrama';
-import ServicioDetalle, { type DatosServicio } from './ServicioDetalle';
+import ServicioDetalle, { ResumenGrupo, ListaServicios, type DatosServicio, type PagoMensual } from './ServicioDetalle';
+import { vincularPagos, parseFechaFlexible } from '../utils/fichaServicio';
 import { ORGANIGRAMA_BASE } from '../data/organigrama';
 import { RESPONSABLE_PROFILES_CON_ORGANIGRAMA } from '../data/responsables';
 import { supabase, supabaseOperaciones, supabaseSignUp } from '../services/supabaseClient';
+import { subirFoto, eliminarFoto, prepararFoto, formatearPeso } from '../services/fotosResponsables';
+import { buscarPorNombre } from '../utils/coincidenciaNombres';
 import { urlRetorno } from '../services/authLink';
 import { formatCurrency, isMonetaryField as shouldFormatAsCurrency, formatDuration, formatRelativeTime, describeDevice, isMobileDevice } from '../utils/formatters';
 import {
@@ -65,6 +69,45 @@ const randomTempPassword = () => {
 };
 
 /** 0 a 4, para la barrita de seguridad de la contraseña temporal. */
+/**
+ * Foto de una persona o, si no tiene (o la imagen no carga), sus iniciales
+ * sobre un degradado. Lo usan la lista de usuarios, la bitácora y el
+ * encabezado, para que en todos lados se reconozca a quién es quién.
+ */
+const AvatarPersona: React.FC<{
+  nombre: string | null | undefined;
+  foto?: string | null;
+  /** Tamaño, esquinas y tamaño de letra de las iniciales. */
+  className?: string;
+  fondo?: string;
+  apagado?: boolean;
+}> = ({ nombre, foto, className = 'h-10 w-10 rounded-xl text-xs', fondo = 'linear-gradient(135deg, #0F4C3A, #1B3A5E)', apagado = false }) => {
+  // Se recuerda qué URL falló, no un sí/no: si luego cambia la foto, se intenta.
+  const [fotoRota, setFotoRota] = useState<string | null>(null);
+  const iniciales = (nombre ?? '?').trim().split(/\s+/).slice(0, 2)
+    .map(w => w.charAt(0).toUpperCase()).join('') || '?';
+
+  if (foto && foto !== fotoRota) {
+    return (
+      <img
+        src={foto}
+        alt={nombre ?? ''}
+        loading="lazy"
+        onError={() => setFotoRota(foto)}
+        className={`${className} object-cover flex-shrink-0 bg-slate-100 ${apagado ? 'grayscale opacity-60' : ''}`}
+      />
+    );
+  }
+  return (
+    <div
+      className={`${className} flex items-center justify-center font-black flex-shrink-0 ${apagado ? 'bg-slate-200 text-slate-500' : 'text-white'}`}
+      style={apagado ? undefined : { background: fondo }}
+    >
+      {iniciales}
+    </div>
+  );
+};
+
 const passwordStrength = (pwd: string): { score: number; label: string; bar: string; text: string } => {
   if (!pwd) return { score: 0, label: '', bar: 'bg-slate-200', text: 'text-slate-400' };
   let score = 0;
@@ -1261,8 +1304,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
    * Servicios abiertos en el explorador: una barra de una gráfica, un renglón
    * de una tabla o un servicio suelto. Null cuando no hay nada abierto.
    */
-  const [explorador, setExplorador] = useState<{ titulo: string; subtitulo?: string; filas: Record<string, any>[] } | null>(null);
-  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null; is_superadmin?: boolean}[]>([]);
+  const [explorador, setExplorador] = useState<{
+    titulo: string;
+    subtitulo?: string;
+    filas: Record<string, any>[];
+    /** Fichas que no salen de una fila de estatus (un pago sin ligar). */
+    extras?: DatosServicio[];
+  } | null>(null);
+  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null; is_superadmin?: boolean; baja_at?: string | null; baja_por?: string | null; photo_url?: string | null}[]>([]);
+  // Foto de un usuario: panel abierto, subida en curso y acuse.
+  const [fotoPanelUserId, setFotoPanelUserId] = useState<string | null>(null);
+  const [guardandoFoto, setGuardandoFoto] = useState<string | null>(null);
+  const [fotoMsg, setFotoMsg] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+  // Foto elegida que todavía no se sube: se enseña primero para confirmarla.
+  const [fotoPendiente, setFotoPendiente] = useState<{ userId: string; foto: Blob; url: string } | null>(null);
+  const [preparandoFoto, setPreparandoFoto] = useState<string | null>(null);
   // Cambio de contraseña por el superadmin: fila abierta, lo escrito y el
   // resultado. La contraseña vive sólo aquí y se borra al cerrar el panel.
   const [pwdPanelUserId, setPwdPanelUserId] = useState<string | null>(null);
@@ -1271,6 +1327,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [savingPwd, setSavingPwd] = useState(false);
   const [pwdResult, setPwdResult] = useState<{ id: string; ok: boolean; msg: string; email?: string; password?: string } | null>(null);
   const [pwdCopied, setPwdCopied] = useState(false);
+  // Baja / reactivación por el superadmin: confirmación abierta, en curso y acuse.
+  const [bajaPanelUserId, setBajaPanelUserId] = useState<string | null>(null);
+  const [savingBaja, setSavingBaja] = useState<string | null>(null);
+  const [bajaResult, setBajaResult] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+  const [showBajas, setShowBajas] = useState(false);
   const [savingResponsable, setSavingResponsable] = useState<string | null>(null);
   // Restablecimiento de contraseña: guarda el id del usuario en curso y el
   // resultado del último envío, para dar acuse junto a la fila del usuario.
@@ -2519,6 +2580,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       // reintenta sin ellas. La consecuencia es sólo que los botones que las
       // necesitan quedan deshabilitados hasta que se corra la migración.
       const columnas = [
+        'id, full_name, responsable, role, email, is_superadmin, baja_at, baja_por, photo_url',
+        'id, full_name, responsable, role, email, is_superadmin, baja_at, baja_por',
         'id, full_name, responsable, role, email, is_superadmin',
         'id, full_name, responsable, role, email',
       ];
@@ -2657,8 +2720,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setNewUserFeedback({ ok: false, title: 'Correo inválido', msg: 'Revisa la dirección de correo.' });
       return;
     }
-    if (responsableAdminData.some(u => (u.email ?? '').toLowerCase() === email)) {
-      setNewUserFeedback({ ok: false, title: 'Ese correo ya tiene cuenta', msg: 'Búscalo en la lista de abajo y ajusta sus permisos ahí.' });
+    const yaExiste = responsableAdminData.find(u => (u.email ?? '').toLowerCase() === email);
+    if (yaExiste) {
+      setNewUserFeedback(yaExiste.baja_at
+        ? { ok: false, title: 'Ese correo es de una cuenta dada de baja', msg: 'Búscala en "Dados de baja", al final de la lista, y reactívala en vez de crearla otra vez.' }
+        : { ok: false, title: 'Ese correo ya tiene cuenta', msg: 'Búscalo en la lista de abajo y ajusta sus permisos ahí.' });
       return;
     }
     if (password.length < MIN_TEMP_PASSWORD) {
@@ -2742,6 +2808,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         before: null,
         after: { full_name: fullName, email, role, responsable },
       });
+
+      // Si está en el organigrama, nace con su foto. Si no, se le pone después
+      // desde su fila; no vale la pena frenar el alta por eso.
+      const fotoAuto = fotoDelOrganigrama(fullName);
+      if (fotoAuto && createdId) {
+        const { error: fotoError } = await supabase.schema('public').from('profiles').update({ photo_url: fotoAuto }).eq('id', createdId);
+        if (fotoError) console.warn('No se pudo poner la foto del organigrama:', fotoError.message);
+      }
 
       setCreatedCredentials({ fullName, email, password, role, responsable });
       setCredentialsCopied(false);
@@ -2862,6 +2936,170 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   };
 
+  // ── Baja y reactivación (sólo superadmin) ─────────────────────────────────
+
+  /**
+   * Da de baja o reactiva una cuenta con la función baja-usuario, que vuelve a
+   * comprobar en el servidor que quien llama es el superadmin. Baja no borra:
+   * bloquea el acceso, cierra sus sesiones y se puede deshacer.
+   */
+  const cambiarEstadoUsuario = async (target: { id: string; full_name: string | null }, accion: 'baja' | 'reactivar') => {
+    if (!isSuperAdmin || savingBaja) return;
+    setSavingBaja(target.id);
+    setBajaResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('baja-usuario', {
+        body: { userId: target.id, accion },
+      });
+
+      if (error) {
+        const res: Response | undefined = (error as any)?.context;
+        const detalle = res && typeof res.json === 'function' ? await res.json().catch(() => null) : null;
+        setBajaResult({
+          id: target.id,
+          ok: false,
+          msg: detalle?.error ?? (res?.status === 404
+            ? 'La función baja-usuario no está desplegada.'
+            : 'No se pudo completar. Intenta de nuevo.'),
+        });
+        return;
+      }
+
+      const nombre = target.full_name ?? 'La cuenta';
+      const cerradas = Number(data?.sesionesCerradas) || 0;
+      setBajaResult({
+        id: target.id,
+        ok: true,
+        msg: accion === 'baja'
+          ? `${nombre} quedó dada de baja: ya no puede entrar${cerradas > 0 ? ` y se ${cerradas === 1 ? 'cerró su sesión abierta' : `cerraron sus ${cerradas} sesiones abiertas`}` : ''}.`
+          : `${nombre} quedó reactivada: ya puede entrar con su contraseña de siempre.`,
+      });
+      setBajaPanelUserId(null);
+      if (accion === 'baja') setShowBajas(true);
+      setResponsableAdminData(prev => prev.map(u => u.id === target.id
+        ? { ...u, baja_at: accion === 'baja' ? (data?.bajaAt ?? new Date().toISOString()) : null, baja_por: accion === 'baja' ? user.id : null }
+        : u));
+      void fetchChangeHistory();
+    } catch (err: any) {
+      console.error('Error en la baja:', err);
+      setBajaResult({ id: target.id, ok: false, msg: err?.message ?? 'Error inesperado.' });
+    } finally {
+      setSavingBaja(null);
+    }
+  };
+
+  // ── Fotos de usuarios ─────────────────────────────────────────────────────
+
+  /** La foto de su ficha del organigrama, si se le encuentra por el nombre. */
+  const fotoDelOrganigrama = useCallback((nombre: string | null | undefined): string | null => {
+    const ficha = buscarPorNombre(
+      nombre,
+      combinedResponsableProfiles.filter(p => p.activo !== false && p.photoUrl),
+      p => [p.fullName, p.catalogValue, ...(p.aliases ?? [])],
+    );
+    return ficha?.photoUrl || null;
+  }, [combinedResponsableProfiles]);
+
+  type UsuarioFoto = { id: string; full_name: string | null; photo_url?: string | null };
+
+  const guardarFotoUsuario = async (target: UsuarioFoto, nueva: string | null): Promise<boolean> => {
+    const previa = target.photo_url ?? null;
+    const { error } = await supabase.schema('public').from('profiles').update({ photo_url: nueva }).eq('id', target.id);
+    if (error) {
+      setFotoMsg({
+        id: target.id,
+        ok: false,
+        msg: error.code === '42501' ? 'Sólo el superadmin puede cambiar su propia foto.' : `No se pudo guardar la foto: ${error.message}`,
+      });
+      return false;
+    }
+    setResponsableAdminData(prev => prev.map(u => u.id === target.id ? { ...u, photo_url: nueva } : u));
+    void logChange({ table: 'profiles', action: 'UPDATE', recordId: target.id, before: { photo_url: previa }, after: { photo_url: nueva } });
+    // Del almacén sólo se borra lo que se subió desde aquí y ya nadie usa. La
+    // foto del organigrama es de su ficha: borrarla la dejaría en blanco allá.
+    if (previa && previa !== nueva && previa.includes('/responsables/usuario-')
+        && !responsableAdminData.some(u => u.id !== target.id && u.photo_url === previa)) {
+      void eliminarFoto(previa);
+    }
+    return true;
+  };
+
+  const subirFotoUsuario = async (target: UsuarioFoto, archivo: File | Blob): Promise<boolean> => {
+    if (!isAdmin || guardandoFoto) return false;
+    setGuardandoFoto(target.id);
+    setFotoMsg(null);
+    try {
+      const { url } = await subirFoto(archivo, `usuario-${target.full_name ?? target.id}`);
+      if (await guardarFotoUsuario(target, url)) {
+        setFotoMsg({ id: target.id, ok: true, msg: 'Foto actualizada.' });
+        return true;
+      }
+      void eliminarFoto(url); // No quedó en el perfil: que no se quede huérfana.
+      return false;
+    } catch (err: any) {
+      setFotoMsg({ id: target.id, ok: false, msg: err?.message ?? 'No se pudo subir la foto.' });
+      return false;
+    } finally {
+      setGuardandoFoto(null);
+    }
+  };
+
+  // ── Vista previa antes de subir ───────────────────────────────────────────
+  // Elegir un archivo ya no lo sube: primero se prepara tal como se guardará
+  // (recortada en cuadro y reducida), se enseña junto a la actual y se
+  // confirma. Lo que se previsualiza es exactamente lo que se sube.
+
+  const descartarFotoPendiente = useCallback(() => {
+    setFotoPendiente(prev => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  }, []);
+
+  const elegirFotoUsuario = async (target: UsuarioFoto, archivo: File) => {
+    setFotoMsg(null);
+    setPreparandoFoto(target.id);
+    try {
+      const foto = await prepararFoto(archivo);
+      setFotoPendiente(prev => {
+        if (prev) URL.revokeObjectURL(prev.url);
+        return { userId: target.id, foto, url: URL.createObjectURL(foto) };
+      });
+    } catch (err: any) {
+      setFotoMsg({ id: target.id, ok: false, msg: err?.message ?? 'No se pudo abrir la imagen.' });
+    } finally {
+      setPreparandoFoto(null);
+    }
+  };
+
+  const guardarFotoPendiente = async (target: UsuarioFoto) => {
+    if (!fotoPendiente || fotoPendiente.userId !== target.id) return;
+    if (await subirFotoUsuario(target, fotoPendiente.foto)) descartarFotoPendiente();
+  };
+
+  // Cerrar el panel o pasar a otra persona descarta lo que no se guardó.
+  useEffect(() => {
+    if (fotoPendiente && fotoPendiente.userId !== fotoPanelUserId) descartarFotoPendiente();
+  }, [fotoPanelUserId, fotoPendiente, descartarFotoPendiente]);
+
+  // Y al salir de la pantalla, se libera la imagen en memoria.
+  const fotoPendienteRef = useRef(fotoPendiente);
+  fotoPendienteRef.current = fotoPendiente;
+  useEffect(() => () => {
+    if (fotoPendienteRef.current) URL.revokeObjectURL(fotoPendienteRef.current.url);
+  }, []);
+
+  const cambiarFotoUsuario = async (target: UsuarioFoto, nueva: string | null, acuse: string) => {
+    if (!isAdmin || guardandoFoto) return;
+    setGuardandoFoto(target.id);
+    setFotoMsg(null);
+    try {
+      if (await guardarFotoUsuario(target, nueva)) setFotoMsg({ id: target.id, ok: true, msg: acuse });
+    } finally {
+      setGuardandoFoto(null);
+    }
+  };
+
   const copyPwdResult = async (fullName: string | null) => {
     if (!pwdResult?.ok || !pwdResult.password) return;
     const texto = [
@@ -2887,6 +3125,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       (u.email ?? '').toLowerCase().includes(q)
     );
   }, [responsableAdminData, userSearch]);
+
+  // Los dados de baja van en su propia sección al final: no estorban en la
+  // lista de trabajo, pero siguen a mano para reactivarlos.
+  const activeAdminUsers = useMemo(() => filteredAdminUsers.filter(u => !u.baja_at), [filteredAdminUsers]);
+  const bajaAdminUsers = useMemo(() => filteredAdminUsers.filter(u => u.baja_at), [filteredAdminUsers]);
+  const activeUsersCount = useMemo(() => responsableAdminData.filter(u => !u.baja_at).length, [responsableAdminData]);
 
   // ── Bitácora de accesos ───────────────────────────────────────────────────
 
@@ -2959,6 +3203,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   ), [accessLogsInRange, accessUserFilter]);
 
   /** Una tarjeta por persona: última conexión, tiempo acumulado y si está en línea. */
+  // Para poner cara a cada nombre de la bitácora.
+  const fotoPorUsuario = useMemo(
+    () => new Map(responsableAdminData.map(u => [u.id, u.photo_url ?? null] as const)),
+    [responsableAdminData]
+  );
+
   const accessPeople = useMemo(() => {
     const byUser = new Map<string, {
       userId: string; name: string; email: string | null; role: string | null;
@@ -6795,11 +7045,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (!pagos2026Data.length) return [] as Array<{
       key: string;
       service: string;
+      contrato: string;
       paid: number;
       total: number;
       pct: number;
       pctRaw: number;
-      monthly: Array<{ month: string; value: number }>;
+      monthly: Array<{ month: string; value: number; deductiva: number }>;
+      row: Record<string, any>;
     }>;
 
     // Use ALL columns from raw data (not pagos2026TableColumns which filters by expanded months)
@@ -6856,7 +7108,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const hasSubData = prev !== 0 || corr !== 0 || nota !== 0;
         const parentVal = parseNum(parentCol ? row[parentCol] : 0);
         const value = hasSubData ? subTotal : parentVal;
-        return { month: label, value: Math.max(0, value) };
+        // La nota de crédito es la deductiva aplicada en el mes: la ficha la
+        // muestra aparte como "penas y deductivas".
+        return { month: label, value: Math.max(0, value), deductiva: Math.max(0, nota) };
       });
 
       const paid = monthly.reduce((acc, item) => acc + (Number.isFinite(item.value) ? item.value : 0), 0);
@@ -6869,11 +7123,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       return {
         key,
         service,
+        contrato: contractRef,
         paid,
         total,
         pct,
         pctRaw,
         monthly,
+        row,
       };
     }).sort((a, b) => b.paid - a.paid);
   }, [pagos2026Data, pagos2026ServiceFieldSummary, pagos2026MontoMaxFieldSummary]);
@@ -6911,14 +7167,51 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     };
   }, [estatus2026TableColumns, anioActivo]);
 
-  /** Lo ejercido por servicio, indexado por nombre, para el avance financiero. */
-  const ejercidoPorServicio = useMemo(() => {
-    const mapa = new Map<string, number>();
-    pagos2026ServicePaymentProgress.forEach((r) => {
-      mapa.set(normalizeAnnualKey(r.service), r.paid);
-    });
+  /**
+   * Los pagos de 2026 que le tocan a cada servicio de la tabla de estatus.
+   *
+   * Antes se cruzaban por nombre exacto y la mitad no casaba ("…(Plantas de
+   * Emergencia)." contra "…(plantas de emergencia)"): la ficha enseñaba 0 %
+   * ejercido a servicios que sí tenían pagos. Ahora va por número de contrato
+   * normalizado y, si no, por nombre (ver utils/fichaServicio.ts). Con los
+   * datos de octubre 2026 se ligan los 39 pagos.
+   *
+   * La llave es la fila misma: las listas filtran estatusAnioData sin
+   * copiar sus objetos, así que la búsqueda es directa.
+   */
+  type PagoServicio = typeof pagos2026ServicePaymentProgress[number];
+  const pagosPorServicio = useMemo(() => {
+    const mapa = new Map<Record<string, any>, PagoServicio[]>();
+    // Pagos sólo existe para 2026: en 2027 no hay nada que ligar.
+    if (anioActivo !== 2026 || !pagos2026ServicePaymentProgress.length || !estatusAnioData.length) return mapa;
+    const colContrato = camposFichaServicio.noContrato;
+    const colNombre = estatus2026ServiceNameFieldSummary;
+    const ligados = vincularPagos(
+      pagos2026ServicePaymentProgress,
+      estatusAnioData,
+      { contrato: (p) => p.contrato, nombre: (p) => p.service },
+      { contrato: (r) => (colContrato ? r[colContrato] : ''), nombre: (r) => (colNombre ? r[colNombre] : '') },
+    );
+    ligados.forEach((pagos, i) => mapa.set(estatusAnioData[i], pagos));
     return mapa;
-  }, [pagos2026ServicePaymentProgress]);
+  }, [anioActivo, pagos2026ServicePaymentProgress, estatusAnioData, camposFichaServicio, estatus2026ServiceNameFieldSummary]);
+
+  /** El camino inverso: de un renglón de Pagos a su servicio. */
+  const servicioDePago = useMemo(() => {
+    const mapa = new Map<string, Record<string, any>>();
+    pagosPorServicio.forEach((pagos, row) => pagos.forEach((p) => mapa.set(p.key, row)));
+    return mapa;
+  }, [pagosPorServicio]);
+
+  /** Suma mes a mes lo pagado y lo deducido de uno o varios contratos. */
+  const sumarMeses = (pagos: PagoServicio[]): PagoMensual[] | undefined => {
+    if (!pagos.length) return undefined;
+    return pagos[0].monthly.map((m, i) => ({
+      mes: m.month,
+      pagado: pagos.reduce((n, p) => n + (p.monthly[i]?.value ?? 0), 0),
+      deductiva: pagos.reduce((n, p) => n + (p.monthly[i]?.deductiva ?? 0), 0),
+    }));
+  };
 
   /** Convierte una fila de estatus en la ficha que consume el explorador. */
   const construirDatosServicio = useCallback((row: Record<string, any>, idx: number): DatosServicio => {
@@ -6934,9 +7227,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       : 'Servicio sin nombre';
 
     const estatusCol = estatus2026TableColumns.find((c) => normalizeAnnualKey(c) === 'estatus') ?? estatus2026StatusFieldSummary;
-    const estatus = estatusCol ? String(row[estatusCol] ?? '').trim() : '';
+    // Normalizado, igual que en las gráficas: así el color y el filtro por
+    // estatus de la lista coinciden con la barra de donde se vino.
+    const estatus = estatusCol ? (normalizeEstatus2026Value(row[estatusCol]) || String(row[estatusCol] ?? '').trim()) : '';
 
     const req = getEstatus2026PaymentRequirementState(row);
+    const pagos = pagosPorServicio.get(row) ?? [];
+    const maximoEstatus = parseNumericValue(camposFichaServicio.montoMaximo ? row[camposFichaServicio.montoMaximo] : null);
+    // Si estatus no trae monto máximo, el del contrato en Pagos sirve igual.
+    const maximoPagos = pagos.reduce((n, p) => n + (p.total || 0), 0);
 
     return {
       id: row.id ?? row.ID ?? `svc-${idx}`,
@@ -6953,30 +7252,91 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       administrador: leer(camposFichaServicio.administrador),
       vigenciaInicio: leer(camposFichaServicio.vigenciaInicio),
       vigenciaTermino: leer(camposFichaServicio.vigenciaTermino),
-      montoMaximo: parseNumericValue(camposFichaServicio.montoMaximo ? row[camposFichaServicio.montoMaximo] : null),
-      montoEjercido: ejercidoPorServicio.get(normalizeAnnualKey(nombre)) ?? 0,
+      montoMaximo: maximoEstatus || maximoPagos || undefined,
+      montoEjercido: pagos.reduce((n, p) => n + p.paid, 0),
+      pagosMensuales: sumarMeses(pagos),
+      contratosPago: pagos.map((p) => p.contrato).filter(Boolean),
       penas: leer(camposFichaServicio.penas),
+      incidencias: leer('Incidencias del servicio'),
       garantias: [
         { etiqueta: 'Garantía de cumplimiento', ok: req.garantiaOk },
         { etiqueta: 'Póliza de responsabilidad civil', ok: req.polizaOk },
         { etiqueta: 'Garantía de calidad', ok: req.calidadOk },
       ],
+      fases: GANTT_DATE_GROUPS.map((g) => ({
+        etiqueta: g.label,
+        color: g.color,
+        area: g.area,
+        inicio: parseFechaFlexible(row[g.start]),
+        fin: parseFechaFlexible(row[g.end]),
+      })),
       row,
-      // El Gantt necesita al menos una fecha de proceso; si no hay ninguna, el
-      // botón se deshabilita en vez de abrir un diagrama vacío.
-      tieneGantt: Object.keys(row).some((k) => /^fecha /i.test(k) && String(row[k] ?? '').trim()),
+      // Mismo criterio que la vista de Gantt: al menos una fase con inicio y
+      // fin. Antes bastaba cualquier columna "Fecha…" y el botón abría un
+      // diagrama vacío en servicios sin proceso capturado.
+      tieneGantt: GANTT_DATE_GROUPS.some((g) => row[g.start] && row[g.end]),
     };
+  // sumarMeses no depende de nada del componente.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     estatus2026ServiceNameFieldSummary, estatus2026TableColumns, estatus2026StatusFieldSummary,
     estatus2026SubdirFieldSummary, estatus2026GerenciaFieldSummary,
-    camposFichaServicio, ejercidoPorServicio, getEstatus2026PaymentRequirementState,
+    camposFichaServicio, pagosPorServicio, getEstatus2026PaymentRequirementState,
   ]);
+
+  /**
+   * Ficha armada sólo con Pagos, para el raro renglón de Pagos que no se pudo
+   * ligar con ningún servicio de estatus. Mejor una ficha con lo que se sabe
+   * que un clic que no hace nada.
+   */
+  const datosDesdePago = useCallback((p: PagoServicio): DatosServicio => {
+    const leer = (col: string) => {
+      const t = String(p.row?.[col] ?? '').trim();
+      return t || undefined;
+    };
+    return {
+      id: `pago-${p.key}`,
+      nombre: p.service,
+      estatus: 'Sin ligar a Estatus',
+      colorEstatus: '#94A3B8',
+      noContrato: p.contrato || undefined,
+      proveedor: leer('Proveedor'),
+      vigenciaInicio: leer('Fecha de inicio'),
+      vigenciaTermino: leer('Fecha de termino'),
+      montoMaximo: p.total || undefined,
+      montoEjercido: p.paid,
+      pagosMensuales: sumarMeses([p]),
+      contratosPago: p.contrato ? [p.contrato] : [],
+      garantias: [],
+      fases: [],
+      row: p.row,
+      tieneGantt: false,
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Abre el explorador con los servicios de un grupo (una barra de una gráfica). */
   const abrirServicios = useCallback((titulo: string, filas: Record<string, any>[], subtitulo?: string) => {
     if (!filas.length) return;
     setExplorador({ titulo, filas, subtitulo });
   }, []);
+
+  /** Desde un renglón de Pagos: abre la ficha de su servicio. */
+  const abrirFichaDePago = useCallback((p: PagoServicio) => {
+    const row = servicioDePago.get(p.key);
+    if (row) {
+      const nombre = estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '') : '';
+      setExplorador({ titulo: nombre || p.service, filas: [row] });
+    } else {
+      setExplorador({ titulo: p.service, filas: [], extras: [datosDesdePago(p)] });
+    }
+  }, [servicioDePago, estatus2026ServiceNameFieldSummary, datosDesdePago]);
+
+  /** Todo lo que enseña el explorador, ya convertido en fichas. */
+  const serviciosExplorador = useMemo(
+    () => (explorador ? [...explorador.filas.map(construirDatosServicio), ...(explorador.extras ?? [])] : []),
+    [explorador, construirDatosServicio]
+  );
 
   /**
    * Servicios de una gerencia o una subdirección, respetando el trimestre que
@@ -10029,14 +10389,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
           <div className="flex items-center gap-3">
             <div className="sm:hidden">
-              <div className="h-9 w-9 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-semibold flex items-center justify-center uppercase">
-                {userInitials}
-              </div>
+              {user.avatar ? (
+                <AvatarPersona nombre={user.name} foto={user.avatar} className="h-9 w-9 rounded-full text-xs" />
+              ) : (
+                <div className="h-9 w-9 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-semibold flex items-center justify-center uppercase">
+                  {userInitials}
+                </div>
+              )}
             </div>
             <div className="hidden sm:flex items-center gap-3 rounded-full border border-slate-200 bg-white px-3 py-2 shadow-sm">
-              <div className="h-10 w-10 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-semibold flex items-center justify-center uppercase">
-                {userInitials}
-              </div>
+              {user.avatar ? (
+                <AvatarPersona nombre={user.name} foto={user.avatar} className="h-10 w-10 rounded-full text-xs" />
+              ) : (
+                <div className="h-10 w-10 rounded-full bg-[#B38E5D]/15 text-[#B38E5D] font-semibold flex items-center justify-center uppercase">
+                  {userInitials}
+                </div>
+              )}
               <div className="flex flex-col leading-tight">
                 <span className="text-sm font-semibold text-slate-700">{user.name}</span>
                 <span className={`inline-flex items-center justify-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded-full ${userRoleMeta.badgeClass}`}>
@@ -11559,9 +11927,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     >
                       <tab.icon className="h-4 w-4" />
                       {tab.label}
-                      {tab.id === 'usuarios' && responsableAdminData.length > 0 && (
+                      {tab.id === 'usuarios' && activeUsersCount > 0 && (
                         <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold tabular-nums">
-                          {responsableAdminData.length}
+                          {activeUsersCount}
                         </span>
                       )}
                     </button>
@@ -11666,8 +12034,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               : person.role === UserRole.OPERATOR
                                 ? { label: 'Operador', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
                                 : { label: 'Solo lectura', cls: 'bg-slate-50 text-slate-600 border-slate-200' };
-                          const initials = person.name.trim().split(/\s+/).slice(0, 2)
-                            .map(w => w.charAt(0).toUpperCase()).join('') || '?';
                           const isFiltered = accessUserFilter === person.userId;
 
                           return (
@@ -11682,14 +12048,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             >
                               <div className="flex items-start gap-3">
                                 <div className="relative flex-shrink-0">
-                                  <div
-                                    className="h-12 w-12 rounded-2xl flex items-center justify-center text-white font-black text-sm"
-                                    style={{ background: person.online
+                                  <AvatarPersona
+                                    nombre={person.name}
+                                    foto={fotoPorUsuario.get(person.userId)}
+                                    className="h-12 w-12 rounded-2xl text-sm"
+                                    fondo={person.online
                                       ? 'linear-gradient(135deg, #059669, #0F766E)'
-                                      : 'linear-gradient(135deg, #0F4C3A, #1B3A5E)' }}
-                                  >
-                                    {initials}
-                                  </div>
+                                      : 'linear-gradient(135deg, #0F4C3A, #1B3A5E)'}
+                                  />
                                   {person.online && (
                                     <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4">
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -11874,7 +12240,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <tr key={entry.id} className="hover:bg-slate-50/70 transition-colors">
                                   <td className="px-5 py-3">
                                     <div className="flex items-center gap-2.5 min-w-0">
-                                      <span className={`h-2 w-2 rounded-full flex-shrink-0 ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                      <span className="relative flex-shrink-0">
+                                        <AvatarPersona nombre={entry.user_name} foto={fotoPorUsuario.get(entry.user_id)} className="h-8 w-8 rounded-lg text-[10px]" />
+                                        <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                      </span>
                                       <div className="min-w-0">
                                         <p className="font-semibold text-slate-800 truncate max-w-[180px]" title={entry.user_name ?? ''}>
                                           {entry.user_name ?? 'Usuario desconocido'}
@@ -12262,8 +12631,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           Ningún usuario coincide con "{userSearch}".
                         </div>
                       ) : (
+                        <>
+                        {bajaResult && (
+                          <div role="status" className={`flex items-start gap-2.5 mx-5 mt-4 rounded-xl border px-4 py-3 ${
+                            bajaResult.ok ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'
+                          }`}>
+                            {bajaResult.ok
+                              ? <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600 flex-shrink-0 mt-px" />
+                              : <AlertCircle className="h-4.5 w-4.5 text-red-600 flex-shrink-0 mt-px" />}
+                            <p className={`flex-1 text-sm font-medium ${bajaResult.ok ? 'text-emerald-800' : 'text-red-800'}`}>{bajaResult.msg}</p>
+                            <button type="button" onClick={() => setBajaResult(null)} aria-label="Cerrar aviso" className="text-slate-400 hover:text-slate-600 flex-shrink-0">
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                        {activeAdminUsers.length === 0 && (
+                          <div className="px-5 py-8 text-center text-sm text-slate-500">
+                            Ningún usuario activo coincide con "{userSearch}".
+                          </div>
+                        )}
                         <div className="divide-y divide-slate-100">
-                          {filteredAdminUsers.map(u => {
+                          {activeAdminUsers.map(u => {
                             const uRoleMeta =
                               u.role === UserRole.ADMIN
                                 ? { label: 'Administrador', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
@@ -12271,29 +12659,54 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   ? { label: 'Operador', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
                                   : { label: 'Solo lectura', cls: 'bg-slate-50 text-slate-600 border-slate-200' };
                             const feedback = resetFeedback?.id === u.id ? resetFeedback : null;
-                            const initials = (u.full_name ?? '?').trim().split(/\s+/).slice(0, 2)
-                              .map(w => w.charAt(0).toUpperCase()).join('') || '?';
                             const esYo = u.id === user.id;
                             // La cuenta del superadmin sólo la toca él (la base lo exige igual).
                             const protegido = u.is_superadmin === true && !isSuperAdmin;
+                            const fotoAbierta = !protegido && fotoPanelUserId === u.id;
+                            const fotoSugerida = fotoAbierta ? fotoDelOrganigrama(u.full_name) : null;
+                            const fMsg = fotoMsg?.id === u.id ? fotoMsg : null;
                             // Supabase cierra las sesiones de quien cambia de contraseña: en la
                             // propia fila sacaría al superadmin. Para la suya, "Enviar enlace".
                             const puedeFijarPwd = isSuperAdmin && !esYo;
                             const panelAbierto = puedeFijarPwd && pwdPanelUserId === u.id;
+                            // Nadie se da de baja a sí mismo, y a un superadmin primero se le
+                            // quita la marca desde SQL (la función lo exige igual).
+                            const puedeDarBaja = isSuperAdmin && !esYo && !u.is_superadmin;
+                            const bajaAbierta = puedeDarBaja && bajaPanelUserId === u.id;
                             const pwdRes = pwdResult?.id === u.id ? pwdResult : null;
                             const fuerzaPwd = passwordStrength(pwdDraft);
 
                             return (
-                              <div key={u.id} className={`px-5 py-4 transition-colors ${panelAbierto ? 'bg-amber-50/40' : 'hover:bg-slate-50/60'}`}>
+                              <div key={u.id} className={`px-5 py-4 transition-colors ${bajaAbierta ? 'bg-red-50/40' : panelAbierto ? 'bg-amber-50/40' : fotoAbierta ? 'bg-violet-50/40' : 'hover:bg-slate-50/60'}`}>
                                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                                   {/* Identidad */}
                                   <div className="flex items-center gap-3 min-w-0 lg:w-64 flex-shrink-0">
-                                    <div
-                                      className="h-10 w-10 rounded-xl flex items-center justify-center text-white font-black text-xs flex-shrink-0"
-                                      style={{ background: 'linear-gradient(135deg, #0F4C3A, #1B3A5E)' }}
+                                    <button
+                                      type="button"
+                                      onClick={() => { setFotoPanelUserId(prev => (prev === u.id ? null : u.id)); setFotoMsg(null); }}
+                                      disabled={protegido}
+                                      aria-expanded={fotoAbierta}
+                                      aria-label={`Foto de ${u.full_name ?? 'este usuario'}`}
+                                      title={protegido ? 'Sólo el superadmin puede cambiar su propia foto' : 'Cambiar foto'}
+                                      className="relative group flex-shrink-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-default"
                                     >
-                                      {initials}
-                                    </div>
+                                      <AvatarPersona nombre={u.full_name} foto={u.photo_url} className="h-11 w-11 rounded-xl text-xs" />
+                                      {!protegido && (
+                                        <>
+                                          <span className="absolute inset-0 rounded-xl bg-slate-900/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                            <Camera className="h-4 w-4 text-white" />
+                                          </span>
+                                          <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-white ring-1 ring-slate-200 shadow-sm flex items-center justify-center text-slate-500">
+                                            <Camera className="h-3 w-3" />
+                                          </span>
+                                        </>
+                                      )}
+                                      {guardandoFoto === u.id && (
+                                        <span className="absolute inset-0 rounded-xl bg-white/70 flex items-center justify-center">
+                                          <Loader2 className="h-4 w-4 animate-spin text-violet-600" />
+                                        </span>
+                                      )}
+                                    </button>
                                     <div className="min-w-0">
                                       <div className="flex items-center gap-1.5">
                                         <p className="text-sm font-bold text-slate-800 truncate" title={u.full_name ?? ''}>
@@ -12379,7 +12792,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     {puedeFijarPwd && (
                                       <button
                                         type="button"
-                                        onClick={() => openPwdPanel(u.id)}
+                                        onClick={() => { openPwdPanel(u.id); setBajaPanelUserId(null); }}
                                         aria-expanded={panelAbierto}
                                         title={`Fijar una contraseña nueva para ${u.full_name ?? 'este usuario'}`}
                                         className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-colors ${
@@ -12392,8 +12805,212 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         Cambiar contraseña
                                       </button>
                                     )}
+                                    {puedeDarBaja && (
+                                      <button
+                                        type="button"
+                                        onClick={() => { setBajaPanelUserId(prev => (prev === u.id ? null : u.id)); setBajaResult(null); setPwdPanelUserId(null); }}
+                                        aria-expanded={bajaAbierta}
+                                        title={`Dar de baja a ${u.full_name ?? 'este usuario'}`}
+                                        className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-colors ${
+                                          bajaAbierta
+                                            ? 'bg-red-600 border-red-600 text-white'
+                                            : 'border-red-200 bg-white text-red-600 hover:bg-red-50'
+                                        }`}
+                                      >
+                                        <UserX className="h-3.5 w-3.5" />
+                                        Dar de baja
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
+
+                                {/* Foto */}
+                                {fotoAbierta && (() => {
+                                  const nombre = u.full_name ?? 'este usuario';
+                                  const pendiente = fotoPendiente?.userId === u.id ? fotoPendiente : null;
+                                  const ocupado = !!guardandoFoto || !!preparandoFoto;
+                                  // Una foto que se toca para verla en grande; sin foto, las iniciales.
+                                  const ampliable = (url: string | null | undefined, titulo: string, clase: string) => url ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setFotoAmpliada({ url, nombre: titulo })}
+                                      aria-label={`Ver en grande: ${titulo}`}
+                                      title="Ver en grande"
+                                      className={`relative group block overflow-hidden flex-shrink-0 bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${clase}`}
+                                    >
+                                      <img src={url} alt={titulo} className="h-full w-full object-cover" />
+                                      <span className="absolute inset-0 bg-slate-900/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <Maximize2 className="h-5 w-5 text-white" />
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <AvatarPersona nombre={u.full_name} foto={null} className={clase} />
+                                  );
+                                  const elegir = (texto: string, principal: boolean) => (
+                                    <label
+                                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg cursor-pointer transition-colors ${
+                                        principal
+                                          ? 'bg-violet-600 text-white hover:bg-violet-700 shadow-md shadow-violet-600/20'
+                                          : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                      } ${ocupado ? 'opacity-60 pointer-events-none' : ''}`}
+                                    >
+                                      {preparandoFoto === u.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                                      {preparandoFoto === u.id ? 'Preparando...' : texto}
+                                      <input
+                                        type="file"
+                                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                                        className="sr-only"
+                                        aria-label={`Elegir foto de ${nombre}`}
+                                        onChange={e => {
+                                          const archivo = e.target.files?.[0];
+                                          e.target.value = '';
+                                          if (archivo) void elegirFotoUsuario(u, archivo);
+                                        }}
+                                      />
+                                    </label>
+                                  );
+
+                                  return (
+                                    <div className={`mt-4 rounded-2xl border bg-white p-4 shadow-sm ${pendiente ? 'border-violet-400 ring-4 ring-violet-500/10' : 'border-violet-200'}`}>
+                                      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                        {/* Fotos */}
+                                        {pendiente ? (
+                                          <div className="flex items-center gap-3 flex-shrink-0">
+                                            <figure className="text-center">
+                                              {ampliable(u.photo_url, `${nombre} · foto actual`, 'h-14 w-14 rounded-xl text-sm opacity-60')}
+                                              <figcaption className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">Actual</figcaption>
+                                            </figure>
+                                            <ChevronRight className="h-5 w-5 text-violet-300 mb-4" />
+                                            <figure className="text-center">
+                                              {ampliable(pendiente.url, `${nombre} · foto nueva`, 'h-24 w-24 rounded-2xl ring-2 ring-violet-500 ring-offset-2')}
+                                              <figcaption className="mt-1.5 text-[9px] font-bold uppercase tracking-wider text-violet-600">Nueva</figcaption>
+                                            </figure>
+                                          </div>
+                                        ) : (
+                                          ampliable(u.photo_url, nombre, 'h-20 w-20 rounded-2xl text-xl shadow-sm')
+                                        )}
+
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-bold text-slate-800">
+                                            {pendiente ? '¿Así está bien?' : `Foto de ${nombre}`}
+                                          </p>
+                                          <p className="text-xs text-slate-500 mt-0.5">
+                                            {pendiente
+                                              ? `Así quedará, ya recortada (${formatearPeso(pendiente.foto.size)}). Tócala para verla en grande antes de guardarla.`
+                                              : u.photo_url
+                                                ? 'Toca la foto para verla en grande. Para cambiarla, elige otra: JPG, PNG o WEBP.'
+                                                : 'Todavía no tiene foto. Elige una: JPG, PNG o WEBP.'}
+                                          </p>
+                                          {!pendiente && fotoSugerida && fotoSugerida !== u.photo_url && (
+                                            <p className="text-xs text-violet-700 mt-1.5">Hay una foto suya en el organigrama.</p>
+                                          )}
+                                          {fMsg && (
+                                            <p role={fMsg.ok ? 'status' : 'alert'} className={`flex items-center gap-1.5 mt-1.5 text-[11px] font-medium ${fMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+                                              {fMsg.ok ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                                              {fMsg.msg}
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                                          {pendiente ? (
+                                            <>
+                                              <button
+                                                type="button"
+                                                onClick={() => guardarFotoPendiente(u)}
+                                                disabled={ocupado}
+                                                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60 shadow-md shadow-violet-600/20"
+                                              >
+                                                {guardandoFoto === u.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                                {guardandoFoto === u.id ? 'Guardando...' : 'Guardar foto'}
+                                              </button>
+                                              {elegir('Elegir otra', false)}
+                                              <button
+                                                type="button"
+                                                onClick={descartarFotoPendiente}
+                                                disabled={!!guardandoFoto}
+                                                className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                                              >
+                                                Cancelar
+                                              </button>
+                                            </>
+                                          ) : (
+                                            <>
+                                              {elegir(u.photo_url ? 'Elegir otra foto' : 'Elegir foto', true)}
+                                              {fotoSugerida && fotoSugerida !== u.photo_url && (
+                                                <div className="inline-flex items-center rounded-lg border border-violet-200 bg-violet-50 overflow-hidden">
+                                                  {ampliable(fotoSugerida, `${nombre} · foto del organigrama`, 'h-9 w-9')}
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => cambiarFotoUsuario(u, fotoSugerida, 'Se puso la foto del organigrama.')}
+                                                    disabled={ocupado}
+                                                    className="px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+                                                  >
+                                                    Usar la del organigrama
+                                                  </button>
+                                                </div>
+                                              )}
+                                              {u.photo_url && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => cambiarFotoUsuario(u, null, 'Se quitó la foto.')}
+                                                  disabled={ocupado}
+                                                  className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                                                >
+                                                  Quitar
+                                                </button>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={() => { setFotoPanelUserId(null); setFotoMsg(null); }}
+                                                className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700"
+                                              >
+                                                Cerrar
+                                              </button>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* Confirmación de baja */}
+                                {bajaAbierta && (
+                                  <div className="mt-4 rounded-2xl border border-red-200 bg-white p-4 shadow-sm">
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                      <span className="flex h-10 w-10 rounded-xl bg-red-100 text-red-600 items-center justify-center flex-shrink-0">
+                                        <UserX className="h-5 w-5" />
+                                      </span>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-bold text-slate-800">¿Dar de baja a {u.full_name ?? 'este usuario'}?</p>
+                                        <p className="text-xs text-slate-500 mt-0.5">
+                                          Ya no podrá entrar y se cerrarán sus sesiones abiertas. Su historial y lo que capturó se conservan,
+                                          y puedes reactivarla cuando quieras.
+                                        </p>
+                                      </div>
+                                      <div className="flex gap-2 flex-shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => setBajaPanelUserId(null)}
+                                          disabled={savingBaja === u.id}
+                                          className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                                        >
+                                          Cancelar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => cambiarEstadoUsuario(u, 'baja')}
+                                          disabled={savingBaja === u.id}
+                                          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 shadow-md shadow-red-600/20"
+                                        >
+                                          {savingBaja === u.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
+                                          {savingBaja === u.id ? 'Dando de baja...' : 'Sí, dar de baja'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Panel del superadmin para fijar la contraseña */}
                                 {panelAbierto && (
@@ -12525,6 +13142,72 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             );
                           })}
                         </div>
+
+                        {/* ── Dados de baja ── */}
+                        {bajaAdminUsers.length > 0 && (() => {
+                          // Si la búsqueda encuentra a alguien aquí, se muestra sin tener que abrir.
+                          const abiertas = showBajas || userSearch.trim() !== '';
+                          return (
+                            <div className="border-t border-slate-200">
+                              <button
+                                type="button"
+                                onClick={() => setShowBajas(v => !v)}
+                                aria-expanded={abiertas}
+                                className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-slate-50 transition-colors"
+                              >
+                                <ChevronRight className={`h-4 w-4 text-slate-400 transition-transform ${abiertas ? 'rotate-90' : ''}`} />
+                                <UserX className="h-4 w-4 text-slate-400" />
+                                <span className="text-sm font-bold text-slate-600">Dados de baja</span>
+                                <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold tabular-nums">
+                                  {bajaAdminUsers.length}
+                                </span>
+                                <span className="ml-auto text-[11px] text-slate-400 hidden sm:inline">Sin acceso; su historial se conserva</span>
+                              </button>
+                              {abiertas && (
+                                <div className="divide-y divide-slate-100 bg-slate-50/60">
+                                  {bajaAdminUsers.map(u => {
+                                    const quien = responsableAdminData.find(x => x.id === u.baja_por)?.full_name;
+                                    const fecha = u.baja_at
+                                      ? new Date(u.baja_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
+                                      : '';
+                                    return (
+                                      <div key={u.id} className="flex flex-col sm:flex-row sm:items-center gap-3 px-5 py-3">
+                                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                                          <AvatarPersona nombre={u.full_name} foto={u.photo_url} className="h-9 w-9 rounded-xl text-xs" apagado />
+                                          <div className="min-w-0">
+                                            <div className="flex items-center gap-1.5">
+                                              <p className="text-sm font-semibold text-slate-500 truncate" title={u.full_name ?? ''}>
+                                                {u.full_name ?? 'Sin nombre'}
+                                              </p>
+                                              <span className="px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-100 text-[9px] font-bold uppercase tracking-wider flex-shrink-0">
+                                                Baja
+                                              </span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-400 truncate">
+                                              {u.email ?? 'Sin correo'} · desde el {fecha}{quien ? ` · por ${quien}` : ''}
+                                            </p>
+                                          </div>
+                                        </div>
+                                        {isSuperAdmin && (
+                                          <button
+                                            type="button"
+                                            onClick={() => cambiarEstadoUsuario(u, 'reactivar')}
+                                            disabled={savingBaja === u.id}
+                                            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 transition-colors flex-shrink-0"
+                                          >
+                                            {savingBaja === u.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserCheck className="h-3.5 w-3.5" />}
+                                            {savingBaja === u.id ? 'Reactivando...' : 'Reactivar'}
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        </>
                       )}
 
                       <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 space-y-1.5">
@@ -12539,8 +13222,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <KeyRound className="h-3.5 w-3.5 flex-shrink-0 mt-px text-amber-600" />
                           <span>
                             {isSuperAdmin
-                              ? <><strong>Cambiar contraseña</strong> la fija tú directamente. Sólo el superadmin tiene este botón.</>
-                              : <>Fijar la contraseña de otra persona es exclusivo del superadmin.</>}
+                              ? <><strong>Cambiar contraseña</strong> la fija tú directamente y <strong>Dar de baja</strong> le quita el acceso (se puede reactivar). Sólo el superadmin tiene estos botones.</>
+                              : <>Fijar contraseñas ajenas y dar de baja usuarios es exclusivo del superadmin.</>}
                           </span>
                         </p>
                         <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
@@ -12756,277 +13439,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           );
                         })()}
 
-                        {/* ── Gantt Modal Portal (single service) ── */}
-                        {/* Explorador de servicios: se abre desde cualquier barra o renglón y
-            lleva a la ficha del servicio. Un solo camino para todos. */}
-        {explorador && createPortal(
-          <ServicioDetalle
-            titulo={explorador.titulo}
-            subtitulo={explorador.subtitulo}
-            servicios={explorador.filas.map(construirDatosServicio)}
-            onCerrar={() => setExplorador(null)}
-            onVerGantt={(row) => { setExplorador(null); setGanttModalService(row); }}
-          />,
-          document.body
-        )}
-
-        {ganttModalService !== null && createPortal((() => {
-                          const DO_COLOR = '#111827';
-                          const DA_COLOR = '#60A5FA';
-                          const MONTHS_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-                          const parseGM = (v: any): Date | null => {
-                            if (!v) return null;
-                            const s = String(v).trim();
-                            const parts = s.split('-');
-                            if (parts.length === 3) {
-                              const y = parseInt(parts[0], 10), mo = parseInt(parts[1], 10) - 1, d = parseInt(parts[2], 10);
-                              if (!isNaN(y) && !isNaN(mo) && !isNaN(d)) return new Date(y, mo, d);
-                            }
-                            const dt = new Date(s);
-                            return isNaN(dt.getTime()) ? null : dt;
-                          };
-
-                          const svcRow = ganttModalService;
-                          const svcName = estatus2026ServiceNameFieldSummary ? String(svcRow[estatus2026ServiceNameFieldSummary] ?? 'Servicio') : 'Servicio';
-                          const svcGerencia = estatus2026GerenciaFieldSummary ? String(svcRow[estatus2026GerenciaFieldSummary] ?? '') : '';
-                          const svcSubdir = estatus2026SubdirFieldSummary ? String(svcRow[estatus2026SubdirFieldSummary] ?? '') : '';
-                          const svcEstatus = estatus2026EstatusColumnField ? normalizeEstatus2026Value(svcRow[estatus2026EstatusColumnField]) : '';
-                          const estatusColor = ESTATUS_2026_COLOR_MAP[svcEstatus] ?? '#EAB308';
-                          const lightColors = ['#FDE047', '#FACC15', '#EAB308', '#FBBF24', '#FFD700', '#F59E0B', '#F97316', '#CA8A04', '#D97706'];
-                          const estatusText = lightColors.includes(estatusColor) ? '#78350F' : estatusColor;
-
-                          const phases = GANTT_DATE_GROUPS.map(g => ({
-                            label: g.label,
-                            color: g.color,
-                            textColor: g.textColor,
-                            area: g.area,
-                            startDate: parseGM(svcRow[g.start]),
-                            endDate: parseGM(svcRow[g.end]),
-                          }));
-
-                          const validPhases = phases.filter(p => p.startDate && p.endDate);
-
-                          // Timeline bounds
-                          let minTs = Infinity, maxTs = -Infinity;
-                          validPhases.forEach(p => {
-                            const s = p.startDate!.getTime(), e = p.endDate!.getTime();
-                            if (s < minTs) minTs = s; if (s > maxTs) maxTs = s;
-                            if (e < minTs) minTs = e; if (e > maxTs) maxTs = e;
-                          });
-                          const pad = Math.max((maxTs - minTs) * 0.04, 86400000 * 4);
-                          const rMin = minTs - pad, rMax = maxTs + pad;
-                          const totalMs = rMax - rMin || 1;
-                          const pct = (ts: number) => Math.max(0, Math.min(100, (ts - rMin) / totalMs * 100));
-
-                          // Month slots for header
-                          const mSlots: { label: string; pct: number; w: number }[] = [];
-                          if (validPhases.length > 0) {
-                            const mCur = new Date(new Date(minTs).getFullYear(), new Date(minTs).getMonth(), 1);
-                            while (mCur.getTime() <= maxTs) {
-                              const mStart = mCur.getTime();
-                              const nextM = new Date(mCur.getFullYear(), mCur.getMonth() + 1, 1);
-                              const mEnd = nextM.getTime() - 1;
-                              const mP = pct(mStart);
-                              const mW = pct(mEnd) - mP;
-                              if (mW > 0) mSlots.push({ label: `${MONTHS_SHORT[mCur.getMonth()]} ${mCur.getFullYear()}`, pct: mP, w: mW });
-                              mCur.setMonth(mCur.getMonth() + 1);
-                            }
-                          }
-
-                          const doDays = validPhases.filter(p => p.area === 'DO').reduce((s, p) => s + Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000), 0);
-                          const daDays = validPhases.filter(p => p.area === 'DA').reduce((s, p) => s + Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000), 0);
-
-                          // Alert level per phase based on duration
-                          const alertLevel = (days: number): { stripe: string; glow: string; badge: string; label: string; rowBg: string } => {
-                            if (days === 0) return { stripe: 'transparent', glow: 'none', badge: '#4B5563', label: '', rowBg: 'transparent' };
-                            if (days <= 7) return { stripe: '#10B981', glow: 'none', badge: '#10B981', label: 'Rápido', rowBg: 'transparent' };
-                            if (days <= 20) return { stripe: '#F59E0B', glow: 'none', badge: '#F59E0B', label: 'Normal', rowBg: 'transparent' };
-                            if (days <= 44) return { stripe: '#F97316', glow: '0 0 8px rgba(249,115,22,0.5)', badge: '#F97316', label: 'Lento', rowBg: 'rgba(249,115,22,0.04)' };
-                            return { stripe: '#EF4444', glow: '0 0 12px rgba(239,68,68,0.6)', badge: '#EF4444', label: '⚠ Crítico', rowBg: 'rgba(239,68,68,0.06)' };
-                          };
-                          const maxPhaseDays = Math.max(...validPhases.map(p => Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
-                          const doMaxDays = validPhases.filter(p => p.area === 'DO').reduce((m, p) => Math.max(m, Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
-                          const daMaxDays = validPhases.filter(p => p.area === 'DA').reduce((m, p) => Math.max(m, Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
-                          const doAlert = alertLevel(doMaxDays);
-                          const daAlert = alertLevel(daMaxDays);
-
-                          return (
-                            <div
-                              className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-                              style={{ backgroundColor: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)' }}
-                              onClick={() => setGanttModalService(null)}
-                            >
-                              <div
-                                className="relative bg-white rounded-2xl shadow-2xl w-full max-h-[92vh] overflow-hidden flex flex-col"
-                                style={{ maxWidth: 900 }}
-                                onClick={e => e.stopPropagation()}
-                              >
-                                {/* Header */}
-                                <div className="flex items-start justify-between gap-4 px-7 pt-6 pb-5 border-b border-slate-100 bg-gradient-to-r from-slate-900 to-slate-800 rounded-t-2xl">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border"
-                                        style={{ backgroundColor: `${estatusColor}22`, borderColor: estatusColor, color: estatusText === '#78350F' ? '#EAB308' : estatusColor }}>
-                                        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: estatusColor, display: 'inline-block' }} />
-                                        {svcEstatus || 'En Proceso'}
-                                      </span>
-                                      {svcSubdir && (
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-900/40 text-indigo-300 border border-indigo-700/50">{svcSubdir}</span>
-                                      )}
-                                      {svcGerencia && (
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-900/40 text-teal-300 border border-teal-700/50">{svcGerencia}</span>
-                                      )}
-                                    </div>
-                                    <h2 className="text-lg font-extrabold text-white leading-snug pr-4">{svcName}</h2>
-                                    <p className="text-slate-400 text-xs mt-1.5">{validPhases.length} fase{validPhases.length !== 1 ? 's' : ''} con fechas · {doDays + daDays} días totales</p>
-                                  </div>
-                                  <button
-                                    onClick={() => setGanttModalService(null)}
-                                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                                  >
-                                    <X className="h-5 w-5" />
-                                  </button>
-                                </div>
-
-                                {/* Body */}
-                                <div className="overflow-y-auto flex-1 px-7 py-6 space-y-6">
-                                  {validPhases.length === 0 ? (
-                                    <div className="text-center py-16">
-                                      <CalendarDays className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                                      <p className="text-slate-500 font-semibold">Sin fechas capturadas</p>
-                                      <p className="text-slate-400 text-sm mt-1">Agrega fechas en la tabla de Estatus servicios para ver el Gantt.</p>
-                                    </div>
-                                  ) : (
-                                    <>
-                                      {/* Area summary pills */}
-                                      <div className="flex gap-3 flex-wrap">
-                                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 bg-slate-50" style={{ borderColor: doAlert.badge !== '#4B5563' && doAlert.badge !== '#10B981' ? doAlert.badge : DO_COLOR, boxShadow: doAlert.glow }}>
-                                          <div className="w-3 h-3 rounded" style={{ backgroundColor: DO_COLOR }} />
-                                          <span className="text-xs font-bold text-slate-700">D.O — Dirección de Operación</span>
-                                          <span className="ml-2 text-xl font-black text-slate-900">{doDays}</span>
-                                          <span className="text-xs text-slate-500">días</span>
-                                          {doAlert.label && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1" style={{ backgroundColor: `${doAlert.badge}22`, color: doAlert.badge, border: `1px solid ${doAlert.badge}55` }}>{doAlert.label}</span>}
-                                        </div>
-                                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 bg-blue-50" style={{ borderColor: daAlert.badge !== '#4B5563' && daAlert.badge !== '#10B981' ? daAlert.badge : DA_COLOR, boxShadow: daAlert.glow }}>
-                                          <div className="w-3 h-3 rounded" style={{ backgroundColor: DA_COLOR }} />
-                                          <span className="text-xs font-bold" style={{ color: DA_COLOR }}>D.A — Dirección de Administración</span>
-                                          <span className="ml-2 text-xl font-black" style={{ color: DA_COLOR }}>{daDays}</span>
-                                          <span className="text-xs text-slate-500">días</span>
-                                          {daAlert.label && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1" style={{ backgroundColor: `${daAlert.badge}22`, color: daAlert.badge, border: `1px solid ${daAlert.badge}55` }}>{daAlert.label}</span>}
-                                        </div>
-                                      </div>
-
-                                      {/* Leyenda de alertas */}
-                                      <div className="flex items-center gap-3 flex-wrap">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Alerta de tiempo:</span>
-                                        {[{ color: '#10B981', label: '≤ 7 días — Rápido' }, { color: '#F59E0B', label: '8–20 días — Normal' }, { color: '#F97316', label: '21–44 días — Lento' }, { color: '#EF4444', label: '45+ días — Crítico' }].map(l => (
-                                          <span key={l.label} className="flex items-center gap-1 text-[10px] font-semibold" style={{ color: l.color }}>
-                                            <span style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: l.color, display: 'inline-block' }} />
-                                            {l.label}
-                                          </span>
-                                        ))}
-                                      </div>
-
-                                      {/* Gantt timeline */}
-                                      <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                                        {/* Month header */}
-                                        <div className="flex" style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                          <div className="flex-shrink-0 w-48 px-4 py-2 bg-slate-100 border-r border-slate-200">
-                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fase</span>
-                                          </div>
-                                          <div className="flex-1 relative h-8 bg-slate-100 overflow-hidden">
-                                            {mSlots.map((m, i) => (
-                                              <div key={i} className="absolute top-0 h-full flex items-center justify-center border-r border-slate-300 overflow-hidden"
-                                                style={{ left: `${m.pct}%`, width: `${m.w}%` }}>
-                                                <span className="text-[11px] font-extrabold text-slate-700 truncate select-none px-1">{m.label}</span>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                        {/* Phase rows */}
-                                        {phases.map((p, pi) => {
-                                          const hasData = p.startDate && p.endDate;
-                                          const lPct = hasData ? pct(p.startDate!.getTime()) : 0;
-                                          const wPct = hasData ? (p.endDate!.getTime() - p.startDate!.getTime()) / totalMs * 100 : 0;
-                                          const days = hasData ? Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000) : 0;
-                                          const al = hasData ? alertLevel(days) : alertLevel(0);
-                                          const barColor = p.area === 'DO' ? DO_COLOR : DA_COLOR;
-                                          const isMax = hasData && days === maxPhaseDays && days > 0;
-                                          return (
-                                            <div key={pi} className="flex items-stretch" style={{ borderBottom: pi < phases.length - 1 ? '1px solid #f1f5f9' : undefined, minHeight: 48, backgroundColor: al.rowBg }}>
-                                              <div className="flex-shrink-0 w-48 px-3 py-2 border-r border-slate-100 flex flex-col justify-center bg-slate-50">
-                                                <span className="text-[10px] font-bold leading-tight" style={{ color: hasData ? (al.badge !== '#4B5563' ? al.badge : '#334155') : '#94A3B8' }}>
-                                                  {p.label.replace(/^\d+\.\s+/, '')}
-                                                </span>
-                                                <span className="text-[9px] mt-0.5 font-semibold" style={{ color: p.area === 'DO' ? '#64748B' : '#3B82F6' }}>
-                                                  {p.area === 'DO' ? '■ D.O' : '■ D.A'}
-                                                </span>
-                                              </div>
-                                              <div className="flex-1 relative bg-slate-50 overflow-hidden" style={{ padding: '9px 0' }}>
-                                                {hasData ? (
-                                                  <div
-                                                    className="absolute rounded-lg overflow-hidden"
-                                                    style={{
-                                                      top: 9, height: 30,
-                                                      left: `${lPct}%`,
-                                                      width: `${Math.max(wPct, 1.5)}%`,
-                                                      backgroundColor: barColor,
-                                                      boxShadow: isMax ? al.glow : 'none',
-                                                    }}
-                                                  >
-                                                    {/* Alert stripe at top */}
-                                                    {al.stripe !== 'transparent' && (
-                                                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 5, backgroundColor: al.stripe, opacity: 0.95 }} />
-                                                    )}
-                                                    {/* Duration label */}
-                                                    {wPct > 4 && (
-                                                      <span className="absolute bottom-0 left-0 px-2 text-[11px] font-black select-none" style={{ color: '#fff', lineHeight: '25px', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>
-                                                        {days}d
-                                                      </span>
-                                                    )}
-                                                  </div>
-                                                ) : (
-                                                  <div className="absolute inset-0 flex items-center px-3">
-                                                    <span className="text-[10px] text-slate-400 italic">Sin fecha</span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                              {hasData ? (
-                                                <div className="flex-shrink-0 w-44 px-3 py-2 border-l border-slate-100 bg-slate-50 flex flex-col justify-center">
-                                                  <span className="text-[10px] text-slate-500">
-                                                    {p.startDate!.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} → {p.endDate!.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: '2-digit' })}
-                                                  </span>
-                                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                                    <span className="text-[12px] font-black" style={{ color: al.badge !== '#4B5563' ? al.badge : '#1E293B' }}>{days} día{days !== 1 ? 's' : ''}</span>
-                                                    {al.label && <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ backgroundColor: `${al.badge}22`, color: al.badge }}>{al.label}</span>}
-                                                  </div>
-                                                </div>
-                                              ) : (
-                                                <div className="flex-shrink-0 w-44 border-l border-slate-100 bg-slate-50" />
-                                              )}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-
-                                {/* Footer */}
-                                <div className="px-7 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between rounded-b-2xl">
-                                  <span className="text-[11px] text-slate-400">Haz clic fuera del modal para cerrar</span>
-                                  <button
-                                    onClick={() => setGanttModalService(null)}
-                                    className="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-700 transition-colors"
-                                  >
-                                    Cerrar
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })(), document.body)}
 
                         {/* Card: Adjudicados */}
                         {selectedResumenCard === 'adjudicados' && (() => {
@@ -13480,11 +13892,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <tbody className="bg-white divide-y divide-slate-200">
                                       {rows.map((entry, idx) => {
                                         const pct = Math.round(entry.pct);
-                                        const row = pagos2026Data[idx] ?? {};
+                                        // El renglón viene con el pago: antes se tomaba pagos2026Data[idx]
+                                        // y, como esta lista va ordenada, el ID no era el del servicio.
+                                        const row = entry.row ?? {};
                                         return (
-                                          <tr key={entry.key} className={`hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                          <tr
+                                            key={entry.key}
+                                            onClick={() => abrirFichaDePago(entry)}
+                                            title="Ver la ficha del servicio"
+                                            className={`group cursor-pointer hover:bg-violet-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}
+                                          >
                                             <td className="px-4 py-3 text-xs font-mono text-slate-400 whitespace-nowrap">{row['id'] ?? idx + 1}</td>
-                                            <td className="px-4 py-3 text-sm font-medium text-slate-800" style={{ maxWidth: '380px' }}>{entry.service || '—'}</td>
+                                            <td className="px-4 py-3 text-sm font-medium text-slate-800 group-hover:text-[#0F4C3A]" style={{ maxWidth: '380px' }}>
+                                              <span className="inline-flex items-start gap-1.5">
+                                                {entry.service || '—'}
+                                                <ChevronRight className="h-4 w-4 flex-shrink-0 mt-0.5 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                              </span>
+                                            </td>
                                             <td className="px-4 py-3 text-sm font-mono text-right text-slate-600 whitespace-nowrap">{entry.total > 0 ? formatCurrency(entry.total) : '—'}</td>
                                             <td className="px-4 py-3 text-sm font-mono font-semibold text-right text-violet-700 whitespace-nowrap">{formatCurrency(entry.paid)}</td>
                                             <td className="px-4 py-3 whitespace-nowrap">
@@ -13514,86 +13938,42 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         })()}
                       </div>
                     ) : selectedEstatus2026Estatus ? (
-                      /* Detail view: services in selected estatus */
-                      <div className="space-y-6">
-                        <button
-                          onClick={() => setSelectedEstatus2026Estatus(null)}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
-                        >
-                          <ArrowLeft className="h-4 w-4" />
-                          Volver al resumen {anioActivo}
-                        </button>
-                        <div>
-                          <h2 className="text-2xl font-bold text-slate-900">
-                            Servicios con estatus: <span className="text-[#B38E5D]">{selectedEstatus2026Estatus}</span>
-                          </h2>
-                          <p className="text-slate-500 mt-1">
-                            {(() => {
-                              const seenKeys = new Set<string>();
-                              return estatusAnioData.filter((row) => {
-                                if (!estatus2026EstatusColumnField) return false;
-                                const raw = row[estatus2026EstatusColumnField];
-                                if (normalizeEstatus2026Value(raw) !== selectedEstatus2026Estatus) return false;
-                                const key = estatus2026ServiceNameFieldSummary
-                                  ? buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary)
-                                  : String(row.id ?? Math.random());
-                                if (seenKeys.has(key)) return false;
-                                seenKeys.add(key);
-                                return true;
-                              }).length;
-                            })()} servicio(s) con este estatus.
-                          </p>
-                        </div>
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-                          <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-slate-200">
-                              <thead className="bg-[#0F4C3A] text-white">
-                                <tr>
-                                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
-                                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
-                                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
-                                </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-slate-200">
-                                {(() => {
-                                  const seenKeys = new Set<string>();
-                                  return estatusAnioData.filter((row) => {
-                                    if (!estatus2026EstatusColumnField) return false;
-                                    const raw = row[estatus2026EstatusColumnField];
-                                    if (normalizeEstatus2026Value(raw) !== selectedEstatus2026Estatus) return false;
-                                    const key = estatus2026ServiceNameFieldSummary
-                                      ? buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary)
-                                      : String(row.id ?? Math.random());
-                                    if (seenKeys.has(key)) return false;
-                                    seenKeys.add(key);
-                                    return true;
-                                  });
-                                })()
-                                  .map((row, idx) => (
-                                    <tr
-                                      onClick={() => abrirServicios(String(row[estatus2026ServiceNameFieldSummary ?? ""] ?? "Servicio"), [row])}
-                                      title="Ver la ficha del servicio"
-                                      key={idx} className={`hover:bg-slate-50 transition-colors cursor-pointer ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
-                                      <td className="px-6 py-4 text-sm font-semibold text-slate-800">
-                                        {estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? 'Sin nombre') : 'Sin nombre'}
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                          {estatus2026SubdirFieldSummary ? String(row[estatus2026SubdirFieldSummary] ?? 'N/A') : 'N/A'}
-                                        </span>
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">
-                                          {estatus2026GerenciaFieldSummary ? [['Aeronautica', 'Aeronáutica'], ['Electromecanica', 'Electromecánica'], ['Electromecanico', 'Electromecánico'], ['Ingenieria', 'Ingeniería'], ['Distribucion', 'Distribución'], ['Generacion', 'Generación'], ['Operacion', 'Operación'], ['Administracion', 'Administración'], ['Medico', 'Médico'], ['Tecnico', 'Técnico'], ['Tecnica', 'Técnica'], ['Juridica', 'Jurídica'], ['Juridico', 'Jurídico'], ['Gestion', 'Gestión'], ['Comunicacion', 'Comunicación']].reduce((s, [a, b]) => s.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  ))}
-                              </tbody>
-                            </table>
+                      /* Servicios con un estatus: los mismos datos clave y la misma lista que el explorador */
+                      (() => {
+                        const seenKeys = new Set<string>();
+                        const filas = estatusAnioData.filter((row) => {
+                          if (!estatus2026EstatusColumnField) return false;
+                          if (normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) !== selectedEstatus2026Estatus) return false;
+                          const key = estatus2026ServiceNameFieldSummary
+                            ? buildConvenioGroupKey(row as Record<string, any>, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary)
+                            : String(row.id ?? Math.random());
+                          if (seenKeys.has(key)) return false;
+                          seenKeys.add(key);
+                          return true;
+                        });
+                        const servicios = filas.map(construirDatosServicio);
+                        return (
+                          <div className="space-y-6">
+                            <button
+                              onClick={() => setSelectedEstatus2026Estatus(null)}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
+                            >
+                              <ArrowLeft className="h-4 w-4" />
+                              Volver al resumen {anioActivo}
+                            </button>
+                            <div>
+                              <h2 className="text-2xl font-bold text-slate-900">
+                                Servicios con estatus: <span className="text-[#B38E5D]">{selectedEstatus2026Estatus}</span>
+                              </h2>
+                              <p className="text-slate-500 mt-1">
+                                {servicios.length} servicio{servicios.length !== 1 ? 's' : ''} con este estatus. Toca uno para ver su ficha.
+                              </p>
+                            </div>
+                            <ResumenGrupo servicios={servicios} />
+                            <ListaServicios servicios={servicios} onAbrir={(sv) => abrirServicios(sv.nombre, [sv.row])} />
                           </div>
-                        </div>
-                      </div>
+                        );
+                      })()
                     ) : !selectedEstatus2026Phase ? (
                       <div className="space-y-6">
                         <div className="flex items-start justify-between flex-wrap gap-3">
@@ -14013,7 +14393,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           {/* Subdirección 2026 */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                             <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-bold text-slate-800">Servicios {anioActivo} por Subdirección</h3>
+                              <div>
+                                <h3 className="text-lg font-bold text-slate-800">Servicios {anioActivo} por Subdirección</h3>
+                                <p className="flex items-center gap-1 text-[11px] text-slate-400 mt-0.5"><MousePointerClick className="h-3 w-3" /> Toca una barra para ver sus servicios y la ficha de cada uno</p>
+                              </div>
                               <span className="text-xs font-medium text-slate-400">{activeSubdirTotal} total</span>
                             </div>
                             <div className="space-y-3">
@@ -14037,7 +14420,7 @@ return (
                                     >
                                       <div className="flex items-center justify-between gap-2">
                                         <span className="text-xs font-medium text-slate-700 leading-snug group-hover/b:text-[#0F4C3A] group-hover/b:font-semibold transition-colors">{entry.name}</span>
-                                        <span className="text-xs font-bold flex-shrink-0 tabular-nums" style={{ color }}>{entry.value} <span className="text-slate-400 font-normal">({pct}%)</span></span>
+                                        <span className="flex items-center gap-1 text-xs font-bold flex-shrink-0 tabular-nums" style={{ color }}>{entry.value} <span className="text-slate-400 font-normal">({pct}%)</span><ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-slate-300 opacity-0 group-hover/b:opacity-100 group-hover/b:text-[#0F4C3A] transition-opacity" /></span>
                                       </div>
                                       <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                                         <div className="h-2 rounded-full transition-all duration-500 group-hover/b:brightness-110" style={{ width: `${barWidth}%`, backgroundColor: color }} />
@@ -14056,7 +14439,10 @@ return (
                           {/* Bar chart: Servicios por Gerencia – HTML/CSS (no SVG clipping) */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
                             <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-bold text-slate-800">Servicios por Gerencia</h3>
+                              <div>
+                                <h3 className="text-lg font-bold text-slate-800">Servicios por Gerencia</h3>
+                                <p className="flex items-center gap-1 text-[11px] text-slate-400 mt-0.5"><MousePointerClick className="h-3 w-3" /> Toca una barra para ver sus servicios y la ficha de cada uno</p>
+                              </div>
                               <span className="text-xs text-slate-400">{activeGerenciaData.length} gerencias</span>
                             </div>
                             {loadingData ? (
@@ -14096,8 +14482,9 @@ return (
                                               style={{ width: `${barWidth}%`, backgroundColor: color }}
                                             />
                                           </div>
-                                          <span className="text-xs text-slate-500 shrink-0 font-medium tabular-nums">
+                                          <span className="flex items-center gap-1 text-xs text-slate-500 shrink-0 font-medium tabular-nums">
                                             {entry.value} ({pct}%)
+                                            <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-slate-300 opacity-0 group-hover/b:opacity-100 group-hover/b:text-[#0F4C3A] transition-opacity" />
                                           </span>
                                         </div>
                                       </button>
@@ -14117,7 +14504,10 @@ return (
                           {/* Presupuesto por Gerencia 2026 */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                             <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-bold text-slate-800">Presupuesto por Gerencia {anioActivo}</h3>
+                              <div>
+                                <h3 className="text-lg font-bold text-slate-800">Presupuesto por Gerencia {anioActivo}</h3>
+                                <p className="flex items-center gap-1 text-[11px] text-slate-400 mt-0.5"><MousePointerClick className="h-3 w-3" /> Toca una barra para ver sus servicios y la ficha de cada uno</p>
+                              </div>
                               <span className="text-xs font-medium text-slate-400">Monto total</span>
                             </div>
                             <div className="space-y-3">
@@ -14140,7 +14530,7 @@ return (
                                     >
                                       <div className="flex items-center justify-between gap-2">
                                         <span className="text-xs font-medium text-slate-700 leading-snug group-hover/b:text-[#0F4C3A] group-hover/b:font-semibold transition-colors">{entry.name}</span>
-                                        <span className="text-[11px] font-bold flex-shrink-0 tabular-nums" style={{ color }}>{formatCurrency(entry.value)}</span>
+                                        <span className="flex items-center gap-1 text-[11px] font-bold flex-shrink-0 tabular-nums" style={{ color }}>{formatCurrency(entry.value)}<ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-slate-300 opacity-0 group-hover/b:opacity-100 group-hover/b:text-[#0F4C3A] transition-opacity" /></span>
                                       </div>
                                       <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                                         <div className="h-2 rounded-full transition-all duration-500 group-hover/b:brightness-110" style={{ width: `${barWidth}%`, backgroundColor: color }} />
@@ -14160,75 +14550,37 @@ return (
 
                       </div>
                     ) : (
-                      /* Detail view: services in selected phase */
-                      <div className="space-y-6">
-                        <button
-                          onClick={() => setSelectedEstatus2026Phase(null)}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
-                        >
-                          <ArrowLeft className="h-4 w-4" />
-                          Volver al resumen {anioActivo}
-                        </button>
-
-                        <div>
-                          <h2 className="text-2xl font-bold text-slate-900">
-                            Servicios en fase: <span className="text-[#B38E5D]">{selectedEstatus2026Phase}</span>
-                          </h2>
-                          <p className="text-slate-500 mt-1">
-                            {estatusAnioData.filter((row) => {
-                              const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
-                              if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin fase') return true;
-                              const label = String(raw ?? '').trim();
-                              const displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
-                              return displayLabel === selectedEstatus2026Phase;
-                            }).length} servicio(s) en esta etapa.
-                          </p>
-                        </div>
-
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-                          <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-slate-200">
-                              <thead className="bg-[#0F4C3A] text-white">
-                                <tr>
-                                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Servicio</th>
-                                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Subdirección</th>
-                                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Gerencia</th>
-                                </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-slate-200">
-                                {estatusAnioData
-                                  .filter((row) => {
-                                    const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
-                                    if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin fase') return true;
-                                    const label = String(raw ?? '').trim();
-                                    const displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
-                                    return displayLabel === selectedEstatus2026Phase;
-                                  })
-                                  .map((row, idx) => (
-                                    <tr
-                                      onClick={() => abrirServicios(String(row[estatus2026ServiceNameFieldSummary ?? ""] ?? "Servicio"), [row])}
-                                      title="Ver la ficha del servicio"
-                                      key={idx} className={`hover:bg-slate-50 transition-colors cursor-pointer ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
-                                      <td className="px-6 py-4 text-sm font-semibold text-slate-800">
-                                        {estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? 'Sin nombre') : 'Sin nombre'}
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                          {estatus2026SubdirFieldSummary ? String(row[estatus2026SubdirFieldSummary] ?? 'N/A') : 'N/A'}
-                                        </span>
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-100">
-                                          {estatus2026GerenciaFieldSummary ? [['Aeronautica', 'Aeronáutica'], ['Electromecanica', 'Electromecánica'], ['Electromecanico', 'Electromecánico'], ['Ingenieria', 'Ingeniería'], ['Distribucion', 'Distribución'], ['Generacion', 'Generación'], ['Operacion', 'Operación'], ['Administracion', 'Administración'], ['Medico', 'Médico'], ['Tecnico', 'Técnico'], ['Tecnica', 'Técnica'], ['Juridica', 'Jurídica'], ['Juridico', 'Jurídico'], ['Gestion', 'Gestión'], ['Comunicacion', 'Comunicación']].reduce((s, [a, b]) => s.replace(new RegExp(`\\b${a}\\b`, 'gi'), b), String(row[estatus2026GerenciaFieldSummary] ?? 'N/A')) : 'N/A'}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  ))}
-                              </tbody>
-                            </table>
+                      /* Servicios en una fase: mismo resumen y misma lista que el explorador */
+                      (() => {
+                        const filas = estatusAnioData.filter((row) => {
+                          const raw = estatus2026StatusFieldSummary ? row[estatus2026StatusFieldSummary] : null;
+                          if ((!raw || String(raw).trim() === '') && selectedEstatus2026Phase === 'Sin fase') return true;
+                          const label = String(raw ?? '').trim();
+                          return label.charAt(0).toUpperCase() + label.slice(1) === selectedEstatus2026Phase;
+                        });
+                        const servicios = filas.map(construirDatosServicio);
+                        return (
+                          <div className="space-y-6">
+                            <button
+                              onClick={() => setSelectedEstatus2026Phase(null)}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 active:bg-slate-900 transition-colors shadow-sm"
+                            >
+                              <ArrowLeft className="h-4 w-4" />
+                              Volver al resumen {anioActivo}
+                            </button>
+                            <div>
+                              <h2 className="text-2xl font-bold text-slate-900">
+                                Servicios en fase: <span className="text-[#B38E5D]">{selectedEstatus2026Phase}</span>
+                              </h2>
+                              <p className="text-slate-500 mt-1">
+                                {servicios.length} servicio{servicios.length !== 1 ? 's' : ''} en esta etapa. Toca uno para ver su ficha.
+                              </p>
+                            </div>
+                            <ResumenGrupo servicios={servicios} />
+                            <ListaServicios servicios={servicios} onAbrir={(sv) => abrirServicios(sv.nombre, [sv.row])} />
                           </div>
-                        </div>
-                      </div>
+                        );
+                      })()
                     )}
                   </>
                 )}
@@ -15866,7 +16218,17 @@ return (
                                     return (
                                       <React.Fragment key={item.key}>
                                         <tr className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-                                          <td className="px-4 py-3 text-slate-800 font-medium">{item.service}</td>
+                                          <td className="px-4 py-3 text-slate-800 font-medium">
+                                            <button
+                                              type="button"
+                                              onClick={() => abrirFichaDePago(item)}
+                                              title="Ver la ficha del servicio"
+                                              className="group inline-flex items-start gap-1.5 text-left hover:text-[#0F4C3A] transition-colors"
+                                            >
+                                              <span className="group-hover:underline decoration-[#0F4C3A]/30 underline-offset-2">{item.service}</span>
+                                              <ChevronRight className="h-4 w-4 flex-shrink-0 mt-0.5 text-slate-300 group-hover:text-[#0F4C3A] transition-colors" />
+                                            </button>
+                                          </td>
                                           <td className="px-4 py-3 text-right">
                                             <div className="inline-flex flex-col items-end min-w-[140px]">
                                               <span className="text-slate-700 font-semibold">{item.pctRaw.toFixed(1)}%</span>
@@ -15957,7 +16319,7 @@ return (
                         startDate: parseGDate(row[g.start]),
                         endDate: parseGDate(row[g.end]),
                       }));
-                      return { label, gerencia, phases };
+                      return { label, gerencia, phases, row };
                     });
 
                   if (ganttRows.length === 0) {
@@ -16199,9 +16561,15 @@ return (
                                   className={`flex items-stretch ${ri < ganttRows.length - 1 ? 'border-b border-slate-100' : ''} hover:bg-blue-50/20 transition-colors`}
                                   style={{ minHeight: 60 }}>
                                   <div className="w-80 flex-shrink-0 px-4 py-3 border-r border-slate-100 flex flex-col justify-center">
-                                    <div className="text-sm font-semibold text-slate-700 leading-snug">
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirServicios(row.label || `Servicio ${ri + 1}`, [row.row])}
+                                      title="Ver la ficha del servicio"
+                                      className="group text-left text-sm font-semibold text-slate-700 leading-snug hover:text-[#0F4C3A] transition-colors"
+                                    >
                                       {row.label || `Servicio ${ri + 1}`}
-                                    </div>
+                                      <ChevronRight className="inline h-3.5 w-3.5 ml-0.5 -mt-0.5 text-slate-300 group-hover:text-[#0F4C3A] transition-colors" />
+                                    </button>
                                     {row.gerencia && <div className="text-xs text-slate-400 truncate mt-0.5">{row.gerencia}</div>}
                                   </div>
                                   <div className="flex-1 relative overflow-hidden" style={{ padding: '10px 0' }}>
@@ -21062,6 +21430,284 @@ return (
           </div>
         </div>
       )}
+
+      {/* Ventanas de servicio. Van aquí, al nivel de todo el tablero, y no
+          dentro de una vista: antes vivían en la rama de "tarjeta del resumen
+          seleccionada", así que desde las gráficas principales el clic no abría
+          nada y el Gantt sólo funcionaba desde "Servicios en proceso". */}
+                        {/* Explorador de servicios: se abre desde cualquier barra o renglón y
+            lleva a la ficha del servicio. Un solo camino para todos. */}
+        {explorador && createPortal(
+          <ServicioDetalle
+            titulo={explorador.titulo}
+            subtitulo={explorador.subtitulo}
+            servicios={serviciosExplorador}
+            onCerrar={() => setExplorador(null)}
+            // El Gantt se abre ENCIMA de la ficha: al cerrarlo se vuelve a
+            // ella, en vez de perder dónde se estaba.
+            onVerGantt={(row) => setGanttModalService(row)}
+            bloqueado={ganttModalService !== null}
+          />,
+          document.body
+        )}
+
+        {ganttModalService !== null && createPortal((() => {
+                          const DO_COLOR = '#111827';
+                          const DA_COLOR = '#60A5FA';
+                          const MONTHS_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+                          const parseGM = (v: any): Date | null => {
+                            if (!v) return null;
+                            const s = String(v).trim();
+                            const parts = s.split('-');
+                            if (parts.length === 3) {
+                              const y = parseInt(parts[0], 10), mo = parseInt(parts[1], 10) - 1, d = parseInt(parts[2], 10);
+                              if (!isNaN(y) && !isNaN(mo) && !isNaN(d)) return new Date(y, mo, d);
+                            }
+                            const dt = new Date(s);
+                            return isNaN(dt.getTime()) ? null : dt;
+                          };
+
+                          const svcRow = ganttModalService;
+                          const svcName = estatus2026ServiceNameFieldSummary ? String(svcRow[estatus2026ServiceNameFieldSummary] ?? 'Servicio') : 'Servicio';
+                          const svcGerencia = estatus2026GerenciaFieldSummary ? String(svcRow[estatus2026GerenciaFieldSummary] ?? '') : '';
+                          const svcSubdir = estatus2026SubdirFieldSummary ? String(svcRow[estatus2026SubdirFieldSummary] ?? '') : '';
+                          const svcEstatus = estatus2026EstatusColumnField ? normalizeEstatus2026Value(svcRow[estatus2026EstatusColumnField]) : '';
+                          const estatusColor = ESTATUS_2026_COLOR_MAP[svcEstatus] ?? '#EAB308';
+                          const lightColors = ['#FDE047', '#FACC15', '#EAB308', '#FBBF24', '#FFD700', '#F59E0B', '#F97316', '#CA8A04', '#D97706'];
+                          const estatusText = lightColors.includes(estatusColor) ? '#78350F' : estatusColor;
+
+                          const phases = GANTT_DATE_GROUPS.map(g => ({
+                            label: g.label,
+                            color: g.color,
+                            textColor: g.textColor,
+                            area: g.area,
+                            startDate: parseGM(svcRow[g.start]),
+                            endDate: parseGM(svcRow[g.end]),
+                          }));
+
+                          const validPhases = phases.filter(p => p.startDate && p.endDate);
+
+                          // Timeline bounds
+                          let minTs = Infinity, maxTs = -Infinity;
+                          validPhases.forEach(p => {
+                            const s = p.startDate!.getTime(), e = p.endDate!.getTime();
+                            if (s < minTs) minTs = s; if (s > maxTs) maxTs = s;
+                            if (e < minTs) minTs = e; if (e > maxTs) maxTs = e;
+                          });
+                          const pad = Math.max((maxTs - minTs) * 0.04, 86400000 * 4);
+                          const rMin = minTs - pad, rMax = maxTs + pad;
+                          const totalMs = rMax - rMin || 1;
+                          const pct = (ts: number) => Math.max(0, Math.min(100, (ts - rMin) / totalMs * 100));
+
+                          // Month slots for header
+                          const mSlots: { label: string; pct: number; w: number }[] = [];
+                          if (validPhases.length > 0) {
+                            const mCur = new Date(new Date(minTs).getFullYear(), new Date(minTs).getMonth(), 1);
+                            while (mCur.getTime() <= maxTs) {
+                              const mStart = mCur.getTime();
+                              const nextM = new Date(mCur.getFullYear(), mCur.getMonth() + 1, 1);
+                              const mEnd = nextM.getTime() - 1;
+                              const mP = pct(mStart);
+                              const mW = pct(mEnd) - mP;
+                              if (mW > 0) mSlots.push({ label: `${MONTHS_SHORT[mCur.getMonth()]} ${mCur.getFullYear()}`, pct: mP, w: mW });
+                              mCur.setMonth(mCur.getMonth() + 1);
+                            }
+                          }
+
+                          const doDays = validPhases.filter(p => p.area === 'DO').reduce((s, p) => s + Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000), 0);
+                          const daDays = validPhases.filter(p => p.area === 'DA').reduce((s, p) => s + Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000), 0);
+
+                          // Alert level per phase based on duration
+                          const alertLevel = (days: number): { stripe: string; glow: string; badge: string; label: string; rowBg: string } => {
+                            if (days === 0) return { stripe: 'transparent', glow: 'none', badge: '#4B5563', label: '', rowBg: 'transparent' };
+                            if (days <= 7) return { stripe: '#10B981', glow: 'none', badge: '#10B981', label: 'Rápido', rowBg: 'transparent' };
+                            if (days <= 20) return { stripe: '#F59E0B', glow: 'none', badge: '#F59E0B', label: 'Normal', rowBg: 'transparent' };
+                            if (days <= 44) return { stripe: '#F97316', glow: '0 0 8px rgba(249,115,22,0.5)', badge: '#F97316', label: 'Lento', rowBg: 'rgba(249,115,22,0.04)' };
+                            return { stripe: '#EF4444', glow: '0 0 12px rgba(239,68,68,0.6)', badge: '#EF4444', label: '⚠ Crítico', rowBg: 'rgba(239,68,68,0.06)' };
+                          };
+                          const maxPhaseDays = Math.max(...validPhases.map(p => Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
+                          const doMaxDays = validPhases.filter(p => p.area === 'DO').reduce((m, p) => Math.max(m, Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
+                          const daMaxDays = validPhases.filter(p => p.area === 'DA').reduce((m, p) => Math.max(m, Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000)), 0);
+                          const doAlert = alertLevel(doMaxDays);
+                          const daAlert = alertLevel(daMaxDays);
+
+                          return (
+                            <div
+                              className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                              style={{ backgroundColor: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)' }}
+                              onClick={() => setGanttModalService(null)}
+                            >
+                              <div
+                                className="relative bg-white rounded-2xl shadow-2xl w-full max-h-[92vh] overflow-hidden flex flex-col"
+                                style={{ maxWidth: 900 }}
+                                onClick={e => e.stopPropagation()}
+                              >
+                                {/* Header */}
+                                <div className="flex items-start justify-between gap-4 px-7 pt-6 pb-5 border-b border-slate-100 bg-gradient-to-r from-slate-900 to-slate-800 rounded-t-2xl">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border"
+                                        style={{ backgroundColor: `${estatusColor}22`, borderColor: estatusColor, color: estatusText === '#78350F' ? '#EAB308' : estatusColor }}>
+                                        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: estatusColor, display: 'inline-block' }} />
+                                        {svcEstatus || 'En Proceso'}
+                                      </span>
+                                      {svcSubdir && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-900/40 text-indigo-300 border border-indigo-700/50">{svcSubdir}</span>
+                                      )}
+                                      {svcGerencia && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-900/40 text-teal-300 border border-teal-700/50">{svcGerencia}</span>
+                                      )}
+                                    </div>
+                                    <h2 className="text-lg font-extrabold text-white leading-snug pr-4">{svcName}</h2>
+                                    <p className="text-slate-400 text-xs mt-1.5">{validPhases.length} fase{validPhases.length !== 1 ? 's' : ''} con fechas · {doDays + daDays} días totales</p>
+                                  </div>
+                                  <button
+                                    onClick={() => setGanttModalService(null)}
+                                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                                  >
+                                    <X className="h-5 w-5" />
+                                  </button>
+                                </div>
+
+                                {/* Body */}
+                                <div className="overflow-y-auto flex-1 px-7 py-6 space-y-6">
+                                  {validPhases.length === 0 ? (
+                                    <div className="text-center py-16">
+                                      <CalendarDays className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+                                      <p className="text-slate-500 font-semibold">Sin fechas capturadas</p>
+                                      <p className="text-slate-400 text-sm mt-1">Agrega fechas en la tabla de Estatus servicios para ver el Gantt.</p>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {/* Area summary pills */}
+                                      <div className="flex gap-3 flex-wrap">
+                                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 bg-slate-50" style={{ borderColor: doAlert.badge !== '#4B5563' && doAlert.badge !== '#10B981' ? doAlert.badge : DO_COLOR, boxShadow: doAlert.glow }}>
+                                          <div className="w-3 h-3 rounded" style={{ backgroundColor: DO_COLOR }} />
+                                          <span className="text-xs font-bold text-slate-700">D.O — Dirección de Operación</span>
+                                          <span className="ml-2 text-xl font-black text-slate-900">{doDays}</span>
+                                          <span className="text-xs text-slate-500">días</span>
+                                          {doAlert.label && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1" style={{ backgroundColor: `${doAlert.badge}22`, color: doAlert.badge, border: `1px solid ${doAlert.badge}55` }}>{doAlert.label}</span>}
+                                        </div>
+                                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 bg-blue-50" style={{ borderColor: daAlert.badge !== '#4B5563' && daAlert.badge !== '#10B981' ? daAlert.badge : DA_COLOR, boxShadow: daAlert.glow }}>
+                                          <div className="w-3 h-3 rounded" style={{ backgroundColor: DA_COLOR }} />
+                                          <span className="text-xs font-bold" style={{ color: DA_COLOR }}>D.A — Dirección de Administración</span>
+                                          <span className="ml-2 text-xl font-black" style={{ color: DA_COLOR }}>{daDays}</span>
+                                          <span className="text-xs text-slate-500">días</span>
+                                          {daAlert.label && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1" style={{ backgroundColor: `${daAlert.badge}22`, color: daAlert.badge, border: `1px solid ${daAlert.badge}55` }}>{daAlert.label}</span>}
+                                        </div>
+                                      </div>
+
+                                      {/* Leyenda de alertas */}
+                                      <div className="flex items-center gap-3 flex-wrap">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Alerta de tiempo:</span>
+                                        {[{ color: '#10B981', label: '≤ 7 días — Rápido' }, { color: '#F59E0B', label: '8–20 días — Normal' }, { color: '#F97316', label: '21–44 días — Lento' }, { color: '#EF4444', label: '45+ días — Crítico' }].map(l => (
+                                          <span key={l.label} className="flex items-center gap-1 text-[10px] font-semibold" style={{ color: l.color }}>
+                                            <span style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: l.color, display: 'inline-block' }} />
+                                            {l.label}
+                                          </span>
+                                        ))}
+                                      </div>
+
+                                      {/* Gantt timeline */}
+                                      <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                                        {/* Month header */}
+                                        <div className="flex" style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                          <div className="flex-shrink-0 w-48 px-4 py-2 bg-slate-100 border-r border-slate-200">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fase</span>
+                                          </div>
+                                          <div className="flex-1 relative h-8 bg-slate-100 overflow-hidden">
+                                            {mSlots.map((m, i) => (
+                                              <div key={i} className="absolute top-0 h-full flex items-center justify-center border-r border-slate-300 overflow-hidden"
+                                                style={{ left: `${m.pct}%`, width: `${m.w}%` }}>
+                                                <span className="text-[11px] font-extrabold text-slate-700 truncate select-none px-1">{m.label}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        {/* Phase rows */}
+                                        {phases.map((p, pi) => {
+                                          const hasData = p.startDate && p.endDate;
+                                          const lPct = hasData ? pct(p.startDate!.getTime()) : 0;
+                                          const wPct = hasData ? (p.endDate!.getTime() - p.startDate!.getTime()) / totalMs * 100 : 0;
+                                          const days = hasData ? Math.round((p.endDate!.getTime() - p.startDate!.getTime()) / 86400000) : 0;
+                                          const al = hasData ? alertLevel(days) : alertLevel(0);
+                                          const barColor = p.area === 'DO' ? DO_COLOR : DA_COLOR;
+                                          const isMax = hasData && days === maxPhaseDays && days > 0;
+                                          return (
+                                            <div key={pi} className="flex items-stretch" style={{ borderBottom: pi < phases.length - 1 ? '1px solid #f1f5f9' : undefined, minHeight: 48, backgroundColor: al.rowBg }}>
+                                              <div className="flex-shrink-0 w-48 px-3 py-2 border-r border-slate-100 flex flex-col justify-center bg-slate-50">
+                                                <span className="text-[10px] font-bold leading-tight" style={{ color: hasData ? (al.badge !== '#4B5563' ? al.badge : '#334155') : '#94A3B8' }}>
+                                                  {p.label.replace(/^\d+\.\s+/, '')}
+                                                </span>
+                                                <span className="text-[9px] mt-0.5 font-semibold" style={{ color: p.area === 'DO' ? '#64748B' : '#3B82F6' }}>
+                                                  {p.area === 'DO' ? '■ D.O' : '■ D.A'}
+                                                </span>
+                                              </div>
+                                              <div className="flex-1 relative bg-slate-50 overflow-hidden" style={{ padding: '9px 0' }}>
+                                                {hasData ? (
+                                                  <div
+                                                    className="absolute rounded-lg overflow-hidden"
+                                                    style={{
+                                                      top: 9, height: 30,
+                                                      left: `${lPct}%`,
+                                                      width: `${Math.max(wPct, 1.5)}%`,
+                                                      backgroundColor: barColor,
+                                                      boxShadow: isMax ? al.glow : 'none',
+                                                    }}
+                                                  >
+                                                    {/* Alert stripe at top */}
+                                                    {al.stripe !== 'transparent' && (
+                                                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 5, backgroundColor: al.stripe, opacity: 0.95 }} />
+                                                    )}
+                                                    {/* Duration label */}
+                                                    {wPct > 4 && (
+                                                      <span className="absolute bottom-0 left-0 px-2 text-[11px] font-black select-none" style={{ color: '#fff', lineHeight: '25px', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>
+                                                        {days}d
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                ) : (
+                                                  <div className="absolute inset-0 flex items-center px-3">
+                                                    <span className="text-[10px] text-slate-400 italic">Sin fecha</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                              {hasData ? (
+                                                <div className="flex-shrink-0 w-44 px-3 py-2 border-l border-slate-100 bg-slate-50 flex flex-col justify-center">
+                                                  <span className="text-[10px] text-slate-500">
+                                                    {p.startDate!.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} → {p.endDate!.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: '2-digit' })}
+                                                  </span>
+                                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <span className="text-[12px] font-black" style={{ color: al.badge !== '#4B5563' ? al.badge : '#1E293B' }}>{days} día{days !== 1 ? 's' : ''}</span>
+                                                    {al.label && <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ backgroundColor: `${al.badge}22`, color: al.badge }}>{al.label}</span>}
+                                                  </div>
+                                                </div>
+                                              ) : (
+                                                <div className="flex-shrink-0 w-44 border-l border-slate-100 bg-slate-50" />
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+
+                                {/* Footer */}
+                                <div className="px-7 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between rounded-b-2xl">
+                                  <span className="text-[11px] text-slate-400">Haz clic fuera del modal para cerrar</span>
+                                  <button
+                                    onClick={() => setGanttModalService(null)}
+                                    className="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-700 transition-colors"
+                                  >
+                                    Cerrar
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })(), document.body)}
 
       {/* Foto de responsable en grande */}
       {fotoAmpliada && createPortal(

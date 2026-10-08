@@ -22,3 +22,9 @@ enabled = true
 # Sólo el superadmin: la función lo comprueba leyendo profiles con service_role.
 verify_jwt = true
 entrypoint = "./functions/cambiar-password/index.ts"
+
+[functions.baja-usuario]
+enabled = true
+# Sólo el superadmin: la función lo comprueba leyendo profiles con service_role.
+verify_jwt = true
+entrypoint = "./functions/baja-usuario/index.ts"

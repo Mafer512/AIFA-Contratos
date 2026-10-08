@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const recoveryRef = useRef(esFlujoRecovery());
   const [recoveryLinkError, setRecoveryLinkError] = useState<string | null>(authLink.error);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [cuentaDeBaja, setCuentaDeBaja] = useState(false);
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [isStandaloneMode, setIsStandaloneMode] = useState(false);
@@ -302,6 +303,7 @@ const App: React.FC = () => {
     let role: UserRole = UserRole.VIEWER;
     let responsable: string | null = null;
     let isSuperAdmin = false;
+    let avatar: string | undefined;
 
     try {
       const leerPerfil = (columnas: string) => supabase
@@ -309,18 +311,30 @@ const App: React.FC = () => {
         .from('profiles')
         .select(columnas)
         .eq('id', user.id)
-        .maybeSingle<{ full_name: string | null; role: string | null; responsable: string | null; is_superadmin?: boolean }>();
+        .maybeSingle<{ full_name: string | null; role: string | null; responsable: string | null; is_superadmin?: boolean; baja_at?: string | null; photo_url?: string | null }>();
 
-      let { data: profile, error } = await leerPerfil('full_name, role, responsable, is_superadmin');
-
-      // Sin la migración del superadmin la columna no existe y PostgREST
-      // rechazaría el select entero: todos entrarían como Solo lectura.
-      if (error?.code === '42703') {
-        ({ data: profile, error } = await leerPerfil('full_name, role, responsable'));
+      // Sin las migraciones del superadmin o de bajas, esas columnas no
+      // existen y PostgREST rechazaría el select entero: todos entrarían como
+      // Solo lectura. Por eso se reintenta con menos columnas (42703).
+      let { data: profile, error } = await leerPerfil('full_name, role, responsable, is_superadmin, baja_at, photo_url');
+      for (const cols of ['full_name, role, responsable, is_superadmin, baja_at', 'full_name, role, responsable, is_superadmin', 'full_name, role, responsable']) {
+        if (error?.code !== '42703') break;
+        ({ data: profile, error } = await leerPerfil(cols));
       }
 
       if (error) {
         console.error('Error fetching profile data:', error.message);
+      }
+
+      // Dada de baja con una sesión que seguía viva (el bloqueo impide volver
+      // a entrar, pero no tumba un token ya emitido): fuera, con el porqué.
+      if (profile?.baja_at) {
+        setCuentaDeBaja(true);
+        try { await supabase.auth.signOut(); } catch (_) {}
+        setCurrentUser(null);
+        setCurrentScreen(Screen.LOGIN);
+        setLoading(false);
+        return;
       }
 
       if (profile) {
@@ -338,6 +352,7 @@ const App: React.FC = () => {
 
         responsable = profile.responsable ?? null;
         isSuperAdmin = role === UserRole.ADMIN && profile.is_superadmin === true;
+        avatar = profile.photo_url || undefined;
       }
     } catch (error) {
       console.error('Unexpected error fetching profile:', error);
@@ -350,11 +365,13 @@ const App: React.FC = () => {
       role,
       responsable,
       isSuperAdmin,
+      avatar,
     };
 
     setCurrentUser(appUser);
     setCurrentScreen(Screen.DASHBOARD);
     setAuthNotice(null);
+    setCuentaDeBaja(false);
     setLoading(false);
 
     // Bitácora de accesos. Va sin await: si Supabase tarda, el dashboard ya
@@ -522,7 +539,7 @@ const App: React.FC = () => {
         <ResetPassword onDone={handleResetDone} linkError={recoveryLinkError} />
       )}
       {currentScreen === Screen.LOGIN && (
-        <Login onLoginSuccess={handleLoginSuccess} externalSuccessMessage={authNotice ?? undefined} />
+        <Login onLoginSuccess={handleLoginSuccess} externalSuccessMessage={authNotice ?? undefined} cuentaDadaDeBaja={cuentaDeBaja} />
       )}
       {currentScreen === Screen.DASHBOARD && currentUser && (
         // Un fallo dentro del dashboard ya no puede borrar la aplicación

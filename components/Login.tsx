@@ -42,12 +42,20 @@ const LOGIN_HIGHLIGHTS: HighlightItem[] = [
   }
 ];
 
+/** Lo que ve quien intenta entrar con una cuenta dada de baja. */
+const CUENTA_DE_BAJA = {
+  title: 'Cuenta dada de baja',
+  detail: 'Esta cuenta ya no tiene acceso al sistema. Si crees que es un error, comunícate con el administrador.',
+};
+
 interface LoginProps {
   onLoginSuccess: () => void;
   externalSuccessMessage?: string;
+  /** La sesión se cerró porque la cuenta fue dada de baja. */
+  cuentaDadaDeBaja?: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage, cuentaDadaDeBaja }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -76,6 +84,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
     setErrorDetail('');
     setShowApiKeyHelp(false);
   }, [externalSuccessMessage]);
+
+  useEffect(() => {
+    if (!cuentaDadaDeBaja) return;
+    setErrorHeader(CUENTA_DE_BAJA.title);
+    setErrorDetail(CUENTA_DE_BAJA.detail);
+    setSuccessMessage('');
+  }, [cuentaDadaDeBaja]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,6 +126,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage })
       } else if (msgLower.includes("invalid login credentials")) {
         setErrorHeader("Credenciales Inválidas");
         setErrorDetail("La contraseña es incorrecta o no ha confirmado su correo electrónico todavía. Por favor, busque el correo de confirmación en su bandeja de entrada o Spam.");
+      } else if (msgLower.includes("banned")) {
+        setErrorHeader(CUENTA_DE_BAJA.title);
+        setErrorDetail(CUENTA_DE_BAJA.detail);
       } else if (msgLower.includes("user already registered")) {
         setErrorHeader("Usuario Existente");
         setErrorDetail("Este correo electrónico ya está registrado. Por favor, inicie sesión.");
