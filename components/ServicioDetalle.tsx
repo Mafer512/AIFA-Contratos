@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, ArrowLeft, GanttChartSquare, CalendarRange, Building2, User, Truck, Hash, ShieldCheck, ShieldAlert,
   AlertTriangle, Search, TrendingUp, Copy, Check, ChevronRight, Receipt, Gauge, ArrowUpDown,
-  CheckCircle2, Info, Hourglass, Wallet,
+  CheckCircle2, Info, Hourglass, Wallet, StickyNote, MessageSquarePlus,
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters.ts';
 import { parseFechaFlexible, diasEntre, ritmoDeEjercicio, type Ritmo } from '../utils/fichaServicio.ts';
+import { ChipTipoNota, fechaNota, TIPOS_NOTA, type NotaServicio } from './NotasServicio';
 
 // Ficha de un servicio y explorador de los servicios de un grupo.
 //
@@ -63,6 +64,9 @@ export interface DatosServicio {
   incidencias?: string;
   garantias: { etiqueta: string; ok: boolean }[];
 
+  /** Notas del servicio (undefined si la tabla de notas no existe). */
+  notas?: NotaServicio[];
+
   /** Fases del proceso de contratación, para el mini Gantt. */
   fases?: FaseProceso[];
   /** Fila original, para abrir el Gantt de ese servicio. */
@@ -79,6 +83,8 @@ interface Props {
   subtitulo?: string;
   /** Hay otra ventana encima (el Gantt): Escape no debe cerrar ésta. */
   bloqueado?: boolean;
+  /** Abre el panel de notas del servicio. */
+  onAbrirNotas?: (s: DatosServicio) => void;
 }
 
 // ── Utilidades de presentación ──────────────────────────────────────────────
@@ -346,7 +352,7 @@ const MiniGantt: React.FC<{ fases: FaseProceso[] }> = ({ fases }) => {
 
 // ── Ficha ───────────────────────────────────────────────────────────────────
 
-const FichaServicio: React.FC<{ s: DatosServicio; onVerGantt: (row: Record<string, any>) => void }> = ({ s, onVerGantt }) => {
+const FichaServicio: React.FC<{ s: DatosServicio; onVerGantt: (row: Record<string, any>) => void; onAbrirNotas?: (s: DatosServicio) => void }> = ({ s, onVerGantt, onAbrirNotas }) => {
   const m = useMemo(() => calcularMetricas(s), [s]);
   const refAvance = useRef<HTMLElement>(null);
   const refVigencia = useRef<HTMLElement>(null);
@@ -682,6 +688,52 @@ const FichaServicio: React.FC<{ s: DatosServicio; onVerGantt: (row: Record<strin
         </Seccion>
       )}
 
+      {/* ── Notas: lo último que se sabe del servicio ── */}
+      {s.notas && onAbrirNotas && (
+        <Seccion
+          icono={StickyNote}
+          titulo="Notas del servicio"
+          extra={
+            <button
+              type="button"
+              onClick={() => onAbrirNotas(s)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold hover:bg-indigo-100 transition-colors"
+            >
+              <MessageSquarePlus className="h-3.5 w-3.5" />
+              {s.notas.length ? `Ver las ${s.notas.length} y agregar` : 'Agregar nota'}
+            </button>
+          }
+        >
+          {s.notas.length === 0 ? (
+            <p className="text-sm text-slate-400 italic">Todavía no hay notas. Aparecen también como marcadores en el Diagrama de Gantt.</p>
+          ) : (
+            <div className="space-y-2">
+              {s.notas.slice(0, 3).map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => onAbrirNotas(s)}
+                  className="w-full text-left flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 hover:border-indigo-200 hover:bg-indigo-50/40 transition-colors"
+                >
+                  <span className="mt-1.5 h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: (TIPOS_NOTA[n.tipo] ?? TIPOS_NOTA.nota).color }} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <ChipTipoNota tipo={n.tipo} chico />
+                      <span className="text-[11px] font-bold text-slate-600">{fechaNota(n.fecha)}</span>
+                      <span className="text-[11px] text-slate-400">{n.autor_nombre ?? ''}</span>
+                    </div>
+                    <p className="text-sm text-slate-700 leading-snug mt-1 line-clamp-2">{n.texto}</p>
+                  </div>
+                </button>
+              ))}
+              {s.notas.length > 3 && (
+                <p className="text-[11px] text-slate-400 pl-1">y {s.notas.length - 3} más…</p>
+              )}
+            </div>
+          )}
+        </Seccion>
+      )}
+
       {/* ── Proceso de contratación ── */}
       <Seccion icono={GanttChartSquare} titulo="Proceso de contratación">
         {s.tieneGantt && s.fases?.some((f) => f.inicio && f.fin) ? (
@@ -895,6 +947,14 @@ export const ListaServicios: React.FC<{
                         {m.semaforo.corto}
                       </span>
                     )}
+                    {(s.notas?.length ?? 0) > 0 && (
+                      <span
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 text-[10px] font-bold"
+                        title={`${s.notas!.length} nota${s.notas!.length !== 1 ? 's' : ''} · la última: ${s.notas![0].texto.slice(0, 80)}`}
+                      >
+                        <StickyNote className="h-2.5 w-2.5" />{s.notas!.length}
+                      </span>
+                    )}
                     {m.deductivas > 0 && (
                       <span className="px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold" title={`Deductivas ${formatCurrency(m.deductivas)}`}>
                         −{fmtCompacto(m.deductivas)}
@@ -923,7 +983,7 @@ export const ListaServicios: React.FC<{
 
 // ── Ventana ─────────────────────────────────────────────────────────────────
 
-const ServicioDetalle: React.FC<Props> = ({ titulo, servicios, onCerrar, onVerGantt, subtitulo, bloqueado = false }) => {
+const ServicioDetalle: React.FC<Props> = ({ titulo, servicios, onCerrar, onVerGantt, subtitulo, bloqueado = false, onAbrirNotas }) => {
   // Con un solo servicio se entra directo a su ficha: obligar a elegir de una
   // lista de uno sería un clic de más sin ninguna información nueva.
   const [abiertoId, setAbiertoId] = useState<string | number | null>(servicios.length === 1 ? servicios[0].id : null);
@@ -1013,7 +1073,7 @@ const ServicioDetalle: React.FC<Props> = ({ titulo, servicios, onCerrar, onVerGa
 
         <div ref={cuerpo} className="p-4 sm:p-5 overflow-y-auto">
           {abierto ? (
-            <FichaServicio s={abierto} onVerGantt={onVerGantt} />
+            <FichaServicio s={abierto} onVerGantt={onVerGantt} onAbrirNotas={onAbrirNotas} />
           ) : (
             <div className="space-y-4">
               <ResumenGrupo servicios={servicios} estatusFiltro={estatusFiltro} onFiltrarEstatus={setEstatusFiltro} />

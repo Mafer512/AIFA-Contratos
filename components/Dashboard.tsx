@@ -12,7 +12,7 @@ import {
   Users, Plane, Activity, Info, XCircle, Clock, Globe, UserPlus,
   LogIn, KeyRound, ShieldCheck, Monitor, Smartphone, Timer, CheckCircle2,
   Eye, EyeOff, Copy, ShieldAlert, Mail, UserCog, Wand2, ClipboardCheck, UserX, UserCheck,
-  Camera, Upload, MousePointerClick
+  Camera, Upload, MousePointerClick, StickyNote, MessageSquarePlus, Inbox
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart, Line, Area, AreaChart } from 'recharts';
 import { Calendar as BigCalendar, dateFnsLocalizer, View, NavigateAction } from 'react-big-calendar';
@@ -36,6 +36,9 @@ import { User, Contract, CommercialSpace, PaasItem, PaymentControlItem, Procedur
 import Organigrama from './Organigrama';
 import ServicioDetalle, { ResumenGrupo, ListaServicios, type DatosServicio, type PagoMensual } from './ServicioDetalle';
 import { vincularPagos, parseFechaFlexible } from '../utils/fichaServicio';
+import { PanelNotas, TIPOS_NOTA, fechaNota, fechaNotaDate, type NotaServicio } from './NotasServicio';
+import MisServicios, { datosFaltantes, type ColumnasContrato, type ItemBandeja } from './MisServicios';
+import { estadoServicio, duracionesTipicas, valoresPrevios, INDICE_ADJUDICADO } from '../utils/avanceFase';
 import { ORGANIGRAMA_BASE } from '../data/organigrama';
 import { RESPONSABLE_PROFILES_CON_ORGANIGRAMA } from '../data/responsables';
 import { supabase, supabaseOperaciones, supabaseSignUp } from '../services/supabaseClient';
@@ -1011,7 +1014,8 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('overview');
+  // Quien tiene servicios asignados entra directo a su bandeja de 2026.
+  const [activeTab, setActiveTab] = useState(() => (user.responsable ? '2026' : 'overview'));
   const [activeContractSubTab, setActiveContractSubTab] = useState<'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('payments');
   const [statusTab, setStatusTab] = useState<'dashboard' | 'calendar' | 'table'>('dashboard');
   const [activeOperationsView, setActiveOperationsView] = useState<'passengers' | 'annual'>('passengers');
@@ -1269,7 +1273,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [obsOpenSet, setObsOpenSet] = useState<Record<string, true>>({});
   // Holds uncontrolled textarea DOM refs so we can read value only on Save (no re-renders while typing)
   const obsTextareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
-  const [activeAnioView, setActiveAnioView] = useState<'resumen' | 'estatus' | 'pagos' | 'gantt'>('resumen');
+  const [activeAnioView, setActiveAnioView] = useState<'mis' | 'resumen' | 'estatus' | 'pagos' | 'gantt'>(() => (user.responsable ? 'mis' : 'resumen'));
   // Pagos sólo existe en 2026. Si alguien estaba ahí y cambia a 2027, la vista
   // guardada dejaría la pantalla en blanco: se cae a Resumen.
   const vistaAnioEfectiva = (anioActivo === 2027 && activeAnioView === 'pagos') ? 'resumen' : activeAnioView;
@@ -1311,6 +1315,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     /** Fichas que no salen de una fila de estatus (un pago sin ligar). */
     extras?: DatosServicio[];
   } | null>(null);
+
+  // ── Notas de los servicios (Gantt y ficha) ────────────────────────────────
+  const [notasAnio, setNotasAnio] = useState<NotaServicio[]>([]);
+  // false si la tabla todavía no existe: se esconde todo lo de notas.
+  const [notasDisponibles, setNotasDisponibles] = useState(true);
+  const [notasPanel, setNotasPanel] = useState<{ servicioId: number; nombre: string } | null>(null);
+  const [notaTooltip, setNotaTooltip] = useState<{ x: number; y: number; nota: NotaServicio } | null>(null);
   const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null; is_superadmin?: boolean; baja_at?: string | null; baja_por?: string | null; photo_url?: string | null}[]>([]);
   // Foto de un usuario: panel abierto, subida en curso y acuse.
   const [fotoPanelUserId, setFotoPanelUserId] = useState<string | null>(null);
@@ -1852,7 +1863,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const shouldSkipColumnForForm = (key: string) => {
     const normalized = normalizeAnnualKey(key);
     if (key.startsWith('__')) return true; // virtual computed columns
-    return ['created_at', 'updated_at', 'inserted_at', 'deleted_at'].includes(normalized);
+    // normalizeAnnualKey convierte "_" en espacio: "updated_at" llega como
+    // "updated at". Comparar sólo contra la forma con guion bajo dejaba pasar
+    // estas columnas técnicas a la tabla (estatus_2027 ya enseñaba updated_at).
+    return ['created at', 'updated at', 'inserted at', 'deleted at'].includes(normalized);
   };
 
   const inferFieldType = (key: string): FieldInputType => {
@@ -3131,6 +3145,66 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const activeAdminUsers = useMemo(() => filteredAdminUsers.filter(u => !u.baja_at), [filteredAdminUsers]);
   const bajaAdminUsers = useMemo(() => filteredAdminUsers.filter(u => u.baja_at), [filteredAdminUsers]);
   const activeUsersCount = useMemo(() => responsableAdminData.filter(u => !u.baja_at).length, [responsableAdminData]);
+
+  // ── Notas de los servicios ────────────────────────────────────────────────
+
+  /** Todas las notas del año que se está viendo: son pocas y caben de una vez. */
+  const fetchNotas = useCallback(async (anio: number) => {
+    const { data, error } = await supabase
+      .from('notas_servicio')
+      .select('*')
+      .eq('anio', anio)
+      .order('fecha', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (error) {
+      if (error.code === 'PGRST205' || error.code === '42P01' || /schema cache/i.test(error.message ?? '')) {
+        setNotasDisponibles(false);
+      } else {
+        console.error('Error cargando notas:', error.message);
+      }
+      return;
+    }
+    setNotasDisponibles(true);
+    setNotasAnio((data ?? []) as NotaServicio[]);
+  }, []);
+
+  useEffect(() => {
+    void fetchNotas(anioActivo);
+  }, [anioActivo, fetchNotas]);
+
+  /** Notas por servicio (por su ID), de la más reciente a la más vieja. */
+  const notasPorServicio = useMemo(() => {
+    const mapa = new Map<number, NotaServicio[]>();
+    notasAnio.forEach((n) => {
+      const lista = mapa.get(n.servicio_id);
+      if (lista) lista.push(n); else mapa.set(n.servicio_id, [n]);
+    });
+    return mapa;
+  }, [notasAnio]);
+
+  /** El ID con el que se guardan sus notas: la columna "ID" de estatus. */
+  const idServicio = (row: Record<string, any>): number | null => {
+    const v = Number(row?.ID ?? row?.id);
+    return Number.isInteger(v) ? v : null;
+  };
+
+  const notaGuardada = useCallback((nota: NotaServicio) => {
+    setNotasAnio((prev) => {
+      const sinElla = prev.filter((n) => n.id !== nota.id);
+      return [nota, ...sinElla].sort((a, b) => b.fecha.localeCompare(a.fecha) || b.created_at.localeCompare(a.created_at));
+    });
+  }, []);
+
+  const notaBorrada = useCallback((id: number) => {
+    setNotasAnio((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
+  const abrirNotas = useCallback((row: Record<string, any>, nombre: string) => {
+    const id = Number(row?.ID ?? row?.id);
+    if (!Number.isInteger(id)) return;
+    setNotaTooltip(null);
+    setNotasPanel({ servicioId: id, nombre });
+  }, []);
 
   // ── Bitácora de accesos ───────────────────────────────────────────────────
 
@@ -7258,6 +7332,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       contratosPago: pagos.map((p) => p.contrato).filter(Boolean),
       penas: leer(camposFichaServicio.penas),
       incidencias: leer('Incidencias del servicio'),
+      notas: notasDisponibles ? (notasPorServicio.get(idServicio(row) ?? -1) ?? []) : undefined,
       garantias: [
         { etiqueta: 'Garantía de cumplimiento', ok: req.garantiaOk },
         { etiqueta: 'Póliza de responsabilidad civil', ok: req.polizaOk },
@@ -7282,6 +7357,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     estatus2026ServiceNameFieldSummary, estatus2026TableColumns, estatus2026StatusFieldSummary,
     estatus2026SubdirFieldSummary, estatus2026GerenciaFieldSummary,
     camposFichaServicio, pagosPorServicio, getEstatus2026PaymentRequirementState,
+    notasDisponibles, notasPorServicio,
   ]);
 
   /**
@@ -7331,6 +7407,139 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setExplorador({ titulo: p.service, filas: [], extras: [datosDesdePago(p)] });
     }
   }, [servicioDePago, estatus2026ServiceNameFieldSummary, datosDesdePago]);
+
+  // ── Mis servicios (bandeja de cada responsable) ───────────────────────────
+
+  // Para quien ve todos (sin responsable asignado): de quién ver la bandeja.
+  const [filtroRespBandeja, setFiltroRespBandeja] = useState('');
+
+  /** Las columnas del formulario de adjudicación, resueltas por nombre. */
+  const columnasContrato = useMemo<ColumnasContrato>(() => {
+    const buscar = (nombre: string) => estatus2026TableColumns.find((c) => normalizeAnnualKey(c) === normalizeAnnualKey(nombre)) ?? null;
+    return {
+      contrato: camposFichaServicio.noContrato,
+      proveedor: camposFichaServicio.proveedor,
+      administrador: camposFichaServicio.administrador,
+      monto: camposFichaServicio.montoMaximo,
+      vigenciaInicio: camposFichaServicio.vigenciaInicio,
+      vigenciaTermino: camposFichaServicio.vigenciaTermino,
+      firma: buscar('Fecha de firma de contrato'),
+      garantias: [
+        ['Garantía de cumplimiento', 'Garantía de cumplimiento'],
+        ['Póliza de Responsabilidad Civil', 'Póliza de responsabilidad civil'],
+        ['Garantía de Calidad', 'Garantía de calidad'],
+      ].flatMap(([nombre, etiqueta]) => {
+        const col = buscar(nombre);
+        return col ? [{ col, etiqueta }] : [];
+      }),
+    };
+  }, [estatus2026TableColumns, camposFichaServicio]);
+
+  /** Proveedores y administradores ya capturados, para autocompletar. */
+  const sugerenciasContrato = useMemo(() => {
+    const unicos = (col: string | null) => col
+      ? Array.from(new Set(estatusAnioData.map((r) => String(r[col] ?? '').trim()).filter((v) => v && !/^n\/?a$/i.test(v)))).sort((a, b) => a.localeCompare(b, 'es'))
+      : [];
+    return { proveedores: unicos(columnasContrato.proveedor), administradores: unicos(columnasContrato.administrador) };
+  }, [estatusAnioData, columnasContrato]);
+
+  const duracionTipicaFases = useMemo(() => duracionesTipicas(estatusAnioData), [estatusAnioData]);
+
+  const mismoResponsable = useCallback((a: unknown, b: unknown) =>
+    normalizeResponsableKey(getCombinedCanonicalResponsableValue(a)) === normalizeResponsableKey(getCombinedCanonicalResponsableValue(b)),
+  [getCombinedCanonicalResponsableValue]);
+
+  /**
+   * Lo mismo que exige la base (puede_editar_servicio): ADMIN todo; OPERATOR
+   * lo suyo, lo que no tiene responsable, o todo si a él no le asignaron uno.
+   * Aquí sólo decide qué botones se ven; quien manda es la base.
+   */
+  const puedeEditarFila = useCallback((row: Record<string, any>) => {
+    if (isAdmin) return true;
+    if (!canManageRecords) return false;
+    const resp = String(row?.Responsable ?? '').trim();
+    return !user.responsable || !resp || mismoResponsable(resp, user.responsable);
+  }, [isAdmin, canManageRecords, user.responsable, mismoResponsable]);
+
+  const itemsBandeja = useMemo<ItemBandeja[]>(() => {
+    const colEstatus = estatus2026EstatusColumnField ?? 'Estatus';
+    const soloLoMio = !!user.responsable && !(isAdmin && viewAllServices);
+    const filas = estatusAnioData.filter((row) => {
+      if (soloLoMio) return mismoResponsable(row.Responsable, user.responsable);
+      if (filtroRespBandeja) return mismoResponsable(row.Responsable, filtroRespBandeja);
+      return true;
+    });
+    return filas.map((row, idx) => {
+      const estatus = normalizeEstatus2026Value(row[colEstatus]) || String(row[colEstatus] ?? '').trim();
+      const req = getEstatus2026PaymentRequirementState(row);
+      const adjudicado = /adjudic|contratad/i.test(estatus);
+      const id = idServicio(row);
+      const actualizado = row.updated_at ? new Date(row.updated_at) : null;
+      return {
+        key: String(id ?? `fila-${idx}`),
+        row,
+        nombre: estatus2026ServiceNameFieldSummary ? String(row[estatus2026ServiceNameFieldSummary] ?? '').trim() || 'Servicio sin nombre' : 'Servicio sin nombre',
+        gerencia: estatus2026GerenciaFieldSummary ? String(row[estatus2026GerenciaFieldSummary] ?? '').trim() || undefined : undefined,
+        responsable: String(row.Responsable ?? '').trim() || undefined,
+        estatus,
+        color: ESTATUS_2026_COLOR_MAP[estatus] ?? '#94A3B8',
+        estado: estadoServicio(row, {
+          columnaEstatus: colEstatus,
+          tipicas: duracionTipicaFases,
+          actualizado: actualizado && !Number.isNaN(actualizado.getTime()) ? actualizado : null,
+          vigenciaTermino: columnasContrato.vigenciaTermino ? parseFechaFlexible(row[columnasContrato.vigenciaTermino]) : null,
+          garantiasFaltantes: adjudicado ? [req.garantiaOk, req.polizaOk, req.calidadOk].filter((ok) => !ok).length : 0,
+          datosFaltantes: adjudicado ? datosFaltantes(row, columnasContrato) : [],
+        }),
+        puedeEditar: puedeEditarFila(row),
+        notas: id !== null ? (notasPorServicio.get(id)?.length ?? 0) : 0,
+      };
+    });
+  // idServicio es una función pura del componente.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    estatusAnioData, estatus2026EstatusColumnField, user.responsable, isAdmin, viewAllServices, filtroRespBandeja,
+    mismoResponsable, getEstatus2026PaymentRequirementState, duracionTipicaFases, columnasContrato, puedeEditarFila,
+    notasPorServicio, estatus2026ServiceNameFieldSummary, estatus2026GerenciaFieldSummary,
+  ]);
+
+  /**
+   * Guarda varias celdas de un servicio de una vez (avanzar fase, datos del
+   * contrato, deshacer). Devuelve el mensaje de error para enseñarlo, o null.
+   */
+  const aplicarCambiosServicio = useCallback(async (row: Record<string, any>, cambios: Record<string, any>, descripcion: string): Promise<string | null> => {
+    if (!canManageRecords) return 'Tu perfil es de solo lectura.';
+    const pk = resolvePrimaryKey(row, tablaEstatusAnio);
+    if (!pk) return 'No se identificó el servicio. Recarga la página.';
+    const { data, error } = await supabase.from(tablaEstatusAnio).update(cambios).eq(pk, row[pk]).select();
+    if (error) {
+      console.error(`${descripcion}:`, error);
+      return `No se pudo guardar: ${error.message}`;
+    }
+    // RLS no da error: simplemente no toca la fila.
+    if (!data?.length) return 'No se guardó: este servicio es de otro responsable, o tu perfil no puede editarlo.';
+    const guardado = data[0];
+    setEstatusAnioData((prev) => prev.map((r) => (r[pk] === row[pk] ? { ...r, ...guardado } : r)));
+    void logChange({ table: tablaEstatusAnio, action: 'UPDATE', recordId: row[pk], before: valoresPrevios(row, cambios), after: cambios });
+    return null;
+  // resolvePrimaryKey y setEstatusAnioData no cambian entre renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManageRecords, tablaEstatusAnio, logChange]);
+
+  /** Nota escrita desde "Avanzar fase" o al cancelar un servicio. */
+  const notaRapida = useCallback(async (row: Record<string, any>, nombre: string, nota: { texto: string; tipo: 'nota' | 'alerta' | 'acuerdo'; fecha: string }): Promise<string | null> => {
+    const id = idServicio(row);
+    if (id === null || !notasDisponibles) return 'Las notas no están disponibles.';
+    const { data, error } = await supabase
+      .from('notas_servicio')
+      .insert({ anio: anioActivo, servicio_id: id, servicio_nombre: nombre, ...nota })
+      .select()
+      .single();
+    if (error) return error.message;
+    notaGuardada(data as NotaServicio);
+    return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anioActivo, notasDisponibles, notaGuardada]);
 
   /** Todo lo que enseña el explorador, ya convertido en fichas. */
   const serviciosExplorador = useMemo(
@@ -10148,6 +10357,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             {is2026Expanded && (
               <div className="mt-0.5 ml-3 pl-3 border-l border-emerald-500/20 space-y-0.5">
                 {([
+                  { view: 'mis' as const, icon: Inbox, label: 'Mis servicios' },
                   { view: 'resumen' as const, icon: LayoutDashboard, label: 'Resumen' },
                   { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
                   { view: 'pagos' as const, icon: DollarSign, label: 'Pagos 2026' },
@@ -10199,6 +10409,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               <div className="mt-0.5 ml-3 pl-3 border-l border-violet-500/20 space-y-0.5">
                 {/* 2027 todavía no tiene Pagos: ningún servicio está adjudicado. */}
                 {([
+                  { view: 'mis' as const, icon: Inbox, label: 'Mis servicios' },
                   { view: 'resumen' as const, icon: LayoutDashboard, label: 'Resumen' },
                   { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
                   { view: 'gantt' as const, icon: Layers, label: 'Diagrama Gantt' },
@@ -13241,6 +13452,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 columnas que traiga la tabla del año activo, no con una lista fija. */}
             {(activeTab === '2026' || activeTab === '2027') && (
               <div className="space-y-6">
+                {vistaAnioEfectiva === 'mis' && (
+                  <MisServicios
+                    anio={anioActivo}
+                    items={itemsBandeja}
+                    columnaEstatus={estatus2026EstatusColumnField ?? 'Estatus'}
+                    columnas={columnasContrato}
+                    sugerencias={sugerenciasContrato}
+                    responsables={user.responsable && !(isAdmin && viewAllServices) ? undefined : combinedResponsablesList}
+                    filtroResponsable={filtroRespBandeja}
+                    onFiltroResponsable={setFiltroRespBandeja}
+                    onAplicar={aplicarCambiosServicio}
+                    onNota={notaRapida}
+                    onAbrirFicha={(row, nombre) => abrirServicios(nombre, [row])}
+                    onAbrirNotas={(row, nombre) => abrirNotas(row, nombre)}
+                  />
+                )}
+
                 {vistaAnioEfectiva === 'resumen' && (
                   <>
                     {selectedResumenCard ? (
@@ -16319,8 +16547,11 @@ return (
                         startDate: parseGDate(row[g.start]),
                         endDate: parseGDate(row[g.end]),
                       }));
-                      return { label, gerencia, phases, row };
+                      const servicioId = idServicio(row);
+                      const notas = notasDisponibles && servicioId !== null ? (notasPorServicio.get(servicioId) ?? []) : [];
+                      return { label, gerencia, phases, row, notas };
                     });
+                  const notasEnGantt = ganttRows.reduce((n, r) => n + r.notas.length, 0);
 
                   if (ganttRows.length === 0) {
                     return (
@@ -16352,6 +16583,15 @@ return (
                   ganttRows.forEach(r => r.phases.forEach(p => {
                     if (p.startDate) { const t = p.startDate.getTime(); if (t < minTs) minTs = t; if (t > maxTs) maxTs = t; }
                     if (p.endDate) { const t = p.endDate.getTime(); if (t < minTs) minTs = t; if (t > maxTs) maxTs = t; }
+                  }));
+                  // Las notas también cuentan: si una cae antes o después del proceso,
+                  // la escala se estira para que su marcador no quede pegado al borde.
+                  ganttRows.forEach(r => r.notas.forEach(n => {
+                    const d = fechaNotaDate(n.fecha);
+                    if (!d) return;
+                    const t = d.getTime();
+                    if (t < minTs) minTs = t;
+                    if (t > maxTs) maxTs = t;
                   }));
                   const padMs = Math.max((maxTs - minTs) * 0.02, 86400000 * 3);
                   const rangeMin = minTs - padMs;
@@ -16405,6 +16645,27 @@ return (
 
                   return (
                     <>
+                      {notaTooltip && createPortal((() => {
+                        const meta = TIPOS_NOTA[notaTooltip.nota.tipo] ?? TIPOS_NOTA.nota;
+                        const Icono = meta.icono;
+                        return (
+                          <div style={{ position: 'fixed', left: Math.min(notaTooltip.x + 16, window.innerWidth - 316), top: Math.max(notaTooltip.y - 150, 8), zIndex: 99999, pointerEvents: 'none', width: 300 }}>
+                            <div className="rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 overflow-hidden">
+                              <div style={{ height: 4, backgroundColor: meta.color }} />
+                              <div className="p-4">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${meta.fondo} ${meta.borde} ${meta.texto}`}>
+                                    <Icono className="h-3 w-3" />{meta.etiqueta}
+                                  </span>
+                                  <span className="text-xs font-bold text-slate-700">{fechaNota(notaTooltip.nota.fecha)}</span>
+                                </div>
+                                <p className="mt-2.5 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap line-clamp-6">{notaTooltip.nota.texto}</p>
+                                <p className="mt-2.5 text-[11px] text-slate-400">{notaTooltip.nota.autor_nombre ?? 'Usuario'} · toca para ver todas</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })(), document.body)}
                       {ganttTooltip && createPortal(
                         <div style={{ position: 'fixed', left: Math.min(ganttTooltip.x + 18, window.innerWidth - 340), top: Math.max(ganttTooltip.y - 160, 8), zIndex: 99999, pointerEvents: 'none', width: 320 }}>
                           <div style={{ backgroundColor: '#0D1117', border: '1px solid #30363D', borderRadius: 16, overflow: 'hidden', boxShadow: '0 32px 64px -12px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04)' }}>
@@ -16468,7 +16729,10 @@ return (
                         {/* Title */}
                         <div>
                           <h2 className="text-2xl font-bold text-slate-800 mb-1">Diagrama de Gantt {anioActivo}</h2>
-                          <p className="text-slate-500 text-sm">Progreso por fase del proceso de contratación — {ganttRows.length} servicio{ganttRows.length !== 1 ? 's' : ''} con fechas capturadas</p>
+                          <p className="text-slate-500 text-sm">
+                            Progreso por fase del proceso de contratación — {ganttRows.length} servicio{ganttRows.length !== 1 ? 's' : ''} con fechas capturadas
+                            {notasDisponibles && notasEnGantt > 0 && <> · <span className="font-semibold text-indigo-600">{notasEnGantt} nota{notasEnGantt !== 1 ? 's' : ''}</span></>}
+                          </p>
                         </div>
 
                         {/* Legend (collapsible) */}
@@ -16482,6 +16746,21 @@ return (
                               <div className="w-4 h-4 rounded" style={{ backgroundColor: DA_COLOR }} />
                               <span className="text-sm font-semibold text-slate-700">D.A — Dirección de Administración</span>
                             </div>
+                            {notasDisponibles && (
+                              <div className="hidden md:flex items-center gap-2.5 pl-3 ml-1 border-l border-slate-200">
+                                {(Object.keys(TIPOS_NOTA) as (keyof typeof TIPOS_NOTA)[]).map(t => {
+                                  const Icono = TIPOS_NOTA[t].icono;
+                                  return (
+                                    <span key={t} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600">
+                                      <span className="flex h-4 w-4 items-center justify-center rounded-full text-white" style={{ backgroundColor: TIPOS_NOTA[t].color }}>
+                                        <Icono className="h-2.5 w-2.5" />
+                                      </span>
+                                      {TIPOS_NOTA[t].etiqueta}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={() => setShowGanttLegend(v => !v)}
@@ -16558,8 +16837,8 @@ return (
                               {/* Service rows */}
                               {ganttRows.map((row, ri) => (
                                 <div key={ri}
-                                  className={`flex items-stretch ${ri < ganttRows.length - 1 ? 'border-b border-slate-100' : ''} hover:bg-blue-50/20 transition-colors`}
-                                  style={{ minHeight: 60 }}>
+                                  className={`group/fila flex items-stretch ${ri < ganttRows.length - 1 ? 'border-b border-slate-100' : ''} hover:bg-blue-50/20 transition-colors`}
+                                  style={{ minHeight: row.notas.length ? 76 : 60 }}>
                                   <div className="w-80 flex-shrink-0 px-4 py-3 border-r border-slate-100 flex flex-col justify-center">
                                     <button
                                       type="button"
@@ -16571,6 +16850,36 @@ return (
                                       <ChevronRight className="inline h-3.5 w-3.5 ml-0.5 -mt-0.5 text-slate-300 group-hover:text-[#0F4C3A] transition-colors" />
                                     </button>
                                     {row.gerencia && <div className="text-xs text-slate-400 truncate mt-0.5">{row.gerencia}</div>}
+                                    {notasDisponibles && (row.notas.length > 0 ? (() => {
+                                      const ultima = row.notas[0];
+                                      const meta = TIPOS_NOTA[ultima.tipo] ?? TIPOS_NOTA.nota;
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => abrirNotas(row.row, row.label)}
+                                          title="Ver y agregar notas"
+                                          className="mt-1.5 -mx-1.5 px-1.5 py-1 flex items-start gap-1.5 text-left rounded-lg border-l-2 bg-slate-50/80 hover:bg-indigo-50 transition-colors"
+                                          style={{ borderLeftColor: meta.color }}
+                                        >
+                                          <span className="min-w-0">
+                                            <span className="block text-[11px] text-slate-600 leading-snug line-clamp-2">{ultima.texto}</span>
+                                            <span className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5">
+                                              <StickyNote className="h-2.5 w-2.5" />
+                                              {fechaNota(ultima.fecha)}{row.notas.length > 1 ? ` · ${row.notas.length} notas` : ''}
+                                            </span>
+                                          </span>
+                                        </button>
+                                      );
+                                    })() : canManageRecords && (
+                                      <button
+                                        type="button"
+                                        onClick={() => abrirNotas(row.row, row.label)}
+                                        className="mt-1 inline-flex items-center gap-1 self-start text-[11px] font-semibold text-slate-400 hover:text-indigo-600 sm:opacity-0 sm:group-hover/fila:opacity-100 focus:opacity-100 transition-opacity"
+                                      >
+                                        <MessageSquarePlus className="h-3.5 w-3.5" />
+                                        Agregar nota
+                                      </button>
+                                    ))}
                                   </div>
                                   <div className="flex-1 relative overflow-hidden" style={{ padding: '10px 0' }}>
                                     {row.phases.map((p, pi) => {
@@ -16593,6 +16902,37 @@ return (
                                             </span>
                                           )}
                                         </div>
+                                      );
+                                    })}
+                                    {/* Notas: una línea punteada en su fecha y un pin debajo de las barras */}
+                                    {row.notas.map((n) => {
+                                      const d = fechaNotaDate(n.fecha);
+                                      if (!d) return null;
+                                      const meta = TIPOS_NOTA[n.tipo] ?? TIPOS_NOTA.nota;
+                                      const Icono = meta.icono;
+                                      return (
+                                        <button
+                                          key={n.id}
+                                          type="button"
+                                          onClick={() => abrirNotas(row.row, row.label)}
+                                          onMouseEnter={(e) => setNotaTooltip({ x: e.clientX, y: e.clientY, nota: n })}
+                                          onMouseMove={(e) => setNotaTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
+                                          onMouseLeave={() => setNotaTooltip(null)}
+                                          aria-label={`${meta.etiqueta} del ${fechaNota(n.fecha)}: ${n.texto}`}
+                                          className="absolute z-10 -translate-x-1/2 flex flex-col items-center group/marca focus:outline-none"
+                                          style={{ left: `${pct(d.getTime())}%`, top: 4, bottom: 4, width: 22 }}
+                                        >
+                                          <span
+                                            className="w-px flex-1 opacity-70 group-hover/marca:opacity-100"
+                                            style={{ backgroundImage: `linear-gradient(${meta.color} 55%, transparent 55%)`, backgroundSize: '1px 5px' }}
+                                          />
+                                          <span
+                                            className="flex h-5 w-5 items-center justify-center rounded-full text-white shadow-md ring-2 ring-white transition-transform group-hover/marca:scale-125 group-focus-visible/marca:scale-125"
+                                            style={{ backgroundColor: meta.color }}
+                                          >
+                                            <Icono className="h-3 w-3" />
+                                          </span>
+                                        </button>
                                       );
                                     })}
                                   </div>
@@ -21446,7 +21786,8 @@ return (
             // El Gantt se abre ENCIMA de la ficha: al cerrarlo se vuelve a
             // ella, en vez de perder dónde se estaba.
             onVerGantt={(row) => setGanttModalService(row)}
-            bloqueado={ganttModalService !== null}
+            onAbrirNotas={(s) => abrirNotas(s.row, s.nombre)}
+            bloqueado={ganttModalService !== null || notasPanel !== null}
           />,
           document.body
         )}
@@ -21708,6 +22049,23 @@ return (
                             </div>
                           );
                         })(), document.body)}
+
+      {/* Notas de un servicio: encima de todo (también del Gantt y de la ficha) */}
+      {notasPanel && createPortal(
+        <PanelNotas
+          anio={anioActivo}
+          servicioId={notasPanel.servicioId}
+          servicioNombre={notasPanel.nombre}
+          notas={notasPorServicio.get(notasPanel.servicioId) ?? []}
+          puedeEscribir={canManageRecords}
+          usuarioId={user.id}
+          esAdmin={isAdmin}
+          onGuardada={notaGuardada}
+          onBorrada={notaBorrada}
+          onCerrar={() => setNotasPanel(null)}
+        />,
+        document.body
+      )}
 
       {/* Foto de responsable en grande */}
       {fotoAmpliada && createPortal(
