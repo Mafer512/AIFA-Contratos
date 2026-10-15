@@ -38,6 +38,7 @@ import ServicioDetalle, { ResumenGrupo, ListaServicios, type DatosServicio, type
 import { vincularPagos, parseFechaFlexible } from '../utils/fichaServicio';
 import { PanelNotas, TIPOS_NOTA, fechaNota, fechaNotaDate, type NotaServicio } from './NotasServicio';
 import MisServicios, { datosFaltantes, type ColumnasContrato, type ItemBandeja } from './MisServicios';
+import DescargarReporte from './DescargarReporte';
 import { estadoServicio, duracionesTipicas, valoresPrevios, INDICE_ADJUDICADO } from '../utils/avanceFase';
 import { ORGANIGRAMA_BASE } from '../data/organigrama';
 import { RESPONSABLE_PROFILES_CON_ORGANIGRAMA } from '../data/responsables';
@@ -16001,6 +16002,13 @@ return (
                             Resumen pagos
                           </button>
                         </div>
+                        <DescargarReporte
+                          tipo={activePagos2026View === 'tabla' ? 'tabla' : 'resumen'}
+                          anio={2026}
+                          usuario={user.name}
+                          pagos={pagos2026ServicePaymentProgress}
+                          deshabilitado={loadingData}
+                        />
                         <button
                           onClick={() => setIsPagos2026Compact(!isPagos2026Compact)}
                           className={`p-2 rounded-md transition-colors ${isPagos2026Compact ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100'}`}
