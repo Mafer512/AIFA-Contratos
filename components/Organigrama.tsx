@@ -48,6 +48,17 @@ interface Props {
   avisoTabla?: string | null;
   /** Color de cada estatus, para que el resumen use la misma paleta que las tablas. */
   colorEstatus?: (estatus: string) => string;
+  /** Año de esta plantilla. Cada año tiene la suya: editar aquí no toca los demás. */
+  anio: number;
+  /**
+   * Año del que salen las fichas que se ven. Es `anio` en cuanto ese año tiene
+   * plantilla propia; mientras no, el año anterior que se está mostrando.
+   */
+  anioOrigen?: number | null;
+  /** Gente de otros años que no está en éste, para traer su ficha al darla de alta. */
+  personasOtrosAnios?: { persona: ResponsableProfile; anio: number }[];
+  /** true si otra ficha (de éste u otro año) o un usuario todavía usa esa foto. */
+  fotoEnUso?: (url: string, catalogValue: string) => boolean;
 }
 
 /**
@@ -404,7 +415,7 @@ const FichaPersona: React.FC<{
  * nadie lee. Está escrito para el personal del área, no para quien programó
  * esto, así que no menciona tablas ni columnas de base de datos.
  */
-const Instructivo: React.FC<{ onCerrar: () => void; puedeEditar: boolean }> = ({ onCerrar, puedeEditar }) => {
+const Instructivo: React.FC<{ onCerrar: () => void; puedeEditar: boolean; anio: number }> = ({ onCerrar, puedeEditar, anio }) => {
   const pasos = [
     {
       icono: UserPlus,
@@ -429,7 +440,7 @@ const Instructivo: React.FC<{ onCerrar: () => void; puedeEditar: boolean }> = ({
     {
       icono: ListChecks,
       titulo: 'Asígnale sus servicios',
-      texto: 'Eso se hace desde 2026 → Estatus servicios, en la columna "Responsable": ahí ya sale su nombre en la lista. Cada servicio que le pongas se cuenta solo en su tarjeta.',
+      texto: `Eso se hace desde ${anio} → Estatus servicios, en la columna "Responsable": ahí ya sale su nombre en la lista. Cada servicio que le pongas se cuenta solo en su tarjeta.`,
     },
   ];
 
@@ -483,6 +494,16 @@ const Instructivo: React.FC<{ onCerrar: () => void; puedeEditar: boolean }> = ({
               <Lightbulb className="h-3.5 w-3.5" />
               Bueno saber
             </p>
+
+            <div className="flex gap-2.5">
+              <CalendarClock className="h-4 w-4 text-slate-400 flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-slate-600 leading-relaxed">
+                <strong className="text-slate-800">Cada año tiene su propia plantilla.</strong> Lo que hagas
+                aquí (altas, bajas, cambios de puesto o de coordinación) sólo vale para {anio}; los demás
+                años se quedan como están. Si alguien ya estuvo en otro año, en "Agregar persona" puedes
+                traer su ficha en vez de capturarla de nuevo.
+              </p>
+            </div>
 
             <div className="flex gap-2.5">
               <ImageIcon className="h-4 w-4 text-slate-400 flex-shrink-0 mt-0.5" />
@@ -543,6 +564,7 @@ const Organigrama: React.FC<Props> = ({
   personas, serviciosPorPersona, personaAbierta, onAbrirPersona, onVerFoto,
   puedeEditar, onGuardar, onDarDeBaja, renderServicios, guardando, avisoTabla,
   colorEstatus = () => '#94A3B8',
+  anio, anioOrigen = null, personasOtrosAnios = [], fotoEnUso,
 }) => {
   const [busqueda, setBusqueda] = useState('');
   const [vista, setVista] = useState<'lista' | 'mapa'>('lista');
@@ -713,8 +735,10 @@ const Organigrama: React.FC<Props> = ({
       await onGuardar({ ...editando, fullName: nombre, catalogValue }, esNueva);
       // Sólo ahora: si el guardado hubiera fallado, borrar la foto anterior
       // habría dejado a la persona sin ninguna de las dos.
+      // Y sólo si nadie más la usa: la ficha de esta persona en otro año
+      // puede seguir mostrando la misma foto.
       if (fotoAReemplazar) {
-        void eliminarFoto(fotoAReemplazar);
+        if (!fotoEnUso?.(fotoAReemplazar, editando.catalogValue)) void eliminarFoto(fotoAReemplazar);
         setFotoAReemplazar(null);
       }
       setEditando(null);
@@ -743,9 +767,12 @@ const Organigrama: React.FC<Props> = ({
             <Users className="h-6 w-6" />
           </span>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Estructura de la Gerencia</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Estructura de la Gerencia · {anio}</h2>
             <p className="text-slate-500 text-sm mt-0.5">
               {total} persona{total !== 1 ? 's' : ''} · {estructura.coordinaciones.length} coordinaciones · {totalServicios} servicio{totalServicios !== 1 ? 's' : ''}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Plantilla de {anio}: los cambios aquí no afectan a otros años.
             </p>
           </div>
         </div>
@@ -815,6 +842,16 @@ const Organigrama: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {anioOrigen !== null && anioOrigen !== anio && !avisoTabla && (
+        <div className="flex items-start gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+          <CalendarClock className="h-5 w-5 text-sky-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-sky-900">
+            {anio} todavía no tiene plantilla propia: se muestra la de <strong>{anioOrigen}</strong>.
+            Al guardar el primer cambio, {anio} queda con su propia copia y {anioOrigen} no se toca.
+          </p>
+        </div>
+      )}
 
       {avisoTabla && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -1101,7 +1138,7 @@ const Organigrama: React.FC<Props> = ({
           <p className="text-center text-sm text-slate-400 py-10">Nadie coincide con "{busqueda}".</p>
         )}
 
-      {verInstructivo && <Instructivo onCerrar={() => setVerInstructivo(false)} puedeEditar={puedeEditar} />}
+      {verInstructivo && <Instructivo onCerrar={() => setVerInstructivo(false)} puedeEditar={puedeEditar} anio={anio} />}
 
       {/* ── Alta y edición ── */}
       {editando && (
@@ -1117,7 +1154,7 @@ const Organigrama: React.FC<Props> = ({
                   {esNueva ? 'Agregar persona a la estructura' : `Editar a ${editando.fullName}`}
                 </h3>
                 <p className="text-xs text-emerald-200 mt-0.5">
-                  {esNueva ? 'Sus servicios se le asignan después, desde la tabla de estatus.' : 'Los cambios se ven de inmediato en el organigrama.'}
+                  {esNueva ? `Entra a la plantilla ${anio}. Sus servicios se le asignan después, desde la tabla de estatus.` : `Sólo cambia su ficha de ${anio}; la de otros años se queda como está.`}
                 </p>
               </div>
               <button onClick={() => setEditando(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
@@ -1126,6 +1163,29 @@ const Organigrama: React.FC<Props> = ({
             </div>
 
             <div className="p-6 space-y-4 overflow-y-auto">
+              {esNueva && personasOtrosAnios.length > 0 && (
+                // Quien vuelve (o sigue) de otro año no tiene por qué capturarse
+                // otra vez: se trae su última ficha y se ajusta lo que cambió.
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                  <label className="block text-[10px] font-black text-sky-800 uppercase tracking-wider mb-1.5">
+                    ¿Ya estuvo en otro año? Trae su ficha
+                  </label>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const elegida = personasOtrosAnios.find((x) => x.persona.catalogValue === e.target.value);
+                      if (elegida) setEditando({ ...elegida.persona, activo: true });
+                    }}
+                    className={claseInput}
+                  >
+                    <option value="">— Capturar a alguien nuevo —</option>
+                    {personasOtrosAnios.map(({ persona: p, anio: a }) => (
+                      <option key={p.catalogValue} value={p.catalogValue}>{p.fullName} · ficha {a}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {campo('Nombre completo', (
                   <input

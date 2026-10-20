@@ -1190,7 +1190,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [serviceFormResponsable, setServiceFormResponsable] = useState<string | null>(null);
   const [newServiceForm, setNewServiceForm] = useState(EMPTY_NEW_SERVICE_FORM);
   const [isSavingNewService, setIsSavingNewService] = useState(false);
+  // Catálogo de personas (tabla responsables): un renglón por quien haya estado
+  // en el área. Sólo aporta los alias y sirve de respaldo si plantilla_anual no
+  // responde; las fichas que se ven y se editan son las del año.
   const [dbResponsables, setDbResponsables] = useState<ResponsableProfile[]>([]);
+  // Fichas de cada año (tabla plantilla_anual). El organigrama de 2026 y el de
+  // 2027 son independientes: mover, editar o dar de baja a alguien en uno no
+  // toca el otro.
+  const [plantillaPorAnio, setPlantillaPorAnio] = useState<Record<number, ResponsableProfile[]>>({});
+  // null mientras carga; false si la tabla todavía no existe en Supabase.
+  const [plantillaDisponible, setPlantillaDisponible] = useState<boolean | null>(null);
   // Foto de responsable abierta en grande. La miniatura es de 80 px y las caras
   // no se distinguen.
   const [fotoAmpliada, setFotoAmpliada] = useState<{ url: string; nombre: string } | null>(null);
@@ -1214,22 +1223,68 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
    * misma persona salía dos veces en cuanto se editaba su ficha, con sus
    * servicios repartidos entre las dos copias.
    */
-  const combinedResponsableProfiles = useMemo(() => {
-    const porClave = new Map<string, ResponsableProfile>();
-    RESPONSABLE_PROFILES_CON_ORGANIGRAMA.forEach((p) => porClave.set(normalizeResponsableKey(p.catalogValue), p));
-    dbResponsables.forEach((p) => {
+  /**
+   * De qué año salen las fichas que se muestran en `anio`.
+   *
+   * El propio, si ya tiene plantilla. Si no (un año recién abierto), la del año
+   * anterior más cercano: así 2028 arranca viendo a la gente de 2027 en vez de
+   * una pantalla vacía, y su plantilla propia se crea al guardar el primer
+   * cambio. null cuando no hay ninguna plantilla por año en la base.
+   */
+  const anioOrigenPlantilla = useCallback((anio: number): number | null => {
+    if (plantillaPorAnio[anio]?.length) return anio;
+    const conDatos = Object.keys(plantillaPorAnio).map(Number).filter((a) => plantillaPorAnio[a]?.length);
+    if (!conDatos.length) return null;
+    const anteriores = conDatos.filter((a) => a < anio);
+    return anteriores.length ? Math.max(...anteriores) : Math.min(...conDatos);
+  }, [plantillaPorAnio]);
+
+  /** Las fichas del personal en un año, con el archivo como respaldo de los campos vacíos. */
+  const perfilesDelAnio = useCallback((anio: number): ResponsableProfile[] => {
+    const delArchivo = new Map<string, ResponsableProfile>();
+    RESPONSABLE_PROFILES_CON_ORGANIGRAMA.forEach((p) => delArchivo.set(normalizeResponsableKey(p.catalogValue), p));
+    const aliasDe = new Map<string, string[] | undefined>();
+    dbResponsables.forEach((p) => aliasDe.set(normalizeResponsableKey(p.catalogValue), p.aliases));
+
+    const origen = anioOrigenPlantilla(anio);
+    // Sin plantilla por año (tabla aún no creada): el catálogo de siempre, y si
+    // tampoco hay, el archivo.
+    const filas = origen !== null ? plantillaPorAnio[origen] : dbResponsables;
+    if (!filas.length) return [...RESPONSABLE_PROFILES_CON_ORGANIGRAMA];
+
+    // Cuenta sólo quien está en las filas del año: alguien que nunca estuvo en
+    // 2027 no debe aparecer en 2027 por venir en el archivo.
+    return filas.map((p) => {
       const clave = normalizeResponsableKey(p.catalogValue);
-      const previa = porClave.get(clave);
-      // Se conserva lo que el archivo sabía y que la base todavía no trae
-      // (por ejemplo la foto), en vez de dejarlo en blanco.
+      const previa = delArchivo.get(clave);
+      const aliases = p.aliases ?? aliasDe.get(clave) ?? previa?.aliases;
       // quitarVacios protege los campos que la base todavía no trae, pero la
       // FOTO es distinta: vaciarla es una decisión, no un dato faltante. Si se
       // filtrara como los demás, quitarle la foto a alguien no surtiría efecto
       // porque volvería a salir la del archivo.
-      porClave.set(clave, previa ? { ...previa, ...quitarVacios(p), photoUrl: p.photoUrl ?? '' } : p);
+      return previa
+        ? { ...previa, ...quitarVacios(p), photoUrl: p.photoUrl ?? '', aliases }
+        : { ...p, aliases };
     });
-    return Array.from(porClave.values());
-  }, [dbResponsables]);
+  }, [anioOrigenPlantilla, plantillaPorAnio, dbResponsables]);
+
+  const combinedResponsableProfiles = useMemo(() => perfilesDelAnio(anioActivo), [perfilesDelAnio, anioActivo]);
+
+  /**
+   * Para reconocer a alguien por su nombre: primero las fichas del año abierto
+   * y después las de los demás años. Un servicio de 2027 asignado a quien sólo
+   * estuvo en 2026 sigue encontrando a su persona.
+   */
+  const perfilesParaBuscar = useMemo(() => {
+    const vistos = new Set(combinedResponsableProfiles.map((p) => normalizeResponsableKey(p.catalogValue)));
+    const otros = ANIOS_MODULO.filter((a) => a !== anioActivo).flatMap(perfilesDelAnio).filter((p) => {
+      const clave = normalizeResponsableKey(p.catalogValue);
+      if (vistos.has(clave)) return false;
+      vistos.add(clave);
+      return true;
+    });
+    return [...combinedResponsableProfiles, ...otros];
+  }, [combinedResponsableProfiles, perfilesDelAnio, anioActivo]);
 
   /** Sólo quienes siguen en el área, ordenados para el organigrama. */
   const personasOrganigrama = useMemo(
@@ -1255,12 +1310,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const getCombinedResponsableProfile = useCallback((value: unknown) => {
     const key = normalizeResponsableKey(value);
     if (!key) return undefined;
-    return combinedResponsableProfiles.find((p) => {
+    return perfilesParaBuscar.find((p) => {
       if (normalizeResponsableKey(p.catalogValue) === key) return true;
       if (normalizeResponsableKey(p.fullName) === key) return true;
       return (p.aliases ?? []).some((alias) => normalizeResponsableKey(alias) === key);
     });
-  }, [combinedResponsableProfiles]);
+  }, [perfilesParaBuscar]);
 
   const getCombinedCanonicalResponsableValue = useCallback((value: unknown) => {
     const raw = String(value ?? '').trim();
@@ -3052,11 +3107,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const fotoDelOrganigrama = useCallback((nombre: string | null | undefined): string | null => {
     const ficha = buscarPorNombre(
       nombre,
-      combinedResponsableProfiles.filter(p => p.activo !== false && p.photoUrl),
+      perfilesParaBuscar.filter(p => p.activo !== false && p.photoUrl),
       p => [p.fullName, p.catalogValue, ...(p.aliases ?? [])],
     );
     return ficha?.photoUrl || null;
-  }, [combinedResponsableProfiles]);
+  }, [perfilesParaBuscar]);
 
   type UsuarioFoto = { id: string; full_name: string | null; photo_url?: string | null };
 
@@ -3669,46 +3724,93 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [responsableAbierto, setResponsableAbierto] = useState<string | null>(null);
   const [avisoTablaResponsables, setAvisoTablaResponsables] = useState<string | null>(null);
 
+  /** El renglón de plantilla_anual que corresponde a una ficha en un año. */
+  const filaPlantilla = (anio: number, persona: ResponsableProfile) => ({
+    anio,
+    catalog_value: persona.catalogValue,
+    full_name: persona.fullName,
+    employee_number: persona.employeeNumber || null,
+    academic_degree: persona.academicDegree || null,
+    aifa_tenure: persona.aifaTenure || null,
+    puesto: persona.puesto || null,
+    nivel_salarial: persona.nivelSalarial || null,
+    photo_url: persona.photoUrl || null,
+    partida: persona.partida ?? null,
+    nivel_organico: persona.nivelOrganico ?? 'COLABORADOR',
+    reporta_a: persona.reportaA ?? null,
+    color: persona.color ?? 'sinEquipo',
+    activo: persona.activo !== false,
+  });
+
+  /** La persona en el catálogo general, si es la primera vez que entra al área. */
+  const registrarEnCatalogo = async (personas: ResponsableProfile[]) => {
+    const { error } = await supabase
+      .from('responsables')
+      .upsert(
+        personas.map((p) => ({ full_name: p.fullName, catalog_value: p.catalogValue })),
+        // ignoreDuplicates: a quien ya está no se le toca nada.
+        { onConflict: 'catalog_value', ignoreDuplicates: true }
+      );
+    if (error) throw error;
+  };
+
   /**
-   * Guarda (alta o edición) a una persona de la estructura.
+   * Garantiza que `anio` tenga su propia plantilla antes de escribir en ella.
    *
-   * upsert sobre catalog_value, no insert: esa columna es la llave con la que
-   * los servicios encuentran a su responsable, así que dos fichas con el mismo
-   * valor partirían sus servicios en dos montones.
+   * Un año que todavía no la tiene está mostrando la de otro año (ver
+   * anioOrigenPlantilla). Si se guardara sólo la ficha editada, ese año se
+   * quedaría con una persona y las demás desaparecerían de su organigrama; por
+   * eso la primera vez se copia completa la plantilla que se estaba viendo.
+   */
+  const asegurarPlantillaDelAnio = async (anio: number) => {
+    if (plantillaPorAnio[anio]?.length) return;
+    const base = perfilesDelAnio(anio);
+    if (!base.length) return;
+    await registrarEnCatalogo(base);
+    const { error } = await supabase
+      .from('plantilla_anual')
+      .upsert(base.map((p) => filaPlantilla(anio, p)), { onConflict: 'anio,catalog_value', ignoreDuplicates: true });
+    if (error) throw error;
+  };
+
+  const AVISO_SIN_PLANTILLA_ANUAL =
+    'Falta crear la plantilla por año en Supabase (migración supabase/migrations/20261019000000_plantilla_por_anio.sql). ' +
+    'Mientras tanto 2026 y 2027 muestran la misma plantilla y no se puede editar, para que un cambio no se aplique a los dos años.';
+
+  /**
+   * Guarda (alta o edición) a una persona en la plantilla del año abierto.
+   *
+   * Sólo escribe el renglón de ese año: la ficha de la misma persona en otro
+   * año no cambia. upsert sobre (año, catalog_value), no insert: esa llave es
+   * con la que los servicios encuentran a su responsable, así que dos fichas
+   * iguales en un año partirían sus servicios en dos montones.
    */
   const guardarPersonaOrganigrama = useCallback(async (persona: ResponsableProfile, esNueva: boolean) => {
     if (!canManageRecords) {
       throw new Error('Tu perfil no puede modificar la plantilla.');
     }
+    if (plantillaDisponible === false) {
+      throw new Error(AVISO_SIN_PLANTILLA_ANUAL);
+    }
+    const anio = anioActivo;
     setIsSavingResponsable(true);
     try {
-      const fila = {
-        full_name: persona.fullName,
-        catalog_value: persona.catalogValue,
-        employee_number: persona.employeeNumber || null,
-        academic_degree: persona.academicDegree || null,
-        aifa_tenure: persona.aifaTenure || null,
-        puesto: persona.puesto || null,
-        nivel_salarial: persona.nivelSalarial || null,
-        photo_url: persona.photoUrl || null,
-        partida: persona.partida ?? null,
-        nivel_organico: persona.nivelOrganico ?? 'COLABORADOR',
-        reporta_a: persona.reportaA ?? null,
-        color: persona.color ?? 'sinEquipo',
-        activo: persona.activo !== false,
-      };
+      await asegurarPlantillaDelAnio(anio);
+      await registrarEnCatalogo([persona]);
 
+      const antes = plantillaPorAnio[anio]?.find((p) => p.catalogValue === persona.catalogValue);
+      const fila = filaPlantilla(anio, persona);
       const { error } = await supabase
-        .from('responsables')
-        .upsert(fila, { onConflict: 'catalog_value' });
+        .from('plantilla_anual')
+        .upsert(fila, { onConflict: 'anio,catalog_value' });
 
       if (error) throw error;
 
       await logChange({
-        table: 'responsables',
+        table: 'plantilla_anual',
         action: esNueva ? 'INSERT' : 'UPDATE',
-        recordId: persona.catalogValue,
-        before: null,
+        recordId: `${anio} · ${persona.catalogValue}`,
+        before: antes ? filaPlantilla(anio, antes) : null,
         after: fila,
       });
 
@@ -3716,39 +3818,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     } finally {
       setIsSavingResponsable(false);
     }
-  }, [canManageRecords, logChange]);
+  }, [canManageRecords, plantillaDisponible, anioActivo, plantillaPorAnio, perfilesDelAnio, logChange]);
 
   /**
-   * Baja de una persona.
+   * Baja de una persona en la plantilla del año abierto.
    *
    * Marca activo = false en vez de borrar el renglón. El nombre sigue vivo en
    * el historial de cambios y en los servicios que atendió; si se borrara, ese
-   * historial quedaría apuntando a alguien que ya no existe.
+   * historial quedaría apuntando a alguien que ya no existe. Los demás años no
+   * cambian: quien se va en 2027 sigue en el organigrama de 2026.
    */
   const darDeBajaPersona = useCallback(async (persona: ResponsableProfile) => {
     if (!canManageRecords) return;
+    if (plantillaDisponible === false) {
+      alert(AVISO_SIN_PLANTILLA_ANUAL);
+      return;
+    }
+    const anio = anioActivo;
     const confirmado = window.confirm(
-      `¿Dar de baja a ${persona.fullName}?\n\n` +
-      'Desaparecerá del organigrama, pero se conserva su historial y los servicios que atendió. ' +
-      'Si tenía servicios asignados, reasígnalos después desde la tabla de estatus.'
+      `¿Dar de baja a ${persona.fullName} de la plantilla ${anio}?\n\n` +
+      `Desaparecerá del organigrama de ${anio}; los demás años no cambian. ` +
+      'Se conserva su historial y los servicios que atendió. ' +
+      `Si tenía servicios de ${anio} asignados, reasígnalos después desde la tabla de estatus.`
     );
     if (!confirmado) return;
 
     setIsSavingResponsable(true);
     try {
+      await asegurarPlantillaDelAnio(anio);
       const { error } = await supabase
-        .from('responsables')
-        .upsert({
-          full_name: persona.fullName,
-          catalog_value: persona.catalogValue,
-          activo: false,
-        }, { onConflict: 'catalog_value' });
+        .from('plantilla_anual')
+        .upsert(filaPlantilla(anio, { ...persona, activo: false }), { onConflict: 'anio,catalog_value' });
       if (error) throw error;
 
       await logChange({
-        table: 'responsables',
+        table: 'plantilla_anual',
         action: 'UPDATE',
-        recordId: persona.catalogValue,
+        recordId: `${anio} · ${persona.catalogValue}`,
         before: { activo: true },
         after: { activo: false },
       });
@@ -3760,43 +3866,63 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     } finally {
       setIsSavingResponsable(false);
     }
-  }, [canManageRecords, logChange]);
+  }, [canManageRecords, plantillaDisponible, anioActivo, plantillaPorAnio, perfilesDelAnio, logChange]);
+
+  /** Un renglón de responsables o de plantilla_anual, como ficha. */
+  const aFichaResponsable = (r: any): ResponsableProfile => ({
+    fullName: r.full_name,
+    catalogValue: r.catalog_value,
+    employeeNumber: r.employee_number ?? '',
+    academicDegree: r.academic_degree ?? '',
+    aifaTenure: r.aifa_tenure ?? '',
+    photoUrl: r.photo_url ?? '',
+    puesto: r.puesto ?? undefined,
+    nivelSalarial: r.nivel_salarial ?? undefined,
+    partida: r.partida ?? undefined,
+    nivelOrganico: r.nivel_organico ?? undefined,
+    reportaA: r.reporta_a ?? null,
+    color: r.color ?? undefined,
+    activo: r.activo !== false,
+    aliases: r.aliases ?? undefined,
+    dbId: r.id,
+  });
 
   const fetchResponsablesData = async () => {
-    const { data, error } = await supabase
-      .from('responsables')
-      .select('*')
-      .order('partida', { ascending: true, nullsFirst: false });
+    const faltaTabla = (error: { code?: string; message?: string }) =>
+      error.code === '42P01' || error.code === 'PGRST205' || /schema cache/i.test(error.message ?? '');
 
-    if (error) {
-      console.error('Error fetching responsables:', error.message);
+    const [catalogo, plantilla] = await Promise.all([
+      supabase.from('responsables').select('*').order('partida', { ascending: true, nullsFirst: false }),
+      supabase.from('plantilla_anual').select('*').order('partida', { ascending: true, nullsFirst: false }),
+    ]);
+
+    if (catalogo.error) {
+      console.error('Error fetching responsables:', catalogo.error.message);
       // Mientras la tabla no exista, el organigrama sigue viéndose con los
       // datos del archivo; lo único que no se puede es editarlo.
-      if (error.code === '42P01' || error.code === 'PGRST205' || /schema cache/i.test(error.message ?? '')) {
+      if (faltaTabla(catalogo.error)) {
         setAvisoTablaResponsables('La tabla "responsables" todavía no existe en Supabase. Ejecuta la migración supabase/migrations/20260930000000_organigrama_responsables.sql para poder dar de alta y editar personal desde aquí. Mientras tanto se muestra la plantilla de septiembre 2026.');
       }
       return;
     }
-    setAvisoTablaResponsables(null);
-    if (data) {
-      setDbResponsables(data.map((r: any) => ({
-        fullName: r.full_name,
-        catalogValue: r.catalog_value,
-        employeeNumber: r.employee_number ?? '',
-        academicDegree: r.academic_degree ?? '',
-        aifaTenure: r.aifa_tenure ?? '',
-        photoUrl: r.photo_url ?? '',
-        puesto: r.puesto ?? undefined,
-        nivelSalarial: r.nivel_salarial ?? undefined,
-        partida: r.partida ?? undefined,
-        nivelOrganico: r.nivel_organico ?? undefined,
-        reportaA: r.reporta_a ?? null,
-        color: r.color ?? undefined,
-        activo: r.activo !== false,
-        aliases: r.aliases ?? undefined,
-        dbId: r.id,
-      })));
+    setDbResponsables((catalogo.data ?? []).map(aFichaResponsable));
+
+    if (plantilla.error) {
+      console.error('Error fetching plantilla_anual:', plantilla.error.message);
+      if (faltaTabla(plantilla.error)) {
+        setPlantillaDisponible(false);
+        setAvisoTablaResponsables(AVISO_SIN_PLANTILLA_ANUAL);
+      }
+      return;
     }
+
+    const porAnio: Record<number, ResponsableProfile[]> = {};
+    (plantilla.data ?? []).forEach((r: any) => {
+      (porAnio[r.anio] ??= []).push(aFichaResponsable(r));
+    });
+    setPlantillaPorAnio(porAnio);
+    setPlantillaDisponible(true);
+    setAvisoTablaResponsables(null);
   };
 
   const fetchProceduresData = async () => {
@@ -9561,31 +9687,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       return;
     }
     const catalogValue = fullName.toUpperCase();
-    if (getCombinedResponsableProfile(catalogValue)) {
-      alert('Ya existe un responsable con ese nombre.');
+    if (combinedResponsableProfiles.some((p) => normalizeResponsableKey(p.catalogValue) === normalizeResponsableKey(catalogValue))) {
+      alert(`Ya existe un responsable con ese nombre en la plantilla ${anioActivo}.`);
       return;
     }
-    setIsSavingResponsable(true);
     try {
-      const { error } = await supabase.from('responsables').insert({
-        full_name: fullName,
-        catalog_value: catalogValue,
-        employee_number: newResponsableForm.employeeNumber.trim() || null,
-        academic_degree: newResponsableForm.academicDegree.trim() || null,
-        aifa_tenure: newResponsableForm.aifaTenure.trim() || null,
-      });
-      if (error) throw error;
-
-      await fetchResponsablesData();
+      // Mismo camino que el alta del organigrama: entra a la plantilla del año abierto.
+      await guardarPersonaOrganigrama({
+        fullName,
+        catalogValue,
+        employeeNumber: newResponsableForm.employeeNumber.trim(),
+        academicDegree: newResponsableForm.academicDegree.trim(),
+        aifaTenure: newResponsableForm.aifaTenure.trim(),
+        photoUrl: '',
+        nivelOrganico: 'COLABORADOR',
+        reportaA: null,
+        activo: true,
+      }, true);
       setIsAddResponsableOpen(false);
       setNewResponsableForm({ fullName: '', employeeNumber: '', academicDegree: '', aifaTenure: '' });
     } catch (error: any) {
       console.error('Error creating responsable:', error);
-      alert(`Error al crear el responsable: ${error.message || 'Error desconocido'}. Es posible que la tabla "responsables" aún no exista en Supabase.`);
-    } finally {
-      setIsSavingResponsable(false);
+      alert(`Error al crear el responsable: ${error.message || 'Error desconocido'}.`);
     }
-  }, [isSavingResponsable, newResponsableForm, getCombinedResponsableProfile]);
+  }, [isSavingResponsable, newResponsableForm, combinedResponsableProfiles, anioActivo, guardarPersonaOrganigrama]);
 
   const handlePagos2026CellEdit = async (row: Record<string, any>, col: string, val: any) => {
     const PARENT_MONTHS = new Set(['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sept.', 'Oct.', 'Nov.', 'Dic.']);
@@ -14113,7 +14238,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="space-y-4">
                               <div>
                                 <h2 className="text-2xl font-bold text-slate-900">Responsables de Servicios</h2>
-                                <p className="text-slate-500 mt-1 mb-3">{combinedResponsableProfiles.length} responsables registrados · {responsablesSourceRows.length} servicio{responsablesSourceRows.length !== 1 ? 's' : ''} en total.</p>
+                                <p className="text-slate-500 mt-1 mb-3">{personasOrganigrama.length} personas en la plantilla {anioActivo} · {responsablesSourceRows.length} servicio{responsablesSourceRows.length !== 1 ? 's' : ''} en total.</p>
                                 <div className="flex items-center gap-2 flex-wrap mb-3">
                                   <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 w-fit">
                                     {(['all', 'Q1', 'Q2', 'Q3', 'Q4'] as const).map((key) => (
@@ -14163,14 +14288,70 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   const perfil = personasOrganigrama.find((x) => x.photoUrl === url);
                                   setFotoAmpliada({ url, nombre: perfil?.fullName ?? "" });
                                 }}
-                                puedeEditar={canManageRecords}
+                                puedeEditar={canManageRecords && plantillaDisponible !== false}
                                 onGuardar={guardarPersonaOrganigrama}
                                 onDarDeBaja={darDeBajaPersona}
                                 guardando={isSavingResponsable}
                                 avisoTabla={avisoTablaResponsables}
                                 colorEstatus={(e) => ESTATUS_2026_COLOR_MAP[e] ?? '#EAB308'}
                                 renderServicios={renderServiciosDeResponsable}
+                                anio={anioActivo}
+                                anioOrigen={plantillaDisponible ? anioOrigenPlantilla(anioActivo) : null}
+                                personasOtrosAnios={(() => {
+                                  // Quien estuvo en otro año y no está en éste: para volver a
+                                  // darlo de alta sin capturar su ficha desde cero.
+                                  const aqui = new Set(personasOrganigrama.map((p) => normalizeResponsableKey(p.catalogValue)));
+                                  const encontradas = new Map<string, { persona: ResponsableProfile; anio: number }>();
+                                  [...ANIOS_MODULO].filter((a) => a !== anioActivo).sort((a, b) => b - a).forEach((a) => {
+                                    perfilesDelAnio(a).filter((p) => p.activo !== false).forEach((p) => {
+                                      const clave = normalizeResponsableKey(p.catalogValue);
+                                      if (!aqui.has(clave) && !encontradas.has(clave)) encontradas.set(clave, { persona: p, anio: a });
+                                    });
+                                  });
+                                  return Array.from(encontradas.values());
+                                })()}
+                                fotoEnUso={(url, catalogValue) =>
+                                  // Otro año (o alguien más) todavía la muestra: borrarla del
+                                  // almacén lo dejaría sin foto allá.
+                                  Object.entries(plantillaPorAnio).some(([a, filas]) => filas.some((p) =>
+                                    p.photoUrl === url && !(Number(a) === anioActivo && p.catalogValue === catalogValue)))
+                                  || dbResponsables.some((p) => p.photoUrl === url)
+                                  || responsableAdminData.some((u) => u.photo_url === url)}
                               />
+
+                              {/* Servicios de este año cuyo responsable no está en la plantilla
+                                  de este año (nunca estuvo o se dio de baja). No cuelgan de
+                                  ninguna tarjeta, así que sin este bloque desaparecerían. */}
+                              {(() => {
+                                const enPlantilla = new Set(personasOrganigrama.map((p) => p.catalogValue));
+                                const fuera = filteredGroups.filter(([r, s]) => r !== '— Sin asignar —' && s.length > 0 && !enPlantilla.has(r));
+                                if (fuera.length === 0) return null;
+                                const totalFuera = fuera.reduce((n, [, s]) => n + s.length, 0);
+                                return (
+                                  <div className="rounded-2xl overflow-hidden border border-slate-300 mt-5">
+                                    <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-slate-600">
+                                      <p className="flex items-center gap-2 text-white font-bold text-sm">
+                                        <AlertCircle className="h-4 w-4" />
+                                        Servicios a cargo de alguien fuera de la plantilla {anioActivo}
+                                      </p>
+                                      <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-white/25 text-white text-[11px] font-bold">
+                                        {totalFuera} servicio{totalFuera !== 1 ? 's' : ''}
+                                      </span>
+                                    </div>
+                                    <p className="px-4 py-2.5 text-xs text-slate-600 bg-slate-50 border-b border-slate-200">
+                                      Su responsable no está en el organigrama de {anioActivo}. Reasígnalos a alguien de este año o agrega a la persona a la plantilla {anioActivo}.
+                                    </p>
+                                    {fuera.map(([resp, svcs]) => (
+                                      <div key={resp} className="bg-white border-b border-slate-100 last:border-b-0">
+                                        <p className="px-4 pt-3 text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                          {getCombinedResponsableProfile(resp)?.fullName ?? resp} · {svcs.length}
+                                        </p>
+                                        {renderServiciosDeResponsable(resp, svcs)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
 
                               {/* Servicios que todavia no tienen dueno.
                                   Van fuera del organigrama porque no cuelgan de nadie, pero tienen que
