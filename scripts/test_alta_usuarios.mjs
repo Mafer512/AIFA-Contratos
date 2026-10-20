@@ -254,6 +254,14 @@ ok('su propia contraseña → 400 propia', `${r.status} ${r.body?.code}`, '400 p
 ok('su propia contraseña no cambia nada', Object.keys(passwords).length, 0);
 ok('ni le cierra la sesión', llamadas.some(l => l.ruta === '/rest/v1/rpc/revocar_sesiones'), false);
 
+reiniciar();
+perfiles[DEST].is_superadmin = true;
+perfiles[DEST].role = 'ADMIN';
+r = await cambiar('Bearer super', { userId: DEST, password: pwdNueva });
+ok('la de otro superadmin → 400 superadmin', `${r.status} ${r.body?.code}`, '400 superadmin');
+ok('la de otro superadmin no cambia nada', Object.keys(passwords).length, 0);
+ok('ni le cierra la sesión al otro superadmin', llamadas.some(l => l.ruta === '/rest/v1/rpc/revocar_sesiones'), false);
+
 console.log('\n=== Función baja-usuario: quién puede ===');
 const bajaFn = async (token, body) => {
   const headers = token ? { Authorization: token } : {};

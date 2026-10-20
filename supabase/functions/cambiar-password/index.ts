@@ -1,7 +1,8 @@
 /**
- * El superadmin fija la contraseña de otra persona desde Accesos → Usuarios.
+ * Un superadmin fija la contraseña de otra persona desde Accesos → Usuarios.
  *
- * Sólo el superadmin (profiles.is_superadmin + rol ADMIN). Un ADMIN normal
+ * Sólo superadmins (profiles.is_superadmin + rol ADMIN), y nunca la de otro
+ * superadmin: a ése le llega "Enviar enlace". Un ADMIN normal
  * recibe 403 aunque llame a la función a mano: el permiso se lee de profiles
  * con service_role, no de lo que diga el navegador.
  *
@@ -70,14 +71,14 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return fail(405, "metodo", "Método no permitido.");
   if (!SUPABASE_URL || !SERVICE_KEY) return fail(500, "config", "La función no tiene configuradas sus llaves.");
 
-  // ── 1. Sólo el superadmin ─────────────────────────────────────────────────
+  // ── 1. Sólo superadmins ──────────────────────────────────────────────────
   const authHeader = req.headers.get("Authorization") ?? "";
   const superId = authHeader.startsWith("Bearer ") ? await callerId(authHeader) : null;
   if (!superId) return fail(401, "sesion", "Tu sesión expiró. Vuelve a iniciar sesión.");
 
   const yo = await perfilDe(superId);
   if (!yo || String(yo.role).toUpperCase() !== "ADMIN" || yo.is_superadmin !== true) {
-    return fail(403, "permiso", "Sólo el superadmin puede cambiar contraseñas.");
+    return fail(403, "permiso", "Sólo un superadmin puede cambiar contraseñas.");
   }
 
   // ── 2. Datos ──────────────────────────────────────────────────────────────
@@ -104,6 +105,11 @@ Deno.serve(async (req) => {
 
   const destino = await perfilDe(userId);
   if (!destino) return fail(404, "usuario", "Ese usuario ya no existe.");
+  // Con varios superadmins, fijarle la contraseña a otro sería quedarse con
+  // su cuenta. Como a cualquiera, a un superadmin le llega "Enviar enlace".
+  if (destino.is_superadmin) {
+    return fail(400, "superadmin", "Esa cuenta es superadmin: su contraseña sólo la cambia su dueño con \"Enviar enlace\".");
+  }
 
   // ── 3. Fuera las sesiones abiertas ────────────────────────────────────────
   // Supabase también las cierra al cambiar la contraseña, pero se hace aquí

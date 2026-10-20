@@ -1344,6 +1344,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [savingBaja, setSavingBaja] = useState<string | null>(null);
   const [bajaResult, setBajaResult] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
   const [showBajas, setShowBajas] = useState(false);
+  // Nombrar a otro superadmin: confirmación abierta y en curso.
+  const [superPanelUserId, setSuperPanelUserId] = useState<string | null>(null);
+  const [savingSuper, setSavingSuper] = useState<string | null>(null);
   const [savingResponsable, setSavingResponsable] = useState<string | null>(null);
   // Restablecimiento de contraseña: guarda el id del usuario en curso y el
   // resultado del último envío, para dar acuse junto a la fila del usuario.
@@ -3003,6 +3006,46 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   };
 
+  // ── Nombrar superadmin (sólo superadmin) ──────────────────────────────────
+
+  /**
+   * Le pone la marca de superadmin a un administrador activo con la función
+   * nombrar_superadmin(), que vuelve a comprobar todo en la base y lo anota en
+   * el historial. Quitar la marca no se hace desde aquí: sólo desde SQL, para
+   * que dos superadmins no puedan quitársela uno al otro.
+   */
+  const nombrarSuperadmin = async (target: { id: string; full_name: string | null }) => {
+    if (!isSuperAdmin || savingSuper) return;
+    setSavingSuper(target.id);
+    setResetFeedback(null);
+    try {
+      const { error } = await supabase.rpc('nombrar_superadmin', { p_usuario: target.id });
+      if (error) {
+        setResetFeedback({
+          id: target.id,
+          ok: false,
+          msg: error.code === 'PGRST202'
+            ? 'Falta aplicar en la base la migración 20261015000000_nombrar_superadmin.sql.'
+            : error.message,
+        });
+        return;
+      }
+      setResponsableAdminData(prev => prev.map(u => u.id === target.id ? { ...u, is_superadmin: true } : u));
+      setResetFeedback({
+        id: target.id,
+        ok: true,
+        msg: `${target.full_name ?? 'La cuenta'} ahora es superadmin. Verá sus botones en su próximo inicio de sesión.`,
+      });
+      setSuperPanelUserId(null);
+      void fetchChangeHistory();
+    } catch (err: any) {
+      console.error('Error al nombrar superadmin:', err);
+      setResetFeedback({ id: target.id, ok: false, msg: err?.message ?? 'Error inesperado.' });
+    } finally {
+      setSavingSuper(null);
+    }
+  };
+
   // ── Fotos de usuarios ─────────────────────────────────────────────────────
 
   /** La foto de su ficha del organigrama, si se le encuentra por el nombre. */
@@ -3024,7 +3067,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setFotoMsg({
         id: target.id,
         ok: false,
-        msg: error.code === '42501' ? 'Sólo el superadmin puede cambiar su propia foto.' : `No se pudo guardar la foto: ${error.message}`,
+        msg: error.code === '42501' ? 'Sólo un superadmin puede cambiar la foto de un superadmin.' : `No se pudo guardar la foto: ${error.message}`,
       });
       return false;
     }
@@ -12872,24 +12915,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   : { label: 'Solo lectura', cls: 'bg-slate-50 text-slate-600 border-slate-200' };
                             const feedback = resetFeedback?.id === u.id ? resetFeedback : null;
                             const esYo = u.id === user.id;
-                            // La cuenta del superadmin sólo la toca él (la base lo exige igual).
+                            // La cuenta de un superadmin sólo la toca otro superadmin (la base lo exige igual).
                             const protegido = u.is_superadmin === true && !isSuperAdmin;
+                            // Mientras tenga la marca, su rol queda fijo en Administrador.
+                            const rolFijo = protegido || u.is_superadmin === true;
                             const fotoAbierta = !protegido && fotoPanelUserId === u.id;
                             const fotoSugerida = fotoAbierta ? fotoDelOrganigrama(u.full_name) : null;
                             const fMsg = fotoMsg?.id === u.id ? fotoMsg : null;
                             // Supabase cierra las sesiones de quien cambia de contraseña: en la
                             // propia fila sacaría al superadmin. Para la suya, "Enviar enlace".
-                            const puedeFijarPwd = isSuperAdmin && !esYo;
+                            // La de otro superadmin tampoco: sería quedarse con su cuenta.
+                            const puedeFijarPwd = isSuperAdmin && !esYo && !u.is_superadmin;
                             const panelAbierto = puedeFijarPwd && pwdPanelUserId === u.id;
                             // Nadie se da de baja a sí mismo, y a un superadmin primero se le
                             // quita la marca desde SQL (la función lo exige igual).
                             const puedeDarBaja = isSuperAdmin && !esYo && !u.is_superadmin;
                             const bajaAbierta = puedeDarBaja && bajaPanelUserId === u.id;
+                            // Superadmin sólo se nombra a un Administrador; quitarlo es desde SQL.
+                            const puedeNombrarSuper = isSuperAdmin && !esYo && !u.is_superadmin && u.role === UserRole.ADMIN;
+                            const superAbierto = puedeNombrarSuper && superPanelUserId === u.id;
                             const pwdRes = pwdResult?.id === u.id ? pwdResult : null;
                             const fuerzaPwd = passwordStrength(pwdDraft);
 
                             return (
-                              <div key={u.id} className={`px-5 py-4 transition-colors ${bajaAbierta ? 'bg-red-50/40' : panelAbierto ? 'bg-amber-50/40' : fotoAbierta ? 'bg-violet-50/40' : 'hover:bg-slate-50/60'}`}>
+                              <div key={u.id} className={`px-5 py-4 transition-colors ${bajaAbierta ? 'bg-red-50/40' : panelAbierto || superAbierto ? 'bg-amber-50/40' : fotoAbierta ? 'bg-violet-50/40' : 'hover:bg-slate-50/60'}`}>
                                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                                   {/* Identidad */}
                                   <div className="flex items-center gap-3 min-w-0 lg:w-64 flex-shrink-0">
@@ -12899,7 +12948,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       disabled={protegido}
                                       aria-expanded={fotoAbierta}
                                       aria-label={`Foto de ${u.full_name ?? 'este usuario'}`}
-                                      title={protegido ? 'Sólo el superadmin puede cambiar su propia foto' : 'Cambiar foto'}
+                                      title={protegido ? 'Sólo un superadmin puede cambiar la foto de un superadmin' : 'Cambiar foto'}
                                       className="relative group flex-shrink-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-default"
                                     >
                                       <AvatarPersona nombre={u.full_name} foto={u.photo_url} className="h-11 w-11 rounded-xl text-xs" />
@@ -12951,8 +13000,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       <select
                                         aria-label={`Rol de ${u.full_name}`}
                                         value={u.role ?? UserRole.VIEWER}
-                                        disabled={savingRole === u.id || protegido}
-                                        title={protegido ? 'Sólo el superadmin puede modificar su propia cuenta' : undefined}
+                                        disabled={savingRole === u.id || rolFijo}
+                                        title={protegido
+                                          ? 'Sólo un superadmin puede modificar la cuenta de un superadmin'
+                                          : rolFijo ? 'Un superadmin siempre es Administrador' : undefined}
                                         onChange={e => saveUserRole(u.id, e.target.value)}
                                         className={`flex-1 min-w-0 text-xs font-semibold border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30 disabled:opacity-50 ${uRoleMeta.cls}`}
                                       >
@@ -12975,7 +13026,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         className="flex-1 min-w-0 text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/30 disabled:opacity-50"
                                         value={getCombinedCanonicalResponsableValue(u.responsable)}
                                         disabled={savingResponsable === u.id || protegido}
-                                        title={protegido ? 'Sólo el superadmin puede modificar su propia cuenta' : undefined}
+                                        title={protegido ? 'Sólo un superadmin puede modificar la cuenta de un superadmin' : undefined}
                                         onChange={e => saveResponsable(u.id, e.target.value || null)}
                                       >
                                         <option value="">— Todos —</option>
@@ -13004,7 +13055,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     {puedeFijarPwd && (
                                       <button
                                         type="button"
-                                        onClick={() => { openPwdPanel(u.id); setBajaPanelUserId(null); }}
+                                        onClick={() => { openPwdPanel(u.id); setBajaPanelUserId(null); setSuperPanelUserId(null); }}
                                         aria-expanded={panelAbierto}
                                         title={`Fijar una contraseña nueva para ${u.full_name ?? 'este usuario'}`}
                                         className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-colors ${
@@ -13020,7 +13071,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     {puedeDarBaja && (
                                       <button
                                         type="button"
-                                        onClick={() => { setBajaPanelUserId(prev => (prev === u.id ? null : u.id)); setBajaResult(null); setPwdPanelUserId(null); }}
+                                        onClick={() => { setBajaPanelUserId(prev => (prev === u.id ? null : u.id)); setBajaResult(null); setPwdPanelUserId(null); setSuperPanelUserId(null); }}
                                         aria-expanded={bajaAbierta}
                                         title={`Dar de baja a ${u.full_name ?? 'este usuario'}`}
                                         className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-colors ${
@@ -13031,6 +13082,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       >
                                         <UserX className="h-3.5 w-3.5" />
                                         Dar de baja
+                                      </button>
+                                    )}
+                                    {puedeNombrarSuper && (
+                                      <button
+                                        type="button"
+                                        onClick={() => { setSuperPanelUserId(prev => (prev === u.id ? null : u.id)); setResetFeedback(null); setPwdPanelUserId(null); setBajaPanelUserId(null); }}
+                                        aria-expanded={superAbierto}
+                                        title={`Hacer superadmin a ${u.full_name ?? 'este usuario'}`}
+                                        className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-colors ${
+                                          superAbierto
+                                            ? 'bg-amber-600 border-amber-600 text-white'
+                                            : 'border-amber-200 bg-white text-amber-700 hover:bg-amber-50'
+                                        }`}
+                                      >
+                                        <ShieldCheck className="h-3.5 w-3.5" />
+                                        Hacer superadmin
                                       </button>
                                     )}
                                   </div>
@@ -13218,6 +13285,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         >
                                           {savingBaja === u.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
                                           {savingBaja === u.id ? 'Dando de baja...' : 'Sí, dar de baja'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Confirmación para nombrar superadmin */}
+                                {superAbierto && (
+                                  <div className="mt-4 rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                      <span className="flex h-10 w-10 rounded-xl bg-amber-100 text-amber-700 items-center justify-center flex-shrink-0">
+                                        <ShieldCheck className="h-5 w-5" />
+                                      </span>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-bold text-slate-800">¿Hacer superadmin a {u.full_name ?? 'este usuario'}?</p>
+                                        <p className="text-xs text-slate-500 mt-0.5">
+                                          Podrá fijar contraseñas, dar de baja y reactivar cuentas, y nombrar a otros superadmins.
+                                          Desde aquí no se le puede quitar: eso sólo se hace en el editor SQL de Supabase.
+                                        </p>
+                                      </div>
+                                      <div className="flex gap-2 flex-shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => setSuperPanelUserId(null)}
+                                          disabled={savingSuper === u.id}
+                                          className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                                        >
+                                          Cancelar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => nombrarSuperadmin(u)}
+                                          disabled={savingSuper === u.id}
+                                          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60 shadow-md shadow-amber-600/20"
+                                        >
+                                          {savingSuper === u.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                                          {savingSuper === u.id ? 'Guardando...' : 'Sí, hacerlo superadmin'}
                                         </button>
                                       </div>
                                     </div>
@@ -13434,8 +13538,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <KeyRound className="h-3.5 w-3.5 flex-shrink-0 mt-px text-amber-600" />
                           <span>
                             {isSuperAdmin
-                              ? <><strong>Cambiar contraseña</strong> la fija tú directamente y <strong>Dar de baja</strong> le quita el acceso (se puede reactivar). Sólo el superadmin tiene estos botones.</>
-                              : <>Fijar contraseñas ajenas y dar de baja usuarios es exclusivo del superadmin.</>}
+                              ? <><strong>Cambiar contraseña</strong> la fija tú directamente, <strong>Dar de baja</strong> le quita el acceso (se puede reactivar) y <strong>Hacer superadmin</strong> le da estos mismos botones a otro administrador. Sólo los superadmins los tienen.</>
+                              : <>Fijar contraseñas ajenas, dar de baja usuarios y nombrar superadmins es exclusivo de los superadmins.</>}
                           </span>
                         </p>
                         <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
