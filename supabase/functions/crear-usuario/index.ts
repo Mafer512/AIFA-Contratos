@@ -95,6 +95,11 @@ Deno.serve(async (req) => {
   const role = String(body.role ?? "").toUpperCase();
   const responsableRaw = body.responsable == null ? "" : String(body.responsable).trim();
   const responsable = responsableRaw || null;
+  // Vistas (utils/vistas.ts): null = todas. El área de Auditoría es la única
+  // que captura en ese módulo.
+  const modulosRaw = body.modulos;
+  const modulos = Array.isArray(modulosRaw) ? [...new Set(modulosRaw.map((m) => String(m)))] : null;
+  const areaAuditoria = body.areaAuditoria === true;
 
   if (fullName.length < 3 || fullName.length > 120) return fail(400, "nombre", "Escribe el nombre completo (3 a 120 caracteres).");
   if (!EMAIL_RE.test(email) || email.length > 254) return fail(400, "correo", "Revisa la dirección de correo.");
@@ -103,6 +108,10 @@ Deno.serve(async (req) => {
   }
   if (!ROLES.includes(role)) return fail(400, "rol", "El nivel de permisos no es válido.");
   if (responsable && responsable.length > 200) return fail(400, "responsable", "El responsable no es válido.");
+  if (modulosRaw != null && !Array.isArray(modulosRaw)) return fail(400, "vistas", "Las vistas no son válidas.");
+  if (modulos && (modulos.length > 100 || modulos.some((m) => !/^[A-Za-z0-9.]{1,40}$/.test(m)))) {
+    return fail(400, "vistas", "Las vistas no son válidas.");
+  }
 
   // ── 3. Cuenta ─────────────────────────────────────────────────────────────
   // email_confirm: true porque quien da fe del correo es el administrador; la
@@ -140,7 +149,7 @@ Deno.serve(async (req) => {
   const profile = await fetch(`${SUPABASE_URL}/rest/v1/profiles?on_conflict=id`, {
     method: "POST",
     headers: { ...serviceHeaders, Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify({ id: newId, full_name: fullName, email, role, responsable }),
+    body: JSON.stringify({ id: newId, full_name: fullName, email, role, responsable, modulos, area_auditoria: areaAuditoria }),
   });
 
   if (!profile.ok) {
@@ -151,5 +160,5 @@ Deno.serve(async (req) => {
     return fail(500, "perfil", "No se pudo guardar el perfil; no se creó nada. Intenta de nuevo.");
   }
 
-  return json(200, { ok: true, user: { id: newId, full_name: fullName, email, role, responsable } });
+  return json(200, { ok: true, user: { id: newId, full_name: fullName, email, role, responsable, modulos, area_auditoria: areaAuditoria } });
 });

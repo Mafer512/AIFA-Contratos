@@ -19,6 +19,10 @@ export interface User {
   responsable?: string | null; // null = ve todos los servicios
   /** profiles.is_superadmin: único que puede fijar contraseñas ajenas. */
   isSuperAdmin?: boolean;
+  /** profiles.modulos: vistas que puede ver (utils/vistas.ts). null = todas. */
+  modulos?: string[] | null;
+  /** profiles.area_auditoria: sólo el área de Auditoría captura en ese módulo. */
+  areaAuditoria?: boolean;
 }
 
 export interface OperationData {

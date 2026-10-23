@@ -39,6 +39,9 @@ import { vincularPagos, parseFechaFlexible } from '../utils/fichaServicio';
 import { PanelNotas, TIPOS_NOTA, fechaNota, fechaNotaDate, type NotaServicio } from './NotasServicio';
 import MisServicios, { datosFaltantes, type ColumnasContrato, type ItemBandeja } from './MisServicios';
 import DescargarReporte from './DescargarReporte';
+import Auditoria from './Auditoria';
+import SelectorPermisos, { type Permisos } from './PermisosVistas';
+import { puedeVer, primeraVista, destinoDeVista, vistaActual, resumenModulos, normalizarModulos, GRUPOS_VISTAS } from '../utils/vistas';
 import { estadoServicio, duracionesTipicas, valoresPrevios, INDICE_ADJUDICADO } from '../utils/avanceFase';
 import { ORGANIGRAMA_BASE } from '../data/organigrama';
 import { RESPONSABLE_PROFILES_CON_ORGANIGRAMA } from '../data/responsables';
@@ -1016,7 +1019,14 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   // Quien tiene servicios asignados entra directo a su bandeja de 2026.
-  const [activeTab, setActiveTab] = useState(() => (user.responsable ? '2026' : 'overview'));
+  // La primera pantalla sale de las vistas que la persona puede ver
+  // (profiles.modulos). Sin ninguna, 'sinVistas' muestra el aviso.
+  const [destinoInicial] = useState(() => {
+    const v = primeraVista(user.modulos, user.responsable ? ['2026.mis'] : []);
+    return v ? destinoDeVista(v) : null;
+  });
+  const ve = useCallback((vista: string) => puedeVer(user.modulos, vista), [user.modulos]);
+  const [activeTab, setActiveTab] = useState(() => destinoInicial?.tab ?? 'sinVistas');
   const [activeContractSubTab, setActiveContractSubTab] = useState<'paas' | 'payments' | 'invoices' | 'compranet' | 'pendingOct' | 'procedures'>('payments');
   const [statusTab, setStatusTab] = useState<'dashboard' | 'calendar' | 'table'>('dashboard');
   const [activeOperationsView, setActiveOperationsView] = useState<'passengers' | 'annual'>('passengers');
@@ -1329,7 +1339,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [obsOpenSet, setObsOpenSet] = useState<Record<string, true>>({});
   // Holds uncontrolled textarea DOM refs so we can read value only on Save (no re-renders while typing)
   const obsTextareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
-  const [activeAnioView, setActiveAnioView] = useState<'mis' | 'resumen' | 'estatus' | 'pagos' | 'gantt'>(() => (user.responsable ? 'mis' : 'resumen'));
+  const [activeAnioView, setActiveAnioView] = useState<'mis' | 'resumen' | 'estatus' | 'pagos' | 'gantt'>(() => (destinoInicial?.anioView as 'mis' | 'resumen' | 'estatus' | 'pagos' | 'gantt' | undefined) ?? (user.responsable ? 'mis' : 'resumen'));
   // Pagos sólo existe en 2026. Si alguien estaba ahí y cambia a 2027, la vista
   // guardada dejaría la pantalla en blanco: se cae a Resumen.
   const vistaAnioEfectiva = (anioActivo === 2027 && activeAnioView === 'pagos') ? 'resumen' : activeAnioView;
@@ -1337,7 +1347,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [ganttTooltip, setGanttTooltip] = useState<{ x: number; y: number; service: string; gerencia: string; phaseName: string; area: 'DO' | 'DA'; start: Date; end: Date; days: number; phaseIdx: number } | null>(null);
   const [activePagos2026View, setActivePagos2026View] = useState<'tabla' | 'resumen'>('tabla');
   const [expandedPagos2026SummaryKey, setExpandedPagos2026SummaryKey] = useState<string | null>(null);
-  const [activeReportesView, setActiveReportesView] = useState<'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas'>('gastoEfectuado');
+  const [activeReportesView, setActiveReportesView] = useState<'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas'>(() => (destinoInicial?.reportesView as 'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas' | undefined) ?? 'gastoEfectuado');
   const [isReportesExpanded, setIsReportesExpanded] = useState(true);
   const [selectedHistoricoYear, setSelectedHistoricoYear] = useState<number>(2026);
   const [serviciosHistoricoRaw, setServiciosHistoricoRaw] = useState<Record<string, any>[]>([]);
@@ -1378,7 +1388,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [notasDisponibles, setNotasDisponibles] = useState(true);
   const [notasPanel, setNotasPanel] = useState<{ servicioId: number; nombre: string } | null>(null);
   const [notaTooltip, setNotaTooltip] = useState<{ x: number; y: number; nota: NotaServicio } | null>(null);
-  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null; is_superadmin?: boolean; baja_at?: string | null; baja_por?: string | null; photo_url?: string | null}[]>([]);
+  const [responsableAdminData, setResponsableAdminData] = useState<{id: string; full_name: string; responsable: string | null; role: string | null; email: string | null; is_superadmin?: boolean; baja_at?: string | null; baja_por?: string | null; photo_url?: string | null; modulos?: string[] | null; area_auditoria?: boolean}[]>([]);
+  // Vistas y área de Auditoría de un usuario: panel abierto con su borrador.
+  const [permisosPanel, setPermisosPanel] = useState<{ id: string; draft: Permisos } | null>(null);
+  const [guardandoPermisos, setGuardandoPermisos] = useState(false);
   // Foto de un usuario: panel abierto, subida en curso y acuse.
   const [fotoPanelUserId, setFotoPanelUserId] = useState<string | null>(null);
   const [guardandoFoto, setGuardandoFoto] = useState<string | null>(null);
@@ -1419,6 +1432,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     password: '',
     role: UserRole.OPERATOR as UserRole,
     responsable: '',
+    // null = todas las vistas (utils/vistas.ts).
+    modulos: null as string[] | null,
+    areaAuditoria: false,
   });
   const [newUserFeedback, setNewUserFeedback] = useState<{ ok: boolean; title: string; msg: string } | null>(null);
   const [showNewUserPassword, setShowNewUserPassword] = useState(false);
@@ -1426,6 +1442,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   // sólo en memoria y se borran al cerrar el aviso.
   const [createdCredentials, setCreatedCredentials] = useState<{
     fullName: string; email: string; password: string; role: UserRole; responsable: string | null;
+    modulos: string[] | null; areaAuditoria: boolean;
   } | null>(null);
   const [credentialsCopied, setCredentialsCopied] = useState(false);
   // Un error del alta deja de aplicar en cuanto se corrige el formulario: si se
@@ -2653,6 +2670,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       // reintenta sin ellas. La consecuencia es sólo que los botones que las
       // necesitan quedan deshabilitados hasta que se corra la migración.
       const columnas = [
+        'id, full_name, responsable, role, email, is_superadmin, baja_at, baja_por, photo_url, modulos, area_auditoria',
         'id, full_name, responsable, role, email, is_superadmin, baja_at, baja_por, photo_url',
         'id, full_name, responsable, role, email, is_superadmin, baja_at, baja_por',
         'id, full_name, responsable, role, email, is_superadmin',
@@ -2701,6 +2719,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setResetFeedback({ id: userId, ok: true, msg: 'Servicios actualizados. Aplica en su próximo inicio de sesión.' });
     }
     setSavingResponsable(null);
+  };
+
+  /**
+   * Guarda las vistas y el área de Auditoría del panel abierto. Aplica en el
+   * próximo inicio de sesión de la persona, como el rol.
+   */
+  const guardarPermisos = async () => {
+    if (!isAdmin || !permisosPanel || guardandoPermisos) return;
+    const { id, draft } = permisosPanel;
+    const antes = responsableAdminData.find(u => u.id === id);
+    const modulos = normalizarModulos(draft.modulos);
+    setGuardandoPermisos(true);
+    const { data, error } = await supabase.schema('public').from('profiles')
+      .update({ modulos, area_auditoria: draft.areaAuditoria }).eq('id', id).select('id');
+    setGuardandoPermisos(false);
+    if (error || !data?.length) {
+      const faltaMigracion = error && (error.code === '42703' || error.code === 'PGRST204' || /modulos|area_auditoria/.test(error.message));
+      setResetFeedback({
+        id, ok: false,
+        msg: faltaMigracion
+          ? 'Falta aplicar la migración 20261022000000_permisos_por_usuario.sql en Supabase.'
+          : `No se guardaron las vistas${error ? `: ${error.message}` : ' (la base no lo permitió).'}`,
+      });
+      return;
+    }
+    setResponsableAdminData(prev => prev.map(u => u.id === id ? { ...u, modulos, area_auditoria: draft.areaAuditoria } : u));
+    setPermisosPanel(null);
+    setResetFeedback({ id, ok: true, msg: 'Vistas actualizadas. Aplica en su próximo inicio de sesión.' });
+    void logChange({
+      table: 'profiles',
+      action: 'UPDATE',
+      recordId: id,
+      before: { modulos: antes?.modulos ?? null, area_auditoria: antes?.area_auditoria ?? false },
+      after: { modulos, area_auditoria: draft.areaAuditoria },
+    });
   };
 
   /**
@@ -2784,6 +2837,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const password = newUser.password;
     const role = newUser.role;
     const responsable = newUser.responsable || null;
+    const modulos = normalizarModulos(newUser.modulos);
+    const areaAuditoria = newUser.areaAuditoria;
 
     if (fullName.length < 3) {
       setNewUserFeedback({ ok: false, title: 'Falta el nombre', msg: 'Escribe el nombre completo de la persona.' });
@@ -2811,9 +2866,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     try {
       let createdId: string | null = null;
       let viaFuncion = true;
+      let viaFuncionSinPermisos = false;
 
       const { data, error } = await supabase.functions.invoke('crear-usuario', {
-        body: { fullName, email, password, role, responsable },
+        body: { fullName, email, password, role, responsable, modulos, areaAuditoria },
       });
 
       if (error) {
@@ -2840,6 +2896,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         viaFuncion = false;
       } else {
         createdId = data?.user?.id ?? null;
+        // Una versión anterior de crear-usuario no conoce vistas ni área: no
+        // las devuelve y se ponen abajo, con la sesión del administrador.
+        if (data?.user && !('modulos' in data.user)) viaFuncionSinPermisos = true;
       }
 
       if (!viaFuncion) {
@@ -2874,12 +2933,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         }
       }
 
+      if (createdId && (!viaFuncion || viaFuncionSinPermisos) && (modulos !== null || areaAuditoria)) {
+        const { error: permError } = await supabase.schema('public').from('profiles')
+          .update({ modulos, area_auditoria: areaAuditoria }).eq('id', createdId);
+        if (permError) {
+          console.error('No se pudieron poner las vistas del alta:', permError.message);
+          setNewUserFeedback({
+            ok: false,
+            title: 'Cuenta creada, vistas pendientes',
+            msg: `La cuenta de ${email} sí se creó, pero no se guardaron sus vistas (${permError.message}). Ajústalas desde la lista de abajo.`,
+          });
+          await fetchResponsableAdmin();
+          return;
+        }
+      }
+
       void logChange({
         table: 'profiles',
         action: 'INSERT',
         recordId: createdId,
         before: null,
-        after: { full_name: fullName, email, role, responsable },
+        after: { full_name: fullName, email, role, responsable, modulos, area_auditoria: areaAuditoria },
       });
 
       // Si está en el organigrama, nace con su foto. Si no, se le pone después
@@ -2890,10 +2964,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         if (fotoError) console.warn('No se pudo poner la foto del organigrama:', fotoError.message);
       }
 
-      setCreatedCredentials({ fullName, email, password, role, responsable });
+      setCreatedCredentials({ fullName, email, password, role, responsable, modulos, areaAuditoria });
       setCredentialsCopied(false);
       setNewUserFeedback(null);
-      setNewUser({ fullName: '', email: '', password: '', role: UserRole.OPERATOR, responsable: '' });
+      setNewUser({ fullName: '', email: '', password: '', role: UserRole.OPERATOR, responsable: '', modulos: null, areaAuditoria: false });
       setShowNewUserPassword(false);
       setShowNewUserForm(false);
       await fetchResponsableAdmin();
@@ -5312,6 +5386,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       setActiveTab('overview');
     }
   }, [isAdmin, activeTab]);
+
+  // Nadie se queda en una vista que no tiene permitida, llegue por el menú,
+  // por un enlace dentro de otra pantalla o porque se la quitaron: se le lleva
+  // a otra del mismo grupo si la tiene, si no a la primera que pueda ver.
+  useEffect(() => {
+    const actual = vistaActual(activeTab, activeAnioView, activeReportesView);
+    if (actual === null || ve(actual)) return;
+    const grupo = GRUPOS_VISTAS.find((g) => g.vistas.some((v) => v.id === actual) || actual.startsWith(`${g.id}.`));
+    const destino = primeraVista(user.modulos, grupo ? grupo.vistas.map((v) => v.id) : []);
+    if (!destino) { setActiveTab('sinVistas'); return; }
+    const d = destinoDeVista(destino);
+    setActiveTab(d.tab);
+    if (d.anioView) setActiveAnioView(d.anioView as typeof activeAnioView);
+    if (d.reportesView) setActiveReportesView(d.reportesView as typeof activeReportesView);
+  }, [activeTab, activeAnioView, activeReportesView, ve, user.modulos]);
 
   const handleSidebarSelection = (tabId: string) => {
     setActiveTab(tabId);
@@ -10465,6 +10554,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-0.5 scrollbar-thin">
 
           {/* ─ 2025 Group (amber) ─ */}
+          {(['2025.resumen', '2025.estatus', '2025.contratos'].some(ve)) && (
           <div className="mb-1">
             <button
               onClick={() => setIs2025Expanded(!is2025Expanded)}
@@ -10483,10 +10573,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             {is2025Expanded && (
               <div className="mt-0.5 ml-3 pl-3 border-l border-amber-500/20 space-y-0.5">
                 {[
-                  { id: 'overview', icon: LayoutDashboard, label: 'Resumen' },
-                  { id: 'serviciosStatus', icon: BarChart2, label: 'Estatus servicios' },
-                  { id: 'contracts', icon: FileText, label: 'Gestión Contratos' },
-                ].map((item) => {
+                  { id: 'overview', vista: '2025.resumen', icon: LayoutDashboard, label: 'Resumen' },
+                  { id: 'serviciosStatus', vista: '2025.estatus', icon: BarChart2, label: 'Estatus servicios' },
+                  { id: 'contracts', vista: '2025.contratos', icon: FileText, label: 'Gestión Contratos' },
+                ].filter((item) => ve(item.vista)).map((item) => {
                   const isActive = activeTab === item.id;
                   return (
                     <button
@@ -10507,7 +10597,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             )}
           </div>
 
+          )}
+
           {/* ─ 2026 Group (emerald) ─ */}
+          {(['2026.mis', '2026.resumen', '2026.estatus', '2026.pagos', '2026.gantt'].some(ve)) && (
           <div className="mb-1">
             <button
               onClick={() => setIs2026Expanded(!is2026Expanded)}
@@ -10531,7 +10624,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
                   { view: 'pagos' as const, icon: DollarSign, label: 'Pagos 2026' },
                   { view: 'gantt' as const, icon: Layers, label: 'Diagrama Gantt' },
-                ]).map((item) => {
+                ]).filter((item) => ve(`2026.${item.view}`)).map((item) => {
                   const isActive = activeTab === '2026' && activeAnioView === item.view;
                   return (
                     <button
@@ -10558,7 +10651,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             )}
           </div>
 
+          )}
+
           {/* ─ 2027 Group (violet) ─ */}
+          {(['2027.mis', '2027.resumen', '2027.estatus', '2027.gantt'].some(ve)) && (
           <div className="mb-1">
             <button
               onClick={() => setIs2027Expanded(!is2027Expanded)}
@@ -10582,7 +10678,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   { view: 'resumen' as const, icon: LayoutDashboard, label: 'Resumen' },
                   { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
                   { view: 'gantt' as const, icon: Layers, label: 'Diagrama Gantt' },
-                ]).map((item) => {
+                ]).filter((item) => ve(`2027.${item.view}`)).map((item) => {
                   const isActive = activeTab === '2027' && activeAnioView === item.view;
                   return (
                     <button
@@ -10609,7 +10705,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             )}
           </div>
 
+          )}
+
           {/* ─ Reportes Group (indigo) ─ */}
+          {(['gastoEfectuado', 'historicoServicios', 'anteproyecto', 'paaas', 'deductivas'].some((v) => ve(`reportes.${v}`))) && (
           <div className="mb-1">
             <button
               onClick={() => setIsReportesExpanded(!isReportesExpanded)}
@@ -10632,7 +10731,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   { id: 'anteproyecto', icon: FileText, label: 'Anteproyecto' },
                   { id: 'paaas', icon: Layers, label: 'PAAAS' },
                   { id: 'deductivas', icon: CreditCard, label: 'Deductivas' },
-                ] as { id: typeof activeReportesView; icon: React.ComponentType<{ className?: string }>; label: string }[]).map((item) => {
+                ] as { id: typeof activeReportesView; icon: React.ComponentType<{ className?: string }>; label: string }[]).filter((item) => ve(`reportes.${item.id}`)).map((item) => {
                   const isActive = activeTab === 'reportes' && activeReportesView === item.id;
                   return (
                     <button
@@ -10652,6 +10751,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               </div>
             )}
           </div>
+
+          )}
+
+          {/* ─ Auditoría (cyan) ─ */}
+          {ve('auditoria') && (
+          <div className="mb-1">
+            <button
+              onClick={() => handleSidebarSelection('auditoria')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-bold tracking-wide transition-all group ${activeTab === 'auditoria'
+                ? 'bg-cyan-500/15 text-cyan-200'
+                : 'text-white/80 hover:bg-white/5 hover:text-white'
+                }`}
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-cyan-500/20">
+                <ClipboardCheck className="h-3.5 w-3.5 text-cyan-300" />
+              </span>
+              <span>Auditoría</span>
+              {activeTab === 'auditoria' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-cyan-300 flex-shrink-0" />}
+            </button>
+          </div>
+          )}
 
           {/* ─ Administración — sólo ADMIN ─ */}
           {isAdmin && (
@@ -10746,7 +10866,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             </div>
           </div>
 
-          {nextEvent && (
+          {nextEvent && ve('2025.estatus') && (
             <div
               className="hidden lg:flex items-center bg-amber-50 text-amber-800 px-4 py-1.5 rounded-full border border-amber-200 text-xs font-medium shadow-sm cursor-pointer hover:bg-amber-100 transition-colors"
               onClick={() => {
@@ -10829,7 +10949,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         {/* ══════════════════════════════════════════════════════════════
             BARRA DE AGENDA — HOY / MAÑANA  (siempre visible)
             ══════════════════════════════════════════════════════════════ */}
-        {(() => {
+        {ve('2026.estatus') && (() => {
           const _hoy = new Date(); _hoy.setHours(0, 0, 0, 0);
           const _mañana = new Date(_hoy.getTime() + 86_400_000);
           const _pasado = new Date(_mañana.getTime() + 86_400_000);
@@ -12867,6 +12987,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </select>
                           </section>
 
+                          {/* 5 · Vistas */}
+                          <section>
+                            <p className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-3">
+                              <span className="flex h-5 w-5 rounded-full bg-[#0F4C3A] text-white text-[10px] items-center justify-center">5</span>
+                              ¿Qué módulos verá?
+                            </p>
+                            <SelectorPermisos
+                              valor={{ modulos: newUser.modulos, areaAuditoria: newUser.areaAuditoria }}
+                              onCambio={p => setNewUser(prev => ({ ...prev, modulos: p.modulos, areaAuditoria: p.areaAuditoria }))}
+                              onPresetAuditoria={() => setNewUser(prev => ({ ...prev, role: UserRole.VIEWER }))}
+                            />
+                            {newUser.areaAuditoria && newUser.role !== UserRole.VIEWER && (
+                              <p className="flex items-start gap-2 mt-3 rounded-xl bg-sky-50 border border-sky-200 px-3 py-2.5 text-[11px] text-sky-800">
+                                <Info className="h-4 w-4 flex-shrink-0 text-sky-600" />
+                                <span>Para Auditoría no hace falta ser Operador: con "Solo lectura" captura en Auditoría y no puede cambiar nada más del sistema.</span>
+                              </p>
+                            )}
+                          </section>
+
                           {newUserFeedback && !newUserFeedback.ok && (
                             <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5">
                               <AlertCircle className="h-4.5 w-4.5 text-red-600 flex-shrink-0 mt-px" />
@@ -12936,6 +13075,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               { k: 'Contraseña temporal', v: createdCredentials.password, mono: true },
                               { k: 'Permisos', v: rolMeta?.label ?? createdCredentials.role, mono: false },
                               { k: 'Servicios', v: createdCredentials.responsable ?? 'Todos', mono: false },
+                              { k: 'Vistas', v: resumenModulos(createdCredentials.modulos), mono: false },
+                              { k: 'Auditoría', v: createdCredentials.areaAuditoria ? 'Captura (área de Auditoría)' : 'Sólo consulta', mono: false },
                             ].map(item => (
                               <div key={item.k} className="bg-white px-4 py-3 min-w-0">
                                 <dt className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{item.k}</dt>
@@ -13161,6 +13302,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     </div>
                                   </div>
 
+                                  {/* Vistas */}
+                                  <div className="flex-1 min-w-0">
+                                    <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                                      Vistas
+                                    </label>
+                                    <button
+                                      type="button"
+                                      disabled={protegido}
+                                      aria-expanded={permisosPanel?.id === u.id}
+                                      title={protegido ? 'Sólo un superadmin puede modificar la cuenta de un superadmin' : 'Elegir qué módulos ve y si es del área de Auditoría'}
+                                      onClick={() => {
+                                        setPermisosPanel(prev => prev?.id === u.id ? null : { id: u.id, draft: { modulos: u.modulos ?? null, areaAuditoria: u.area_auditoria === true } });
+                                        setResetFeedback(null);
+                                      }}
+                                      className={`w-full flex items-center gap-1.5 text-xs border rounded-lg px-2 py-1.5 text-left transition-colors disabled:opacity-50 ${
+                                        permisosPanel?.id === u.id ? 'border-cyan-500 bg-cyan-50 text-cyan-900' : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-white hover:border-slate-300'}`}
+                                    >
+                                      <Eye className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+                                      <span className="truncate flex-1">{resumenModulos(u.modulos)}</span>
+                                      {u.area_auditoria && (
+                                        <span className="inline-flex items-center gap-0.5 rounded-full bg-cyan-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-800 flex-shrink-0">
+                                          <ClipboardCheck className="h-2.5 w-2.5" /> Auditoría
+                                        </span>
+                                      )}
+                                    </button>
+                                  </div>
+
                                   {/* Contraseña */}
                                   <div className="flex flex-wrap gap-2 flex-shrink-0">
                                     <button
@@ -13227,6 +13395,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     )}
                                   </div>
                                 </div>
+
+                                {/* Vistas y área */}
+                                {permisosPanel?.id === u.id && !protegido && (
+                                  <div className="mt-4 rounded-2xl border border-cyan-200 bg-white p-4 sm:p-5 shadow-sm">
+                                    <div className="flex items-start justify-between gap-3 mb-3">
+                                      <div>
+                                        <p className="text-sm font-bold text-slate-800">Qué ve {u.full_name ?? 'esta persona'}</p>
+                                        <p className="text-[11px] text-slate-500">Aplica en su próximo inicio de sesión. Historial y Accesos dependen del rol, no de esto.</p>
+                                      </div>
+                                      <button type="button" onClick={() => setPermisosPanel(null)} aria-label="Cerrar" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0">
+                                        <X className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                    <SelectorPermisos
+                                      valor={permisosPanel.draft}
+                                      onCambio={draft => setPermisosPanel({ id: u.id, draft })}
+                                      deshabilitado={guardandoPermisos}
+                                    />
+                                    {esYo && permisosPanel.draft.modulos?.length === 0 && (
+                                      <p className="mt-3 text-[11px] text-amber-700">Te estás quitando todas las vistas: seguirás viendo Historial y Accesos por ser administrador.</p>
+                                    )}
+                                    <div className="mt-4 flex items-center justify-end gap-2">
+                                      <button type="button" onClick={() => setPermisosPanel(null)} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700">
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={guardarPermisos}
+                                        disabled={guardandoPermisos}
+                                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0d3f30] disabled:opacity-60"
+                                      >
+                                        {guardandoPermisos ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                        Guardar vistas
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Foto */}
                                 {fotoAbierta && (() => {
@@ -17327,6 +17532,20 @@ return (
               </div>
             )}
 
+            {activeTab === 'sinVistas' && (
+              <div className="mx-auto max-w-lg rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+                <EyeOff className="mx-auto h-10 w-10 text-slate-300" />
+                <p className="mt-4 text-lg font-bold text-slate-800">Aún no tienes módulos asignados</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Pide a un administrador que te dé acceso a las vistas que necesitas en Accesos → Usuarios.
+                  {isAdmin && ' Como administrador, puedes hacerlo tú mismo desde ahí.'}
+                </p>
+              </div>
+            )}
+
+            {/* ── AUDITORÍA ────────────────────────────────────────────────────── */}
+            {activeTab === 'auditoria' && <Auditoria user={user} />}
+
             {/* ── REPORTES ─────────────────────────────────────────────────────── */}
             {activeTab === 'reportes' && (
               <div>
@@ -17343,7 +17562,7 @@ return (
                       { id: 'anteproyecto' as const, label: 'Anteproyecto', icon: FileText },
                       { id: 'paaas' as const, label: 'PAAAS', icon: Layers },
                       { id: 'deductivas' as const, label: 'Deductivas', icon: CreditCard },
-                    ]).map(({ id, label, icon: Icon }) => (
+                    ]).filter(({ id }) => ve(`reportes.${id}`)).map(({ id, label, icon: Icon }) => (
                       <button
                         key={id}
                         onClick={() => setActiveReportesView(id)}

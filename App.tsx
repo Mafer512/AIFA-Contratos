@@ -304,6 +304,8 @@ const App: React.FC = () => {
     let responsable: string | null = null;
     let isSuperAdmin = false;
     let avatar: string | undefined;
+    let modulos: string[] | null = null;
+    let areaAuditoria = false;
 
     try {
       const leerPerfil = (columnas: string) => supabase
@@ -311,13 +313,13 @@ const App: React.FC = () => {
         .from('profiles')
         .select(columnas)
         .eq('id', user.id)
-        .maybeSingle<{ full_name: string | null; role: string | null; responsable: string | null; is_superadmin?: boolean; baja_at?: string | null; photo_url?: string | null }>();
+        .maybeSingle<{ full_name: string | null; role: string | null; responsable: string | null; is_superadmin?: boolean; baja_at?: string | null; photo_url?: string | null; modulos?: string[] | null; area_auditoria?: boolean }>();
 
       // Sin las migraciones del superadmin o de bajas, esas columnas no
       // existen y PostgREST rechazaría el select entero: todos entrarían como
       // Solo lectura. Por eso se reintenta con menos columnas (42703).
-      let { data: profile, error } = await leerPerfil('full_name, role, responsable, is_superadmin, baja_at, photo_url');
-      for (const cols of ['full_name, role, responsable, is_superadmin, baja_at', 'full_name, role, responsable, is_superadmin', 'full_name, role, responsable']) {
+      let { data: profile, error } = await leerPerfil('full_name, role, responsable, is_superadmin, baja_at, photo_url, modulos, area_auditoria');
+      for (const cols of ['full_name, role, responsable, is_superadmin, baja_at, photo_url', 'full_name, role, responsable, is_superadmin, baja_at', 'full_name, role, responsable, is_superadmin', 'full_name, role, responsable']) {
         if (error?.code !== '42703') break;
         ({ data: profile, error } = await leerPerfil(cols));
       }
@@ -353,6 +355,10 @@ const App: React.FC = () => {
         responsable = profile.responsable ?? null;
         isSuperAdmin = role === UserRole.ADMIN && profile.is_superadmin === true;
         avatar = profile.photo_url || undefined;
+        // Sin la migración de permisos estas columnas no llegan: todas las
+        // vistas y nadie captura en Auditoría (la base tampoco lo dejaría).
+        modulos = Array.isArray(profile.modulos) ? profile.modulos : null;
+        areaAuditoria = profile.area_auditoria === true;
       }
     } catch (error) {
       console.error('Unexpected error fetching profile:', error);
@@ -366,6 +372,8 @@ const App: React.FC = () => {
       responsable,
       isSuperAdmin,
       avatar,
+      modulos,
+      areaAuditoria,
     };
 
     setCurrentUser(appUser);
