@@ -40,6 +40,7 @@ import { PanelNotas, TIPOS_NOTA, fechaNota, fechaNotaDate, type NotaServicio } f
 import MisServicios, { datosFaltantes, type ColumnasContrato, type ItemBandeja } from './MisServicios';
 import DescargarReporte from './DescargarReporte';
 import Auditoria from './Auditoria';
+import AsistenteAyuda from './AsistenteAyuda';
 import SelectorPermisos, { type Permisos } from './PermisosVistas';
 import { puedeVer, primeraVista, destinoDeVista, vistaActual, resumenModulos, normalizarModulos, GRUPOS_VISTAS } from '../utils/vistas';
 import { estadoServicio, duracionesTipicas, valoresPrevios, INDICE_ADJUDICADO } from '../utils/avanceFase';
@@ -10526,6 +10527,46 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     ? Math.round((compranetTopStatus.value / compranetData.length) * 100)
     : 0;
   const compranetStickyWidths = [220, 260];
+
+  // Botón "Ir a…" del asistente de ayuda. Sólo abre lo que la persona tiene
+  // permitido; detalle elige la pestaña de adentro (Tabla o Seguimiento,
+  // Usuarios o Bitácora…). Va aquí abajo, después de todos los fetch, para no
+  // tocarlos antes de que existan.
+  const irDesdeAyuda = (vista: string, detalle?: string) => {
+    if (vista === 'historial' || vista === 'accesos') {
+      if (!isAdmin) return;
+      if (vista === 'historial') { setActiveTab('history'); return; }
+      setActiveTab('accesos');
+      if (detalle === 'usuarios') {
+        setAccesosView('usuarios');
+        setResetFeedback(null);
+        fetchResponsableAdmin();
+      } else {
+        setAccesosView('bitacora');
+        fetchAccessLogs();
+      }
+      return;
+    }
+    if (!ve(vista)) return;
+    const d = destinoDeVista(vista);
+    setActiveTab(d.tab);
+    if (d.anioView) {
+      setActiveAnioView(d.anioView as typeof activeAnioView);
+      setSelectedEstatus2026Estatus(null);
+      setSelectedEstatus2026Phase(null);
+      setSelectedResumenCard(detalle === 'responsables' ? 'responsables' : null);
+      if (d.tab === '2026') setIs2026Expanded(true); else setIs2027Expanded(true);
+    }
+    if (d.reportesView) {
+      setActiveReportesView(d.reportesView as typeof activeReportesView);
+      setIsReportesExpanded(true);
+    }
+    if (vista.startsWith('2025.')) setIs2025Expanded(true);
+    if (detalle === 'tabla') setEstatus2026Tab('tabla');
+    if (detalle === 'seguimiento') setEstatus2026Tab('calendar');
+    if (detalle === 'tablaPagos') setActivePagos2026View('tabla');
+    if (detalle === 'resumenPagos') setActivePagos2026View('resumen');
+  };
 
   return (
     <div className="relative h-screen bg-slate-50 overflow-hidden font-sans">
@@ -22609,6 +22650,13 @@ return (
         </div>,
         document.body
       )}
+
+      {/* Asistente de ayuda: botón flotante con la guía "¿cómo hago…?" */}
+      <AsistenteAyuda
+        user={user}
+        vistaActual={vistaActual(activeTab, activeAnioView, activeReportesView) ?? (activeTab === 'history' ? 'historial' : activeTab === 'accesos' ? 'accesos' : null)}
+        onIr={irDesdeAyuda}
+      />
     </div>
   );
 };

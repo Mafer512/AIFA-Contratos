@@ -618,7 +618,8 @@ const App: React.FC = () => {
         </div>
       )}
       {!isStandaloneMode && showInstallPrompt && installPromptEvent && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-xs rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+        // En el panel sube un poco para no quedar debajo del botón de ayuda.
+        <div className={`fixed ${currentScreen === Screen.DASHBOARD ? 'bottom-24' : 'bottom-6'} right-6 z-50 max-w-xs rounded-2xl border border-slate-200 bg-white p-4 shadow-xl`}>
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-slate-800">Instala AIFA Contratos</p>
