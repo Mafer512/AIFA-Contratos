@@ -39,7 +39,7 @@ globalThis.Deno = {
 const SUPER = '11111111-1111-4111-8111-111111111111';
 const DEST = '44444444-4444-4444-8444-444444444444';
 const TOKENS = { 'Bearer admin': 'id-admin', 'Bearer operador': 'id-oper', 'Bearer super': SUPER };
-let perfiles, cuentas, llamadas, falloPerfil, passwords, historial, bans, falloMarca;
+let perfiles, cuentas, llamadas, falloPerfil, passwords, historial, bans, falloMarca, falloTemporal;
 const reiniciar = () => {
   perfiles = {
     'id-admin': { role: 'ADMIN', is_superadmin: false, full_name: 'Admin Normal', email: 'admin@aifa.aero' },
@@ -53,6 +53,7 @@ const reiniciar = () => {
   passwords = {};
   bans = {};
   falloMarca = false;
+  falloTemporal = false;
   historial = [];
 };
 
@@ -104,6 +105,11 @@ globalThis.fetch = async (url, init = {}) => {
     const id = u.searchParams.get('id').replace('eq.', '');
     Object.assign(perfiles[id], JSON.parse(init.body));
     return new Response(null, { status: 204 });
+  }
+  if (u.pathname === '/rest/v1/rpc/marcar_password_temporal') {
+    if (auth !== 'Bearer service') return resp(401, {});
+    if (falloTemporal) return resp(500, { message: 'boom' });
+    return resp(200, '2026-11-04T15:00:00+00:00');
   }
   if (u.pathname === '/rest/v1/rpc/revocar_sesiones') {
     return auth === 'Bearer service' ? resp(200, 2) : resp(401, {});
@@ -247,6 +253,39 @@ ok('queda en el historial', historial.length, 1);
 ok('historial: quién lo hizo', historial[0]?.changed_by, SUPER);
 ok('historial: a quién', historial[0]?.record_id, DEST);
 ok('historial NO contiene la contraseña', JSON.stringify(historial).includes(pwdNueva), false);
+
+const marcoTemporal = () => llamadas.find(l => l.ruta === '/rest/v1/rpc/marcar_password_temporal');
+ok('definitiva: no la marca como temporal', marcoTemporal(), undefined);
+ok('definitiva: no trae vencimiento', r.body?.vence, null);
+
+console.log('\n=== Función cambiar-password: temporal de 24 h ===');
+reiniciar();
+r = await cambiar('Bearer super', { userId: DEST, password: pwdNueva, temporal: true });
+ok('temporal → 200', r.status, 200);
+ok('Auth recibe la contraseña temporal', passwords[DEST], pwdNueva);
+ok('la marca para esa persona', marcoTemporal()?.body?.p_user, DEST);
+ok('anota quién la puso', marcoTemporal()?.body?.p_por, SUPER);
+ok('por 24 horas', marcoTemporal()?.body?.p_horas, 24);
+ok('la marca va DESPUÉS de fijarla (huella de la nueva)',
+  llamadas.findIndex(l => l.ruta === '/rest/v1/rpc/marcar_password_temporal') > llamadas.findIndex(l => l.metodo === 'PUT' && l.ruta === `/auth/v1/admin/users/${DEST}`), true);
+ok('devuelve el vencimiento', r.body?.vence, '2026-11-04T15:00:00+00:00');
+ok('historial dice que es temporal', /temporal/.test(historial[0]?.changes?.[0]?.after ?? ''), true);
+ok('historial NO contiene la contraseña', JSON.stringify(historial).includes(pwdNueva), false);
+
+reiniciar();
+falloTemporal = true;
+r = await cambiar('Bearer super', { userId: DEST, password: pwdNueva, temporal: true });
+ok('si no se puede marcar → 500 temporal', `${r.status} ${r.body?.code}`, '500 temporal');
+ok('y lo dice claro', /no quedó como temporal/.test(r.body?.error ?? ''), true);
+
+reiniciar();
+r = await cambiar('Bearer super', { userId: DEST, password: pwdNueva, temporal: 'sí' });
+ok('temporal tiene que ser true, no "sí"', marcoTemporal(), undefined);
+
+reiniciar();
+r = await cambiar('Bearer admin', { userId: DEST, password: pwdNueva, temporal: true });
+ok('ADMIN normal tampoco pone temporales → 403', r.status, 403);
+ok('ni la marca', marcoTemporal(), undefined);
 
 reiniciar();
 r = await cambiar('Bearer super', { userId: SUPER, password: pwdNueva });

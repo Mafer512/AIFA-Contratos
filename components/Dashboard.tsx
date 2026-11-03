@@ -76,6 +76,10 @@ const randomTempPassword = () => {
   return Array.from(bytes, b => abc[b % abc.length]).join('');
 };
 
+/** "4 de nov, 16:18": cuándo vence una contraseña temporal. */
+const fechaVence = (iso: string) =>
+  new Date(iso).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
 /** 0 a 4, para la barrita de seguridad de la contraseña temporal. */
 /**
  * Foto de una persona o, si no tiene (o la imagen no carga), sus iniciales
@@ -1406,8 +1410,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [pwdDraft, setPwdDraft] = useState('');
   const [showPwdDraft, setShowPwdDraft] = useState(false);
   const [savingPwd, setSavingPwd] = useState(false);
-  const [pwdResult, setPwdResult] = useState<{ id: string; ok: boolean; msg: string; email?: string; password?: string } | null>(null);
+  const [pwdResult, setPwdResult] = useState<{ id: string; ok: boolean; msg: string; email?: string; password?: string; vence?: string } | null>(null);
   const [pwdCopied, setPwdCopied] = useState(false);
+  // Temporal (vence en 24 h y pide cambiarla al entrar) o definitiva.
+  const [pwdTemporal, setPwdTemporal] = useState(true);
+  // Quién tiene una contraseña temporal sin estrenar, y hasta cuándo.
+  const [temporales, setTemporales] = useState<Record<string, string>>({});
   // Baja / reactivación por el superadmin: confirmación abierta, en curso y acuse.
   const [bajaPanelUserId, setBajaPanelUserId] = useState<string | null>(null);
   const [savingBaja, setSavingBaja] = useState<string | null>(null);
@@ -2677,6 +2685,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         'id, full_name, responsable, role, email, is_superadmin',
         'id, full_name, responsable, role, email',
       ];
+      // Sin la migración de contraseñas temporales la función no existe: sin etiquetas.
+      void supabase.rpc('passwords_temporales_vigentes').then(({ data, error }) => {
+        if (!error && Array.isArray(data)) {
+          setTemporales(Object.fromEntries(data.map((t: { user_id: string; vence: string }) => [t.user_id, t.vence])));
+        }
+      });
       for (const cols of columnas) {
         const intento = await supabase.schema('public').from('profiles').select(cols).order('full_name');
         if (!intento.error) {
@@ -3022,6 +3036,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setShowPwdDraft(false);
     setPwdResult(null);
     setPwdCopied(false);
+    setPwdTemporal(true);
   };
 
   const closePwdPanel = () => {
@@ -3039,6 +3054,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const changeUserPassword = async (target: { id: string; full_name: string | null; email: string | null }) => {
     if (!isSuperAdmin || savingPwd) return;
     const password = pwdDraft;
+    const temporal = pwdTemporal;
     if (password.length < MIN_TEMP_PASSWORD) {
       setPwdResult({ id: target.id, ok: false, msg: `La contraseña necesita al menos ${MIN_TEMP_PASSWORD} caracteres.` });
       return;
@@ -3048,7 +3064,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setPwdResult(null);
     try {
       const { data, error } = await supabase.functions.invoke('cambiar-password', {
-        body: { userId: target.id, password },
+        body: { userId: target.id, password, temporal },
       });
 
       if (error) {
@@ -3065,20 +3081,97 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
 
       const cerradas = Number(data?.sesionesCerradas) || 0;
+      const sesiones = cerradas === 1 ? ' Se cerró 1 sesión abierta.' : cerradas > 1 ? ` Se cerraron ${cerradas} sesiones abiertas.` : '';
+      const vence: string | undefined = temporal && data?.vence ? String(data.vence) : undefined;
       setPwdResult({
         id: target.id,
         ok: true,
         email: data?.email ?? target.email ?? undefined,
         password,
-        msg: cerradas > 0
-          ? `Contraseña cambiada. ${cerradas === 1 ? 'Se cerró 1 sesión abierta' : `Se cerraron ${cerradas} sesiones abiertas`}: tendrá que entrar con la nueva.`
-          : 'Contraseña cambiada. Ya puede entrar con la nueva.',
+        vence,
+        msg: vence
+          ? `Contraseña temporal lista: vence el ${fechaVence(vence)}. Al entrar, el sistema le pedirá una nueva.${sesiones}`
+          : cerradas > 0
+            ? `Contraseña cambiada.${sesiones} Tendrá que entrar con la nueva.`
+            : 'Contraseña cambiada. Ya puede entrar con la nueva.',
+      });
+      setTemporales(prev => {
+        const { [target.id]: _, ...resto } = prev;
+        return vence ? { ...resto, [target.id]: vence } : resto;
       });
       setPwdDraft('');
       void fetchChangeHistory();
     } catch (err: any) {
       console.error('Error cambiando contraseña:', err);
       setPwdResult({ id: target.id, ok: false, msg: err?.message ?? 'Error inesperado.' });
+    } finally {
+      setSavingPwd(false);
+    }
+  };
+
+  /**
+   * El superadmin cambia la suya con su propia sesión (updateUser), no con
+   * cambiar-password: la vía de administrador cierra todas las sesiones de la
+   * cuenta, ésta incluida. Así sólo se cierran las de sus otros dispositivos y
+   * no depende de que llegue el correo de "Enviar enlace", que era su única
+   * salida: otro superadmin no puede fijársela.
+   */
+  const cambiarMiPassword = async () => {
+    if (!isSuperAdmin || savingPwd) return;
+    const password = pwdDraft;
+    if (password.length < MIN_TEMP_PASSWORD) {
+      setPwdResult({ id: user.id, ok: false, msg: `La contraseña necesita al menos ${MIN_TEMP_PASSWORD} caracteres.` });
+      return;
+    }
+
+    setSavingPwd(true);
+    setPwdResult(null);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        const msg = (error.message ?? '').toLowerCase();
+        setPwdResult({
+          id: user.id,
+          ok: false,
+          msg: msg.includes('should be different') || msg.includes('same as the old')
+            ? 'Ésa ya es tu contraseña actual. Escribe una distinta.'
+            : msg.includes('reauthentication')
+              ? 'Supabase pide confirmar tu identidad para este cambio: usa "Enviar enlace".'
+              : msg.includes('session') || msg.includes('jwt')
+                ? 'Tu sesión expiró. Vuelve a iniciar sesión.'
+                : error.name === 'AuthWeakPasswordError' || msg.includes('weak')
+                  ? 'Supabase rechazó la contraseña por débil. Usa una más larga o genera una.'
+                  : error.message || 'No se pudo cambiar la contraseña. Intenta de nuevo.',
+        });
+        return;
+      }
+
+      setPwdResult({
+        id: user.id,
+        ok: true,
+        email: user.email || undefined,
+        password,
+        msg: 'Listo, tu contraseña cambió. Sigues dentro; en tus otros dispositivos entra con la nueva.',
+      });
+      setPwdDraft('');
+
+      // Mismo registro que deja cambiar-password: quién y cuándo, nunca la contraseña.
+      const { error: histError } = await supabase.from('change_history').insert([{
+        table_name: 'profiles',
+        record_id: user.id,
+        action: 'UPDATE',
+        changed_by: user.id,
+        changed_by_name: user.name ?? null,
+        changed_by_role: user.role ?? null,
+        changes: [{ field: 'contraseña', before: '••••••••', after: 'cambiada por su dueño' }],
+        previous_data: null,
+        new_data: { email: user.email || null, full_name: user.name ?? null },
+      }]);
+      if (histError) console.error('No se registró en el historial:', histError);
+      else void fetchChangeHistory();
+    } catch (err: any) {
+      console.error('Error cambiando tu contraseña:', err);
+      setPwdResult({ id: user.id, ok: false, msg: err?.message ?? 'Error inesperado.' });
     } finally {
       setSavingPwd(false);
     }
@@ -3294,7 +3387,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       `Acceso a AIFA Contratos — ${fullName ?? ''}`.trim(),
       `Dirección: ${urlRetorno()}`,
       `Correo: ${pwdResult.email ?? ''}`,
-      `Contraseña nueva: ${pwdResult.password}`,
+      ...(pwdResult.vence
+        ? [
+            `Contraseña temporal: ${pwdResult.password}`,
+            `Vence: ${fechaVence(pwdResult.vence)}`,
+            '',
+            'Al entrar con ella, el sistema te pedirá escoger tu propia contraseña.',
+          ]
+        : [`Contraseña nueva: ${pwdResult.password}`]),
     ].join('\n');
     try {
       await navigator.clipboard.writeText(texto);
@@ -10533,6 +10633,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   // Usuarios o Bitácora…). Va aquí abajo, después de todos los fetch, para no
   // tocarlos antes de que existan.
   const irDesdeAyuda = (vista: string, detalle?: string) => {
+    // En celular el menú lateral abierto taparía la pantalla de destino.
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
     if (vista === 'historial' || vista === 'accesos') {
       if (!isAdmin) return;
       if (vista === 'historial') { setActiveTab('history'); return; }
@@ -13229,11 +13331,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             const fotoAbierta = !protegido && fotoPanelUserId === u.id;
                             const fotoSugerida = fotoAbierta ? fotoDelOrganigrama(u.full_name) : null;
                             const fMsg = fotoMsg?.id === u.id ? fotoMsg : null;
-                            // Supabase cierra las sesiones de quien cambia de contraseña: en la
-                            // propia fila sacaría al superadmin. Para la suya, "Enviar enlace".
-                            // La de otro superadmin tampoco: sería quedarse con su cuenta.
+                            // La de otro superadmin no: sería quedarse con su cuenta.
                             const puedeFijarPwd = isSuperAdmin && !esYo && !u.is_superadmin;
-                            const panelAbierto = puedeFijarPwd && pwdPanelUserId === u.id;
+                            // La suya la cambia con su propia sesión (cambiarMiPassword), sin
+                            // esperar el correo: nadie más puede fijársela.
+                            const puedeCambiarLaMia = isSuperAdmin && esYo;
+                            const panelAbierto = (puedeFijarPwd || puedeCambiarLaMia) && pwdPanelUserId === u.id;
                             // Nadie se da de baja a sí mismo, y a un superadmin primero se le
                             // quita la marca desde SQL (la función lo exige igual).
                             const puedeDarBaja = isSuperAdmin && !esYo && !u.is_superadmin;
@@ -13295,6 +13398,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       <p className="text-[11px] text-slate-400 truncate" title={u.email ?? ''}>
                                         {u.email ?? 'Sin correo registrado'}
                                       </p>
+                                      {temporales[u.id] && (
+                                        <p
+                                          className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-semibold text-amber-700"
+                                          title="Tiene una contraseña temporal que todavía no cambia"
+                                        >
+                                          <Clock className="h-3 w-3 flex-shrink-0" />
+                                          Temporal · vence {fechaVence(temporales[u.id])}
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
 
@@ -13386,12 +13498,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         : <Mail className="h-3.5 w-3.5" />}
                                       Enviar enlace
                                     </button>
-                                    {puedeFijarPwd && (
+                                    {(puedeFijarPwd || puedeCambiarLaMia) && (
                                       <button
                                         type="button"
                                         onClick={() => { openPwdPanel(u.id); setBajaPanelUserId(null); setSuperPanelUserId(null); }}
                                         aria-expanded={panelAbierto}
-                                        title={`Fijar una contraseña nueva para ${u.full_name ?? 'este usuario'}`}
+                                        title={esYo ? 'Cambiar tu contraseña ahora, sin esperar el correo' : `Fijar una contraseña nueva para ${u.full_name ?? 'este usuario'}`}
                                         className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-colors ${
                                           panelAbierto
                                             ? 'bg-amber-500 border-amber-500 text-white'
@@ -13399,7 +13511,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         }`}
                                       >
                                         <KeyRound className="h-3.5 w-3.5" />
-                                        Cambiar contraseña
+                                        {esYo ? 'Cambiar mi contraseña' : 'Cambiar contraseña'}
                                       </button>
                                     )}
                                     {puedeDarBaja && (
@@ -13702,7 +13814,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 {/* Panel del superadmin para fijar la contraseña */}
                                 {panelAbierto && (
                                   <form
-                                    onSubmit={e => { e.preventDefault(); void changeUserPassword(u); }}
+                                    onSubmit={e => { e.preventDefault(); void (esYo ? cambiarMiPassword() : changeUserPassword(u)); }}
                                     className="mt-4 rounded-2xl border border-amber-200 bg-white p-4 shadow-sm"
                                   >
                                     {pwdRes?.ok ? (
@@ -13713,7 +13825,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <div className="flex-1 min-w-0">
                                           <p className="text-sm font-bold text-slate-800">{pwdRes.msg}</p>
                                           <p className="text-xs text-slate-500 mt-0.5">
-                                            Nueva contraseña: <span className="font-mono font-semibold text-slate-800 tracking-wide">{pwdRes.password}</span>
+                                            {pwdRes.vence ? 'Contraseña temporal' : 'Nueva contraseña'}: <span className="font-mono font-semibold text-slate-800 tracking-wide">{pwdRes.password}</span>
                                           </p>
                                         </div>
                                         <div className="flex gap-2 flex-shrink-0">
@@ -13741,14 +13853,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <div className="flex items-center gap-2 mb-3">
                                           <ShieldAlert className="h-4 w-4 text-amber-600 flex-shrink-0" />
                                           <p className="text-xs font-bold text-slate-700">
-                                            Nueva contraseña para {u.full_name ?? 'este usuario'}
+                                            {esYo ? 'Tu nueva contraseña' : `Nueva contraseña para ${u.full_name ?? 'este usuario'}`}
                                           </p>
                                         </div>
+                                        {!esYo && (
+                                          <div role="radiogroup" aria-label="Tipo de contraseña" className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                                            {([
+                                              { valor: true, titulo: 'Temporal · 24 horas', detalle: 'Al entrar le pide escoger la suya. Si no la usa, vence.', Icono: Clock },
+                                              { valor: false, titulo: 'Definitiva', detalle: 'Se queda así hasta que alguien la cambie.', Icono: KeyRound },
+                                            ] as const).map(({ valor, titulo, detalle, Icono }) => {
+                                              const activo = pwdTemporal === valor;
+                                              return (
+                                                <button
+                                                  key={titulo}
+                                                  type="button"
+                                                  role="radio"
+                                                  aria-checked={activo}
+                                                  onClick={() => { setPwdTemporal(valor); setPwdResult(null); }}
+                                                  className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                                                    activo ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-400/20' : 'border-slate-200 bg-white hover:bg-slate-50'
+                                                  }`}
+                                                >
+                                                  <span className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border ${activo ? 'border-amber-500 bg-amber-500' : 'border-slate-300 bg-white'}`}>
+                                                    {activo && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                                                  </span>
+                                                  <span className="min-w-0">
+                                                    <span className={`flex items-center gap-1.5 text-xs font-bold ${activo ? 'text-amber-900' : 'text-slate-700'}`}>
+                                                      <Icono className="h-3.5 w-3.5 flex-shrink-0" />
+                                                      {titulo}
+                                                    </span>
+                                                    <span className="block text-[11px] text-slate-500 mt-0.5">{detalle}</span>
+                                                  </span>
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
                                         <div className="flex flex-col sm:flex-row gap-2">
                                           <div className="relative flex-1 min-w-0">
                                             <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
                                             <input
-                                              aria-label={`Nueva contraseña para ${u.full_name ?? 'el usuario'}`}
+                                              aria-label={esYo ? 'Tu nueva contraseña' : `Nueva contraseña para ${u.full_name ?? 'el usuario'}`}
                                               type={showPwdDraft ? 'text' : 'password'}
                                               autoComplete="new-password"
                                               autoFocus
@@ -13808,8 +13953,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <p className="flex items-start gap-1.5 mt-2 text-[11px] text-slate-400">
                                           <Info className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
                                           <span>
-                                            Se cerrarán sus sesiones abiertas y tendrá que entrar con la nueva.
-                                            Queda en el Historial que la cambiaste; la contraseña no se guarda.
+                                            {esYo
+                                              ? 'Esta sesión sigue abierta; en tus otros dispositivos tendrás que entrar con la nueva. Queda en el Historial que la cambiaste; la contraseña no se guarda.'
+                                              : pwdTemporal
+                                                ? 'Se cerrarán sus sesiones abiertas. Pásale la contraseña: tiene 24 horas para entrar con ella y escoger la suya; después deja de servir. Queda en el Historial; la contraseña no se guarda.'
+                                                : 'Se cerrarán sus sesiones abiertas y tendrá que entrar con la nueva. Queda en el Historial que la cambiaste; la contraseña no se guarda.'}
                                           </span>
                                         </p>
                                       </>
@@ -13909,7 +14057,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <KeyRound className="h-3.5 w-3.5 flex-shrink-0 mt-px text-amber-600" />
                           <span>
                             {isSuperAdmin
-                              ? <><strong>Cambiar contraseña</strong> la fija tú directamente, <strong>Dar de baja</strong> le quita el acceso (se puede reactivar) y <strong>Hacer superadmin</strong> le da estos mismos botones a otro administrador. Sólo los superadmins los tienen.</>
+                              ? <><strong>Cambiar contraseña</strong> la fija tú directamente (temporal de 24 horas, que pide cambiarla al entrar, o definitiva), <strong>Dar de baja</strong> le quita el acceso (se puede reactivar) y <strong>Hacer superadmin</strong> le da estos mismos botones a otro administrador. Sólo los superadmins los tienen. La tuya la cambias en tu renglón con <strong>Cambiar mi contraseña</strong>, sin esperar ningún correo.</>
                               : <>Fijar contraseñas ajenas, dar de baja usuarios y nombrar superadmins es exclusivo de los superadmins.</>}
                           </span>
                         </p>

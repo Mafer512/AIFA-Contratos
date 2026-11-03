@@ -48,14 +48,22 @@ const CUENTA_DE_BAJA = {
   detail: 'Esta cuenta ya no tiene acceso al sistema. Si crees que es un error, comunícate con el administrador.',
 };
 
+/** Lo que ve quien entra con una contraseña temporal que ya venció. */
+const TEMPORAL_VENCIDA = {
+  title: 'Tu contraseña temporal venció',
+  detail: 'Duraba 24 horas y ya no sirve. Pide a un superadmin que te dé otra.',
+};
+
 interface LoginProps {
   onLoginSuccess: () => void;
   externalSuccessMessage?: string;
   /** La sesión se cerró porque la cuenta fue dada de baja. */
   cuentaDadaDeBaja?: boolean;
+  /** La sesión se cerró porque entró con una contraseña temporal vencida. */
+  temporalVencida?: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage, cuentaDadaDeBaja }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage, cuentaDadaDeBaja, temporalVencida }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -92,6 +100,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage, c
     setSuccessMessage('');
   }, [cuentaDadaDeBaja]);
 
+  useEffect(() => {
+    if (!temporalVencida) return;
+    setErrorHeader(TEMPORAL_VENCIDA.title);
+    setErrorDetail(TEMPORAL_VENCIDA.detail);
+    setSuccessMessage('');
+  }, [temporalVencida]);
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -125,7 +140,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, externalSuccessMessage, c
         setShowApiKeyHelp(true);
       } else if (msgLower.includes("invalid login credentials")) {
         setErrorHeader("Credenciales Inválidas");
-        setErrorDetail("La contraseña es incorrecta o no ha confirmado su correo electrónico todavía. Por favor, busque el correo de confirmación en su bandeja de entrada o Spam.");
+        setErrorDetail("La contraseña es incorrecta o no ha confirmado su correo electrónico todavía. Por favor, busque el correo de confirmación en su bandeja de entrada o Spam. Si le dieron una contraseña temporal, dura 24 horas: si ya pasaron, pida otra.");
       } else if (msgLower.includes("banned")) {
         setErrorHeader(CUENTA_DE_BAJA.title);
         setErrorDetail(CUENTA_DE_BAJA.detail);

@@ -25,6 +25,9 @@ const App: React.FC = () => {
   const [recoveryLinkError, setRecoveryLinkError] = useState<string | null>(authLink.error);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [cuentaDeBaja, setCuentaDeBaja] = useState(false);
+  // Contraseña temporal: hasta cuándo vale la que trae, o que ya venció.
+  const [temporalVence, setTemporalVence] = useState<string | null>(null);
+  const [temporalVencida, setTemporalVencida] = useState(false);
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [isStandaloneMode, setIsStandaloneMode] = useState(false);
@@ -364,6 +367,31 @@ const App: React.FC = () => {
       console.error('Unexpected error fetching profile:', error);
     }
 
+    // Entró con la contraseña temporal que le dio un superadmin: antes de
+    // pasar escoge la suya. Si ya venció, la base la invalida en ese momento y
+    // aquí se le saca con el porqué. Sin la migración la función no existe y
+    // se entra como siempre.
+    try {
+      const { data: temporal } = await supabase.rpc('revisar_mi_password_temporal');
+      if (temporal?.pendiente) {
+        if (temporal.vencida) {
+          setTemporalVencida(true);
+          try { await supabase.auth.signOut(); } catch (_) {}
+          setCurrentUser(null);
+          setCurrentScreen(Screen.LOGIN);
+          setLoading(false);
+          return;
+        }
+        setTemporalVence(String(temporal.vence));
+        setCurrentScreen(Screen.PASSWORD_TEMPORAL);
+        setLoading(false);
+        return;
+      }
+    } catch (error) {
+      console.error('No se pudo revisar la contraseña temporal:', error);
+    }
+    setTemporalVence(null);
+
     const appUser: User = {
       id: user.id,
       email: user.email || '',
@@ -380,6 +408,7 @@ const App: React.FC = () => {
     setCurrentScreen(Screen.DASHBOARD);
     setAuthNotice(null);
     setCuentaDeBaja(false);
+    setTemporalVencida(false);
     setLoading(false);
 
     // Bitácora de accesos. Va sin await: si Supabase tarda, el dashboard ya
@@ -411,6 +440,16 @@ const App: React.FC = () => {
     setAuthNotice(mensaje || null);
     setCurrentScreen(Screen.LOGIN);
     setLoading(false);
+  };
+
+  /**
+   * Ya escogió su contraseña: a diferencia del enlace del correo, aquí sí
+   * entra directo, porque acaba de demostrar que conocía la temporal.
+   * syncSession vuelve a revisar con la base que ya no sea la temporal.
+   */
+  const handleTemporalDone = async () => {
+    const { data } = await supabase.auth.getSession();
+    await syncSession(data.session);
   };
 
   const handleLoginSuccess = () => {
@@ -546,8 +585,11 @@ const App: React.FC = () => {
       {currentScreen === Screen.RESET_PASSWORD && (
         <ResetPassword onDone={handleResetDone} linkError={recoveryLinkError} />
       )}
+      {currentScreen === Screen.PASSWORD_TEMPORAL && (
+        <ResetPassword onDone={handleTemporalDone} temporal={{ vence: temporalVence, onSalir: handleLogout }} />
+      )}
       {currentScreen === Screen.LOGIN && (
-        <Login onLoginSuccess={handleLoginSuccess} externalSuccessMessage={authNotice ?? undefined} cuentaDadaDeBaja={cuentaDeBaja} />
+        <Login onLoginSuccess={handleLoginSuccess} externalSuccessMessage={authNotice ?? undefined} cuentaDadaDeBaja={cuentaDeBaja} temporalVencida={temporalVencida} />
       )}
       {currentScreen === Screen.DASHBOARD && currentUser && (
         // Un fallo dentro del dashboard ya no puede borrar la aplicación

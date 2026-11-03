@@ -177,7 +177,9 @@ export enum Screen {
   LOGIN = 'LOGIN',
   DASHBOARD = 'DASHBOARD',
   /** Llegó por el enlace de "olvidé mi contraseña" y tiene que escribir una nueva. */
-  RESET_PASSWORD = 'RESET_PASSWORD'
+  RESET_PASSWORD = 'RESET_PASSWORD',
+  /** Entró con la contraseña temporal que le dio un superadmin: escoge la suya. */
+  PASSWORD_TEMPORAL = 'PASSWORD_TEMPORAL'
 }
 
 export interface KPIData {

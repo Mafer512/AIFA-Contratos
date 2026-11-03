@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Lock, Eye, EyeOff, ShieldCheck, AlertTriangle, CheckCircle, KeyRound } from 'lucide-react';
+import { Lock, Eye, EyeOff, ShieldCheck, AlertTriangle, CheckCircle, KeyRound, Clock } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
 // Pantalla final del restablecimiento de contraseña.
@@ -12,26 +12,36 @@ import { supabase } from '../services/supabaseClient';
 // Sin esta pantalla el enlace sólo servía para entrar una vez: la contraseña
 // seguía siendo la vieja y al siguiente intento la persona volvía a quedarse
 // fuera.
+//
+// La misma pantalla sirve a quien entra con la contraseña temporal que le dio
+// un superadmin (prop temporal): ahí la sesión es la normal y, al guardar,
+// entra directo al sistema.
 
 interface ResetPasswordProps {
   /** Se llama al terminar; el contenedor cierra la sesión y vuelve al login. */
   onDone: (mensaje: string) => void;
   /** Error que venía en el propio enlace (caducado, ya usado...). */
   linkError?: string | null;
+  /** Entró con una contraseña temporal: cuándo vence y cómo salir sin cambiarla. */
+  temporal?: { vence: string | null; onSalir: () => void };
 }
 
 const AifaLogo = ({ className = "h-20 w-auto" }: { className?: string }) => (
   <img src="/images/aifa-logo.png" alt="Logotipo AIFA" className={className} loading="lazy" />
 );
 
-const ResetPassword: React.FC<ResetPasswordProps> = ({ onDone, linkError }) => {
+const fechaVence = (iso: string) =>
+  new Date(iso).toLocaleString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+
+const ResetPassword: React.FC<ResetPasswordProps> = ({ onDone, linkError, temporal }) => {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   // Hasta no confirmar que el enlace abrió sesión, no se enseña el formulario.
-  const [sesionValida, setSesionValida] = useState<boolean | null>(linkError ? false : null);
+  // Con la temporal ya hay sesión normal: no hay enlace que comprobar.
+  const [sesionValida, setSesionValida] = useState<boolean | null>(temporal ? true : linkError ? false : null);
 
   /**
    * Comprueba que el enlace haya dejado sesión abierta antes de pedir nada.
@@ -42,7 +52,7 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ onDone, linkError }) => {
    * al pulsar Guardar le saliera un error incomprensible.
    */
   useEffect(() => {
-    if (linkError) return;
+    if (linkError || temporal) return;
     let vivo = true;
     (async () => {
       const { data } = await supabase.auth.getSession();
@@ -78,16 +88,20 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ onDone, linkError }) => {
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
 
-      onDone('Tu contraseña se actualizó. Ya puedes entrar con la nueva.');
+      onDone(temporal ? '' : 'Tu contraseña se actualizó. Ya puedes entrar con la nueva.');
     } catch (err: any) {
       console.error('Error actualizando la contraseña:', err);
       const msg = (err?.message ?? '').toLowerCase();
 
       if (msg.includes('session') || msg.includes('jwt') || msg.includes('expired')) {
         // La sesión temporal del enlace caducó mientras llenaba el formulario.
-        setError('El enlace caducó. Vuelve a la pantalla de acceso y pulsa "¿Olvidaste tu contraseña?" para pedir uno nuevo.');
+        setError(temporal
+          ? 'Tu sesión se cerró. Pulsa "Salir" y vuelve a entrar con la contraseña temporal.'
+          : 'El enlace caducó. Vuelve a la pantalla de acceso y pulsa "¿Olvidaste tu contraseña?" para pedir uno nuevo.');
       } else if (msg.includes('should be different') || msg.includes('same as the old')) {
-        setError('Esa es la misma contraseña que ya tenías. Escribe una distinta.');
+        setError(temporal
+          ? 'Ésa es la contraseña temporal. Escribe una tuya, distinta.'
+          : 'Esa es la misma contraseña que ya tenías. Escribe una distinta.');
       } else if (msg.includes('weak') || msg.includes('password')) {
         setError(err.message);
       } else {
@@ -108,14 +122,22 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ onDone, linkError }) => {
           </div>
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#0F4C3A]/10 text-[#0F4C3A] text-[10px] font-black uppercase tracking-[0.3em] border border-[#0F4C3A]/20">
             <KeyRound className="h-3 w-3" />
-            Nueva contraseña
+            {temporal ? 'Contraseña temporal' : 'Nueva contraseña'}
           </div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight mt-3">
             Crea tu contraseña
           </h1>
           <p className="text-slate-500 text-sm mt-1.5 leading-relaxed">
-            Escríbela dos veces para confirmar que quedó como querías.
+            {temporal
+              ? 'Entraste con una contraseña temporal. Para seguir, escoge la tuya y escríbela dos veces.'
+              : 'Escríbela dos veces para confirmar que quedó como querías.'}
           </p>
+          {temporal?.vence && (
+            <p className="inline-flex items-center gap-1.5 mt-3 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold">
+              <Clock className="h-3.5 w-3.5" />
+              La temporal vence el {fechaVence(temporal.vence)}
+            </p>
+          )}
         </div>
 
         {sesionValida === null ? (
@@ -234,9 +256,24 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ onDone, linkError }) => {
               )}
             </button>
 
-            <p className="text-[11px] text-slate-400 text-center leading-relaxed pt-1">
-              Al guardarla se cerrará esta ventana y podrás entrar con tu contraseña nueva.
-            </p>
+            {temporal ? (
+              <div className="text-center pt-1 space-y-2">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Al guardarla entras al sistema, y la temporal deja de servir.
+                </p>
+                <button
+                  type="button"
+                  onClick={temporal.onSalir}
+                  className="text-xs font-semibold text-slate-500 hover:text-[#0F4C3A] transition-colors"
+                >
+                  Salir
+                </button>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400 text-center leading-relaxed pt-1">
+                Al guardarla se cerrará esta ventana y podrás entrar con tu contraseña nueva.
+              </p>
+            )}
           </form>
         )}
       </div>

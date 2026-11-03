@@ -8,6 +8,10 @@
  *
  * Al cambiarla se cierran las sesiones abiertas de esa persona: si se cambia
  * porque alguien más la conocía, ese alguien queda fuera en ese momento.
+ *
+ * Con temporal: true la contraseña vence en 24 horas y, al entrar con ella,
+ * la aplicación le pide a la persona escoger la suya (ver la migración
+ * 20261103000000_password_temporal.sql).
  * La contraseña nunca se guarda ni se registra; el historial sólo anota que
  * se cambió y quién lo hizo.
  *
@@ -23,6 +27,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 
 const MIN_PASSWORD = 8;
+const HORAS_TEMPORAL = 24;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const CORS = {
@@ -91,16 +96,17 @@ Deno.serve(async (req) => {
 
   const userId = String(body.userId ?? "");
   const password = String(body.password ?? "");
+  const temporal = body.temporal === true;
   if (!UUID_RE.test(userId)) return fail(400, "usuario", "El usuario no es válido.");
   if (password.length < MIN_PASSWORD || password.length > 72) {
     return fail(400, "password", `La contraseña necesita de ${MIN_PASSWORD} a 72 caracteres.`);
   }
 
   // Supabase cierra todas las sesiones de la cuenta al cambiarle la contraseña:
-  // hacerlo sobre la propia sacaría al superadmin a media pantalla. Para la
-  // suya está "Enviar enlace", como cualquiera.
+  // hacerlo sobre la propia sacaría al superadmin a media pantalla. La suya la
+  // cambia desde la aplicación con su propia sesión ("Cambiar mi contraseña").
   if (userId === superId) {
-    return fail(400, "propia", "Para tu propia contraseña usa \"Enviar enlace\" en tu fila.");
+    return fail(400, "propia", "Para tu propia contraseña usa \"Cambiar mi contraseña\" en tu fila.");
   }
 
   const destino = await perfilDe(userId);
@@ -142,7 +148,25 @@ Deno.serve(async (req) => {
     return fail(502, "auth", "Supabase no pudo cambiar la contraseña. Intenta de nuevo.");
   }
 
-  // ── 5. Historial: quién y cuándo, nunca la contraseña ─────────────────────
+  // ── 5. Temporal ───────────────────────────────────────────────────────────
+  // Va después de fijarla porque la marca guarda la huella de la contraseña
+  // que acaba de quedar. Si falla, la contraseña ya cambió pero no vencería ni
+  // pediría cambiarse: se avisa para que se vuelva a intentar.
+  let vence: string | null = null;
+  if (temporal) {
+    const marca = await fetch(`${SUPABASE_URL}/rest/v1/rpc/marcar_password_temporal`, {
+      method: "POST",
+      headers: serviceHeaders,
+      body: JSON.stringify({ p_user: userId, p_por: superId, p_horas: HORAS_TEMPORAL }),
+    });
+    if (!marca.ok) {
+      console.error("No se pudo marcar como temporal:", marca.status, await marca.text());
+      return fail(500, "temporal", "La contraseña se cambió, pero no quedó como temporal: no vencerá ni pedirá cambiarla. Vuelve a intentarlo.");
+    }
+    vence = String(await marca.json());
+  }
+
+  // ── 6. Historial: quién y cuándo, nunca la contraseña ─────────────────────
   const hist = await fetch(`${SUPABASE_URL}/rest/v1/change_history`, {
     method: "POST",
     headers: serviceHeaders,
@@ -153,12 +177,16 @@ Deno.serve(async (req) => {
       changed_by: superId,
       changed_by_name: yo.full_name,
       changed_by_role: "ADMIN",
-      changes: [{ field: "contraseña", before: "••••••••", after: "cambiada por el superadmin" }],
+      changes: [{
+        field: "contraseña",
+        before: "••••••••",
+        after: temporal ? `temporal del superadmin (vence ${vence})` : "cambiada por el superadmin",
+      }],
       previous_data: null,
       new_data: { email: destino.email, full_name: destino.full_name, sesiones_cerradas: sesionesCerradas },
     }),
   });
   if (!hist.ok) console.error("No se registró en el historial:", hist.status, await hist.text());
 
-  return json(200, { ok: true, email: destino.email, sesionesCerradas });
+  return json(200, { ok: true, email: destino.email, sesionesCerradas, vence });
 });

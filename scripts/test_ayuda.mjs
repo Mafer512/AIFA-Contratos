@@ -47,6 +47,7 @@ ok('solo lectura: sí ve por qué no puede editar', ids(temasPara(LECTURA).flatM
 ok('operador: edita pero no elimina', ['estatus.editar', 'estatus.eliminar'].map((id) => ids(temasPara(OPERADOR).flatMap((t) => t.preguntas)).includes(id)), [true, false]);
 ok('admin sin superadmin: no ve dar de baja', ids(temasPara(ADMIN).flatMap((t) => t.preguntas)).includes('admin.baja'), false);
 ok('superadmin: sí ve dar de baja', ids(temasPara(SUPER).flatMap((t) => t.preguntas)).includes('admin.baja'), true);
+ok('sólo el superadmin ve cómo cambiar la suya', [ADMIN, SUPER].map((p) => ids(temasPara(p).flatMap((t) => t.preguntas)).includes('admin.micontrasena')), [false, true]);
 ok('usuario de Auditoría: cuenta + Auditoría', temasDe(AUDITOR), ['cuenta', 'auditoria']);
 ok('usuario de Auditoría: captura en Auditoría', ids(temasPara(AUDITOR).find((t) => t.id === 'auditoria').preguntas).includes('auditoria.capturar'), true);
 ok('lectura sin área: no ve cómo capturar letras', ids(temasPara(LECTURA).find((t) => t.id === 'auditoria').preguntas).includes('auditoria.capturar'), false);
@@ -88,6 +89,7 @@ const casos = [
   [AUDITOR, 'importar mi hoja de excel', 'auditoria.importar'],
   [ADMIN, 'dar de alta un usuario nuevo', 'admin.alta'],
   [ADMIN, 'quién modificó este registro', 'admin.historial'],
+  [SUPER, 'darle una contraseña temporal', 'admin.contrasena'],
   [ADMIN, 'quien esta conectado', 'admin.bitacora'],
   [OPERADOR, 'agregar una persona al organigrama', 'organigrama.agregar'],
   [OPERADOR, 'cambiar foto', 'organigrama.foto'],
@@ -105,6 +107,8 @@ for (const [perfil, texto, esperado] of casos) ok(`"${texto}"`, primera(perfil, 
 ok('sin pistas: nada', buscarPreguntas(temasPara(ADMIN), 'xyzzy qwerty'), []);
 ok('sólo palabras vacías: nada', buscarPreguntas(temasPara(ADMIN), '¿cómo le hago?'), []);
 ok('"contrato" no confunde con "contraseña"', ids(buscarPreguntas(temasPara(ADMIN), 'contrato')).some((id) => id.startsWith('cuenta.')), false);
+ok('superadmin: "cómo cambio mi contraseña" encuentra la suya', ids(buscarPreguntas(temasPara(SUPER), 'cómo cambio mi contraseña')).includes('admin.micontrasena'), true);
+ok('superadmin: "olvidé mi contraseña" también', ids(buscarPreguntas(temasPara(SUPER), 'olvidé mi contraseña')).includes('admin.micontrasena'), true);
 ok('lectura no encuentra dar de alta', ids(buscarPreguntas(temasPara(LECTURA), 'dar de alta un usuario')).includes('admin.alta'), false);
 ok('máximo 5 resultados', buscarPreguntas(temasPara(ADMIN), 'servicio').length <= 5, true);
 

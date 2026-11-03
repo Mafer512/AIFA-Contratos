@@ -862,10 +862,26 @@ export const TEMAS: Tema[] = [
         resumen: 'Lo más seguro es que la cambie la propia persona.',
         pasos: [
           'En **Accesos → Usuarios** pulsa **Enviar enlace** en su renglón: le llega un correo para definir su contraseña.',
-          'Si eres superadmin, también puedes fijarla tú con **Cambiar contraseña**.',
+          'Si eres superadmin, también puedes darle una tú con **Cambiar contraseña**. Elige **Temporal · 24 horas**, pulsa **Generar** y **Guardar contraseña**.',
+          'Pásale los datos con **Copiar datos**. Al entrar con la temporal, el sistema le pide escoger la suya; si no la usa en 24 horas, deja de servir.',
         ],
+        tip: 'Mientras no la cambie, su renglón dice **Temporal · vence …**. Con **Definitiva** la contraseña se queda como la escribiste.',
         ir: { vista: 'accesos', detalle: 'usuarios', etiqueta: 'Ir a Usuarios' },
-        claves: 'contraseña olvido usuario restablecer enviar enlace cambiar contraseña de otro password',
+        claves: 'contraseña olvido usuario restablecer enviar enlace cambiar contraseña de otro password temporal provisional 24 horas',
+      },
+      {
+        id: 'admin.micontrasena',
+        pregunta: 'Soy superadmin: ¿cómo cambio mi propia contraseña?',
+        resumen: 'Desde tu renglón en **Accesos → Usuarios**, sin esperar ningún correo y aunque ya no recuerdes la actual.',
+        pasos: [
+          'En **Accesos → Usuarios** busca tu renglón (tiene la etiqueta **Tú**).',
+          'Pulsa **Cambiar mi contraseña**, escribe la nueva (mínimo 8 caracteres) o pulsa **Generar**.',
+          'Pulsa **Guardar contraseña**. Te la muestra una vez para que la anotes o la copies.',
+        ],
+        tip: 'Esta sesión sigue abierta; en tus otros dispositivos tendrás que entrar con la nueva. Si ya no tienes sesión en ningún lado, usa **¿Olvidaste tu contraseña?** en la pantalla de acceso.',
+        requiere: 'superadmin',
+        ir: { vista: 'accesos', detalle: 'usuarios', etiqueta: 'Ir a Usuarios' },
+        claves: 'mi contraseña propia cambiar olvide olvidé no recuerdo superadmin password clave nueva',
       },
       {
         id: 'admin.baja',
