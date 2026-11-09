@@ -44,6 +44,10 @@ import AsistenteAyuda from './AsistenteAyuda';
 import SelectorPermisos, { type Permisos } from './PermisosVistas';
 import { puedeVer, primeraVista, destinoDeVista, vistaActual, resumenModulos, normalizarModulos, GRUPOS_VISTAS } from '../utils/vistas';
 import { estadoServicio, duracionesTipicas, valoresPrevios, INDICE_ADJUDICADO } from '../utils/avanceFase';
+import {
+  PALETA_ESTATUS, MAX_NOMBRE_ESTATUS, limpiarNombreEstatus, validarNombreEstatus, buscarEstatusExistente,
+  colorSugeridoEstatus, type EstatusExtra,
+} from '../utils/estatusOpciones';
 import { ORGANIGRAMA_BASE } from '../data/organigrama';
 import { RESPONSABLE_PROFILES_CON_ORGANIGRAMA } from '../data/responsables';
 import { supabase, supabaseOperaciones, supabaseSignUp } from '../services/supabaseClient';
@@ -750,31 +754,310 @@ const getEstatusColorClass = (label: string) => {
   return 'bg-slate-100 text-slate-700 border-slate-200';
 };
 
+/** Pastilla del estatus: las etapas con su clase de siempre, las agregadas con su color. */
+const BadgeEstatus: React.FC<{ label: string; color?: string | null }> = ({ label, color }) => (
+  color ? (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold border text-slate-800"
+      style={{ backgroundColor: `${color}1F`, borderColor: `${color}80` }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+      {label}
+    </span>
+  ) : (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border ${getEstatusColorClass(label)}`}>
+      {label}
+    </span>
+  )
+);
+
 interface EstatusStatusPickerProps {
   value: string;
   onChange: (nextValue: string) => void;
+  /** Opciones que agregó el equipo (tabla estatus_opciones). */
+  extras?: readonly EstatusExtra[];
+  /** Cuántos servicios usan cada estatus, para no dejar quitar una opción en uso. */
+  usos?: Readonly<Record<string, number>>;
+  /** Sin esto no se ofrece "Agregar otra opción". */
+  onAgregar?: (nombre: string, color: string) => Promise<{ nombre: string } | { error: string }>;
+  /** Sin esto no se ofrece quitar opciones (sólo administradores). */
+  onQuitar?: (extra: EstatusExtra) => Promise<string | null>;
 }
 
-const EstatusStatusPicker: React.FC<EstatusStatusPickerProps> = ({ value, onChange }) => {
-  const currentValue = ESTATUS_2026_OPTIONS.includes(value as any) ? value : '';
+/**
+ * Selector del estatus. Las 11 etapas fijas, luego las que agregó el equipo y,
+ * al final, "Agregar otra opción": se escribe el nombre, se escoge un color y
+ * queda elegida para este servicio y disponible para todos.
+ */
+const EstatusStatusPicker: React.FC<EstatusStatusPickerProps> = ({ value, onChange, extras = [], usos = {}, onAgregar, onQuitar }) => {
+  const [abierto, setAbierto] = useState(false);
+  const [agregando, setAgregando] = useState(false);
+  const [nombre, setNombre] = useState('');
+  const [color, setColor] = useState<string>(PALETA_ESTATUS[0]);
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [quitando, setQuitando] = useState<number | null>(null);
+  const [pos, setPos] = useState<React.CSSProperties>({});
+  const botonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  const actual = String(value ?? '').trim();
+  const extraActual = extras.find((e) => e.nombre === actual) ?? null;
+  const existente = agregando ? buscarEstatusExistente(nombre, ESTATUS_2026_OPTIONS, extras) : null;
+
+  const cerrar = useCallback(() => {
+    setAbierto(false);
+    setAgregando(false);
+    setNombre('');
+    setError(null);
+  }, []);
+
+  // Fijo a la ventana: la tabla tiene su propio scroll y recortaría el panel.
+  // Si abajo no cabe, se abre hacia arriba.
+  const colocar = useCallback(() => {
+    const b = botonRef.current;
+    if (!b) return;
+    const r = b.getBoundingClientRect();
+    const ancho = Math.min(300, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - ancho - 8));
+    const abajo = window.innerHeight - r.bottom - 8;
+    const arriba = r.top - 8;
+    if (abajo < 360 && arriba > abajo) {
+      setPos({ position: 'fixed', left, width: ancho, bottom: window.innerHeight - r.top + 6, maxHeight: Math.max(200, arriba - 8) });
+    } else {
+      setPos({ position: 'fixed', left, width: ancho, top: r.bottom + 6, maxHeight: Math.max(200, abajo - 8) });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!abierto) return;
+    colocar();
+    // Si el servicio ya tiene una opción agregada, queda abajo: se muestra de entrada.
+    requestAnimationFrame(() => panelRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }));
+    const fuera = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (panelRef.current?.contains(t) || botonRef.current?.contains(t)) return;
+      cerrar();
+    };
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); cerrar(); } };
+    document.addEventListener('mousedown', fuera);
+    document.addEventListener('keydown', tecla);
+    window.addEventListener('resize', colocar);
+    window.addEventListener('scroll', colocar, true);
+    return () => {
+      document.removeEventListener('mousedown', fuera);
+      document.removeEventListener('keydown', tecla);
+      window.removeEventListener('resize', colocar);
+      window.removeEventListener('scroll', colocar, true);
+    };
+  }, [abierto, colocar, cerrar]);
+
+  const elegir = (v: string) => {
+    if (v !== actual) onChange(v);
+    cerrar();
+  };
+
+  const abrirFormulario = () => {
+    setAgregando(true);
+    setNombre('');
+    setError(null);
+    setColor(colorSugeridoEstatus(extras));
+  };
+
+  const agregar = async () => {
+    if (!onAgregar || guardando) return;
+    if (existente) { elegir(existente); return; }
+    const limpio = limpiarNombreEstatus(nombre);
+    const invalido = validarNombreEstatus(limpio);
+    if (invalido) { setError(invalido); return; }
+    setGuardando(true);
+    setError(null);
+    const r = await onAgregar(limpio, color);
+    setGuardando(false);
+    if ('error' in r) { setError(r.error); return; }
+    elegir(r.nombre);
+  };
+
+  const quitar = async (e: EstatusExtra) => {
+    if (!onQuitar || quitando !== null) return;
+    if (!window.confirm(`¿Quitar la opción "${e.nombre}"?\n\nYa no aparecerá en la lista para nadie.`)) return;
+    setQuitando(e.id);
+    const err = await onQuitar(e);
+    setQuitando(null);
+    if (err) window.alert(err);
+  };
+
+  const fila = (label: string, dot: string, activa: boolean) => (
+    <>
+      <span className="h-2.5 w-2.5 rounded-full flex-shrink-0 ring-1 ring-black/10" style={{ backgroundColor: dot }} />
+      <span className={`flex-1 min-w-0 text-[12px] leading-snug ${activa ? 'font-bold text-[#0F4C3A]' : 'text-slate-700'}`}>{label}</span>
+      {activa && <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-[#0F4C3A]" />}
+    </>
+  );
+
   return (
-    <div className="flex flex-col items-center gap-1 min-w-[200px]" onClick={(e) => e.stopPropagation()}>
-      {currentValue && (
-        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border ${getEstatusColorClass(currentValue)}`}>
-          {currentValue}
-        </span>
-      )}
-      <select
-        className="w-full text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 cursor-pointer"
-        value={currentValue}
-        onChange={(e) => onChange(e.target.value)}
+    <div className="w-full min-w-[200px]" onClick={(e) => e.stopPropagation()}>
+      <button
+        ref={botonRef}
+        type="button"
         aria-label="Estatus"
+        aria-haspopup="listbox"
+        aria-expanded={abierto}
+        onClick={() => (abierto ? cerrar() : setAbierto(true))}
+        className={`w-full flex items-center justify-center gap-1 rounded-md border px-1.5 py-1 bg-white text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/40 ${abierto ? 'border-[#0F4C3A]' : 'border-slate-300 hover:border-slate-400'}`}
       >
-        <option value="">— Seleccionar —</option>
-        {ESTATUS_2026_OPTIONS.map((opt) => (
-          <option key={opt} value={opt}>{opt}</option>
-        ))}
-      </select>
+        <span className="flex-1 min-w-0 flex justify-center">
+          {actual ? <BadgeEstatus label={actual} color={extraActual?.color} /> : <span className="text-xs text-slate-500">— Seleccionar —</span>}
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-slate-400 transition-transform ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+
+      {abierto && createPortal(
+        <div
+          ref={panelRef}
+          role="listbox"
+          aria-label="Opciones de estatus"
+          className="z-[2000] flex flex-col rounded-xl border border-slate-200 bg-white text-left shadow-2xl overflow-hidden"
+          style={pos}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto p-1.5">
+            <p className="px-2 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Etapas del proceso</p>
+            {ESTATUS_2026_OPTIONS.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                role="option"
+                aria-selected={opt === actual}
+                onClick={() => elegir(opt)}
+                className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${opt === actual ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}
+              >
+                {fila(opt, ESTATUS_2026_COLOR_MAP[opt] ?? '#94A3B8', opt === actual)}
+              </button>
+            ))}
+
+            {extras.length > 0 && (
+              <>
+                <p className="px-2 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Agregadas por el equipo</p>
+                {extras.map((e) => {
+                  const enUso = usos[e.nombre] ?? 0;
+                  return (
+                    <div key={e.id} className={`group flex items-center rounded-lg transition-colors ${e.nombre === actual ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={e.nombre === actual}
+                        onClick={() => elegir(e.nombre)}
+                        className="flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 text-left"
+                      >
+                        {fila(e.nombre, e.color, e.nombre === actual)}
+                      </button>
+                      {onQuitar && (
+                        <button
+                          type="button"
+                          onClick={() => quitar(e)}
+                          disabled={enUso > 0 || quitando !== null}
+                          aria-label={`Quitar la opción ${e.nombre}`}
+                          title={enUso > 0
+                            ? `La usa${enUso === 1 ? ' 1 servicio' : `n ${enUso} servicios`}: cámbiales el estatus antes de quitarla.`
+                            : 'Quitar esta opción de la lista'}
+                          className="mr-1 p-1.5 rounded-md text-slate-300 hover:text-red-600 hover:bg-red-50 disabled:hover:bg-transparent disabled:hover:text-slate-300 disabled:cursor-not-allowed opacity-60 group-hover:opacity-100 focus:opacity-100"
+                        >
+                          {quitando === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
+            {actual && (
+              <button
+                type="button"
+                onClick={() => elegir('')}
+                className="w-full mt-1 flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] text-slate-500 hover:bg-slate-50"
+              >
+                <X className="h-3 w-3 flex-shrink-0" />
+                Quitar estatus
+              </button>
+            )}
+          </div>
+
+          {onAgregar && (
+            <div className="border-t border-slate-100 bg-slate-50/70 p-2">
+              {!agregando ? (
+                <button
+                  type="button"
+                  onClick={abrirFormulario}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#0F4C3A]/40 bg-white px-2 py-2 text-[12px] font-bold text-[#0F4C3A] hover:bg-emerald-50 hover:border-[#0F4C3A] transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Agregar otra opción
+                </button>
+              ) : (
+                <form
+                  onSubmit={(e) => { e.preventDefault(); void agregar(); }}
+                  className="space-y-2"
+                >
+                  <input
+                    autoFocus
+                    value={nombre}
+                    maxLength={MAX_NOMBRE_ESTATUS}
+                    onChange={(e) => { setNombre(e.target.value); setError(null); }}
+                    placeholder="Ej. En espera de suficiencia"
+                    aria-label="Nombre de la nueva opción"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[12px] text-slate-800 placeholder:text-slate-400 focus:border-[#0F4C3A] focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/20"
+                  />
+                  {!existente && (
+                    <div className="flex items-center gap-1.5" role="radiogroup" aria-label="Color">
+                      {PALETA_ESTATUS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          role="radio"
+                          aria-checked={color === c}
+                          aria-label={`Color ${c}`}
+                          onClick={() => setColor(c)}
+                          className={`h-5 w-5 rounded-full transition-transform ${color === c ? 'ring-2 ring-offset-1 ring-slate-700 scale-110' : 'hover:scale-110'}`}
+                          style={{ backgroundColor: c }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {existente && (
+                    <p className="text-[11px] text-slate-600">Ya existe <strong>{existente}</strong>: se elegirá esa.</p>
+                  )}
+                  {error && (
+                    <p role="alert" className="flex items-start gap-1 text-[11px] font-medium text-red-600">
+                      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                      {error}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { setAgregando(false); setError(null); }}
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={guardando || !limpiarNombreEstatus(nombre)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0F4C3A] text-white text-[11px] font-bold hover:bg-[#0d3f30] disabled:opacity-50"
+                    >
+                      {guardando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      {existente ? 'Elegir' : 'Agregar y elegir'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
@@ -6736,12 +7019,90 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     return null;
   }, [estatus2026TableColumns]);
 
+  // ── Opciones de estatus que agrega el equipo (tabla estatus_opciones) ──────
+  const [estatusExtras, setEstatusExtras] = useState<EstatusExtra[]>([]);
+  // Sin la migración la tabla no existe: sólo las 11 etapas y sin "Agregar otra opción".
+  const [opcionesEstatusListas, setOpcionesEstatusListas] = useState(false);
+
+  const fetchEstatusExtras = useCallback(async (): Promise<EstatusExtra[]> => {
+    const { data, error } = await supabase.from('estatus_opciones').select('id, nombre, color').order('creada_at');
+    if (error) return [];
+    const lista = (data ?? []) as EstatusExtra[];
+    setEstatusExtras(lista);
+    setOpcionesEstatusListas(true);
+    return lista;
+  }, []);
+
+  useEffect(() => { void fetchEstatusExtras(); }, [fetchEstatusExtras]);
+
+  /** Las 11 etapas y, después, las agregadas. */
+  const opcionesEstatus = useMemo<string[]>(
+    () => [...ESTATUS_2026_OPTIONS, ...estatusExtras.map((e) => e.nombre)],
+    [estatusExtras],
+  );
+  const estatusEnProceso = useMemo(
+    () => opcionesEstatus.filter((s) => s !== 'Adjudicado' && s !== 'Cancelado'),
+    [opcionesEstatus],
+  );
+  const colorDeEstatus = useCallback(
+    (label: string, otro = '#94A3B8') =>
+      ESTATUS_2026_COLOR_MAP[label] ?? estatusExtras.find((e) => e.nombre === label)?.color ?? otro,
+    [estatusExtras],
+  );
+
+  /** Cuántos servicios del año usan cada estatus, tal cual está escrito. */
+  const usosEstatus = useMemo(() => {
+    const n: Record<string, number> = {};
+    if (!estatus2026EstatusColumnField) return n;
+    estatusAnioData.forEach((row) => {
+      const v = String(row[estatus2026EstatusColumnField] ?? '').trim();
+      if (v) n[v] = (n[v] ?? 0) + 1;
+    });
+    return n;
+  }, [estatusAnioData, estatus2026EstatusColumnField]);
+
+  const agregarEstatusExtra = async (nombre: string, color: string): Promise<{ nombre: string } | { error: string }> => {
+    const { data, error } = await supabase
+      .from('estatus_opciones')
+      .insert([{ nombre, color }])
+      .select('id, nombre, color')
+      .single();
+    if (error) {
+      // Alguien más la agregó al mismo tiempo (o con otras mayúsculas): se usa ésa.
+      if (error.code === '23505') {
+        const lista = await fetchEstatusExtras();
+        const ya = buscarEstatusExistente(nombre, ESTATUS_2026_OPTIONS, lista);
+        if (ya) return { nombre: ya };
+      }
+      if (error.code === '42P01' || error.code === 'PGRST205') {
+        return { error: 'Falta activar las opciones nuevas en la base de datos. Avisa al administrador.' };
+      }
+      if (error.code === '42501') return { error: 'Tu usuario no puede agregar opciones de estatus.' };
+      if (error.code === '23514') return { error: 'Ese nombre no se puede usar: elige otro.' };
+      return { error: error.message || 'No se pudo agregar la opción.' };
+    }
+    setEstatusExtras((prev) => [...prev, data as EstatusExtra]);
+    return { nombre: (data as EstatusExtra).nombre };
+  };
+
+  const quitarEstatusExtra = async (extra: EstatusExtra): Promise<string | null> => {
+    const { data, error } = await supabase.from('estatus_opciones').delete().eq('id', extra.id).select('id');
+    if (error) return error.message || 'No se pudo quitar la opción.';
+    // Sin permiso, la política no borra nada y tampoco avisa.
+    if (!data?.length) return 'Sólo un administrador puede quitar opciones.';
+    setEstatusExtras((prev) => prev.filter((e) => e.id !== extra.id));
+    return null;
+  };
+
   // Normalize a raw status value to one of the 11 canonical options (or 'Sin estatus')
   const normalizeEstatus2026Value = (raw: any): string => {
     if (raw === null || raw === undefined || String(raw).trim() === '') return 'Sin estatus';
     const trimmed = String(raw).trim();
     // Direct match — if the stored value is already a canonical option, return it as-is
     if (ESTATUS_2026_OPTIONS.includes(trimmed as any)) return trimmed;
+    // Una opción que agregó el equipo se queda como está: las reglas de abajo
+    // la confundirían con una etapa ("Suspendido por DEFENSA").
+    if (estatusExtras.some((e) => e.nombre === trimmed)) return trimmed;
     const val = trimmed.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (val.includes('cancelad') || val.includes('cancelar')) return 'Cancelado';
     if (val.includes('adjudicad') || val.includes('contratad')) return 'Adjudicado';
@@ -6845,7 +7206,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       const label = normalizeEstatus2026Value(raw);
       counts[label] = (counts[label] ?? 0) + 1;
     });
-    const ORDER = [...ESTATUS_2026_OPTIONS, 'Sin estatus'];
+    const ORDER = [...opcionesEstatus, 'Sin estatus'];
     return Object.entries(counts)
       .filter(([, v]) => v > 0)
       .map(([name, value]) => ({ name, value }))
@@ -6854,7 +7215,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const ib = ORDER.indexOf(b.name);
         return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
       });
-  }, [estatusAnioData, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+  }, [estatusAnioData, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, opcionesEstatus]);
 
   // Raw (un-sorted, un-filtered) status counts per calendar month of 2026, keyed 0-11.
   // Used to build the Mensual/Trimestral views of "Distribución de Servicios por Estatus"
@@ -6883,7 +7244,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
     });
     return byMonth;
-  }, [estatusAnioData, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+  }, [estatusAnioData, estatus2026EstatusColumnField, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, opcionesEstatus]);
 
   // Merges the raw per-month count records of the given month indexes into one.
   const mergeMonthCounts = (byMonth: Record<number, Record<string, number>>, monthIdxs: number[]): Record<string, number> => {
@@ -6926,7 +7287,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
     if (!resumenActiveMonthIdxs) return estatus2026EstatusDistribution;
     const merged = mergeMonthCounts(estatus2026EstatusCountsByMonth, resumenActiveMonthIdxs);
-    const ORDER = [...ESTATUS_2026_OPTIONS, 'Sin estatus'];
+    const ORDER = [...opcionesEstatus, 'Sin estatus'];
     return Object.entries(merged)
       .filter(([, v]) => v > 0)
       .map(([name, value]) => ({ name, value }))
@@ -6985,7 +7346,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
-  }, [estatusAnioData, estatus2026GerenciaFieldSummary]);
+  }, [estatusAnioData, estatus2026GerenciaFieldSummary, estatusExtras]);
 
   // Raw (un-sliced) gerencia counts per calendar month of 2026, for the Mensual/Trimestral views.
   const estatus2026GerenciaCountsByMonth = useMemo(() => {
@@ -7024,7 +7385,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
     });
     return byMonth;
-  }, [estatusAnioData, estatus2026GerenciaFieldSummary]);
+  }, [estatusAnioData, estatus2026GerenciaFieldSummary, estatusExtras]);
 
   const estatus2026KPIs = useMemo(() => {
     // uniqueTotal = distinct service groups (same collapsing logic as the table)
@@ -7046,12 +7407,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       d.name.toLowerCase().includes('procedimiento') || d.name.toLowerCase().includes('contratacion')
     )?.value ?? 0;
     const cancelados = estatus2026EstatusDistribution.find(d => d.name === 'Cancelado')?.value ?? 0;
-    const EN_PROCESO_STATUSES = ESTATUS_2026_OPTIONS.filter(s => s !== 'Adjudicado' && s !== 'Cancelado');
+    const EN_PROCESO_STATUSES = estatusEnProceso;
     const enProceso = EN_PROCESO_STATUSES.reduce((sum, s) => sum + (estatus2026EstatusDistribution.find(d => d.name === s)?.value ?? 0), 0);
     // total = unique services excluding cancelled
     const total = uniqueTotal - cancelados;
     return { total, dbTotal, uniqueStatuses, adjudicados, procedimiento, cancelados, enProceso, allUnique: uniqueTotal };
-  }, [estatusAnioData, estatus2026EstatusDistribution, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary]);
+  }, [estatusAnioData, estatus2026EstatusDistribution, estatus2026ServiceNameFieldSummary, estatus2026ClaveFieldSummary, estatusEnProceso]);
 
   const activeEstatusTotalCount = useMemo(() => (
     !resumenActiveMonthIdxs ? estatus2026KPIs.allUnique : activeEstatusPieData.reduce((s, d) => s + d.value, 0)
@@ -7107,7 +7468,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       if (label) counts[label] = (counts[label] ?? 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [estatusAnioData, estatus2026SubdirFieldSummary]);
+  }, [estatusAnioData, estatus2026SubdirFieldSummary, estatusExtras]);
 
   // Raw subdirección counts per calendar month of 2026, for the Mensual/Trimestral views.
   const estatus2026SubdirCountsByMonth = useMemo(() => {
@@ -7124,7 +7485,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       byMonth[mi][label] = (byMonth[mi][label] ?? 0) + 1;
     });
     return byMonth;
-  }, [estatusAnioData, estatus2026SubdirFieldSummary]);
+  }, [estatusAnioData, estatus2026SubdirFieldSummary, estatusExtras]);
 
   // 2026 estatus_2026 — monto (presupuesto) by gerencia
   const estatus2026MontoByGerencia = useMemo(() => {
@@ -7148,7 +7509,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
     });
     return Object.entries(totals).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
-  }, [estatusAnioData, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
+  }, [estatusAnioData, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary, estatusExtras]);
 
   // Raw monto-by-gerencia totals per calendar month of 2026, for the Mensual/Trimestral views.
   const estatus2026MontoByGerenciaCountsByMonth = useMemo(() => {
@@ -7174,7 +7535,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       byMonth[mi][label] = (byMonth[mi][label] ?? 0) + monto;
     });
     return byMonth;
-  }, [estatusAnioData, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary]);
+  }, [estatusAnioData, estatus2026GerenciaFieldSummary, estatus2026MontoFieldSummary, estatusExtras]);
 
   const activeGerenciaData = useMemo(() => {
     if (!resumenActiveMonthIdxs) return estatus2026GerenciaDistribution;
@@ -7213,12 +7574,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       d.name.toLowerCase().includes('adjudicad') || d.name.toLowerCase().includes('contratad')
     )?.value ?? 0;
     const cancelados = activeEstatusPieData.find(d => d.name === 'Cancelado')?.value ?? 0;
-    const EN_PROCESO_STATUSES = ESTATUS_2026_OPTIONS.filter(s => s !== 'Adjudicado' && s !== 'Cancelado');
+    const EN_PROCESO_STATUSES = estatusEnProceso;
     const enProceso = EN_PROCESO_STATUSES.reduce((sum, s) => sum + (activeEstatusPieData.find(d => d.name === s)?.value ?? 0), 0);
     const allUnique = activeEstatusPieData.reduce((a, d) => a + d.value, 0);
     const total = allUnique - cancelados;
     return { total, adjudicados, cancelados, enProceso, allUnique };
-  }, [activeEstatusPieData]);
+  }, [activeEstatusPieData, estatusEnProceso]);
 
   // 2026 estatus_2026 — completion rate of key boolean columns
   const estatus2026BooleanCompletion = useMemo(() => {
@@ -7675,7 +8036,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       id: row.id ?? row.ID ?? `svc-${idx}`,
       nombre,
       estatus,
-      colorEstatus: ESTATUS_2026_COLOR_MAP[estatus] ?? '#94A3B8',
+      colorEstatus: colorDeEstatus(estatus),
       claveCucop: leer(camposFichaServicio.cucop),
       subdireccion: estatus2026SubdirFieldSummary ? leer(estatus2026SubdirFieldSummary) : undefined,
       gerencia: estatus2026GerenciaFieldSummary ? leer(estatus2026GerenciaFieldSummary) : undefined,
@@ -7717,7 +8078,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     estatus2026ServiceNameFieldSummary, estatus2026TableColumns, estatus2026StatusFieldSummary,
     estatus2026SubdirFieldSummary, estatus2026GerenciaFieldSummary,
     camposFichaServicio, pagosPorServicio, getEstatus2026PaymentRequirementState,
-    notasDisponibles, notasPorServicio,
+    notasDisponibles, notasPorServicio, colorDeEstatus, estatusExtras,
   ]);
 
   /**
@@ -7842,7 +8203,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         gerencia: estatus2026GerenciaFieldSummary ? String(row[estatus2026GerenciaFieldSummary] ?? '').trim() || undefined : undefined,
         responsable: String(row.Responsable ?? '').trim() || undefined,
         estatus,
-        color: ESTATUS_2026_COLOR_MAP[estatus] ?? '#94A3B8',
+        color: colorDeEstatus(estatus),
         estado: estadoServicio(row, {
           columnaEstatus: colEstatus,
           tipicas: duracionTipicaFases,
@@ -7860,7 +8221,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [
     estatusAnioData, estatus2026EstatusColumnField, user.responsable, isAdmin, viewAllServices, filtroRespBandeja,
     mismoResponsable, getEstatus2026PaymentRequirementState, duracionTipicaFases, columnasContrato, puedeEditarFila,
-    notasPorServicio, estatus2026ServiceNameFieldSummary, estatus2026GerenciaFieldSummary,
+    notasPorServicio, estatus2026ServiceNameFieldSummary, estatus2026GerenciaFieldSummary, colorDeEstatus, estatusExtras,
   ]);
 
   /**
@@ -7925,7 +8286,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         })
       : estatusAnioData;
     return base.filter((row) => normalizeAnnualKey(String(row[campo] ?? '')) === objetivo);
-  }, [estatusAnioData, resumenActiveMonthIdxs]);
+  }, [estatusAnioData, resumenActiveMonthIdxs, estatusExtras]);
 
   const pagos2026ProgressTotals = useMemo(() => {
     const totalToPay = pagos2026ServicePaymentProgress.reduce((acc, row) => acc + row.total, 0);
@@ -8103,7 +8464,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       if (v) set.add(v);
     });
     return set.size;
-  }, [resumenActiveMonthIdxs, estatus2026TableColumns, estatusAnioData, getCombinedCanonicalResponsableValue]);
+  }, [resumenActiveMonthIdxs, estatus2026TableColumns, estatusAnioData, getCombinedCanonicalResponsableValue, estatusExtras]);
 
   const serviciosColumnsToRender = useMemo(() => {
     if (!serviciosTableColumns.length) return [] as string[];
@@ -14189,7 +14550,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                         {/* Card: En Proceso */}
                         {selectedResumenCard === 'en-proceso' && (() => {
-                          const EN_PROCESO_STATUSES = ESTATUS_2026_OPTIONS.filter(s => s !== 'Adjudicado' && s !== 'Cancelado') as readonly string[];
+                          const EN_PROCESO_STATUSES = estatusEnProceso;
                           const seenKeys = new Set<string>();
                           const rows = estatusAnioData.filter((row) => {
                             if (!estatus2026EstatusColumnField) return false;
@@ -14256,7 +14617,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <tbody className="bg-white divide-y divide-slate-200">
                                       {rows.map((row, idx) => {
                                         const estatusVal = estatus2026EstatusColumnField ? normalizeEstatus2026Value(row[estatus2026EstatusColumnField]) : '—';
-                                        const color = ESTATUS_2026_COLOR_MAP[estatusVal] ?? '#EAB308';
+                                        const color = colorDeEstatus(estatusVal, '#EAB308');
                                         const lightColors = ['#FDE047', '#FACC15', '#EAB308', '#FBBF24', '#FFD700', '#F59E0B', '#F97316', '#CA8A04', '#D97706'];
                                         const textColor = lightColors.includes(color) ? '#78350F' : color;
                                         const hasGantt = GANTT_DATE_GROUPS.some(g => row[g.start] && row[g.end]);
@@ -14551,7 +14912,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             </tr>
                                           )}
                                           {services.map((svc, idx) => {
-                                            const bgColor = (ESTATUS_2026_COLOR_MAP as Record<string, string>)[svc.estatus] ?? '#94A3B8';
+                                            const bgColor = colorDeEstatus(svc.estatus);
                                             const r = parseInt(bgColor.slice(1,3),16), g2 = parseInt(bgColor.slice(3,5),16), b2 = parseInt(bgColor.slice(5,7),16);
                                             const light = (0.299*r + 0.587*g2 + 0.114*b2)/255 > 0.55;
                                             const textCol = light ? '#713F12' : '#ffffff';
@@ -14687,7 +15048,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 onDarDeBaja={darDeBajaPersona}
                                 guardando={isSavingResponsable}
                                 avisoTabla={avisoTablaResponsables}
-                                colorEstatus={(e) => ESTATUS_2026_COLOR_MAP[e] ?? '#EAB308'}
+                                colorEstatus={(e) => colorDeEstatus(e, '#EAB308')}
                                 renderServicios={renderServiciosDeResponsable}
                                 anio={anioActivo}
                                 anioOrigen={plantillaDisponible ? anioOrigenPlantilla(anioActivo) : null}
@@ -15203,7 +15564,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                                   >
                                     {activeEstatusPieData.map((entry, index) => {
-                                      const fill = ESTATUS_2026_COLOR_MAP[entry.name] ?? '#94A3B8';
+                                      const fill = colorDeEstatus(entry.name);
                                       return <Cell key={`cell-estatus2-${index}`} fill={fill} />;
                                     })}
                                   </Pie>
@@ -15268,7 +15629,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             <div className="mt-6 space-y-3">
                               <h4 className="text-sm font-semibold text-slate-600">Desglose por estatus</h4>
                               {activeEstatusPieData.map((item, index) => {
-                                const color = ESTATUS_2026_COLOR_MAP[item.name] ?? '#94A3B8';
+                                const color = colorDeEstatus(item.name);
                                 const total = activeEstatusPieData.reduce((a, b) => a + b.value, 0);
                                 const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
                                 return (
@@ -16063,7 +16424,7 @@ return (
                                                     <ColumnInfoTooltip label={humanizeKey(key)} tooltip={colTooltip} />
                                                   ) : null;
                                                 })()}
-                                                {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatusAnioData, key === estatus2026StatusFieldSummary ? ESTATUS_2026_OPTIONS : normalizeAnnualKey(key) === 'responsable' ? combinedResponsablesList : undefined)}
+                                                {!VIRTUAL_COLUMN_LABELS[key] && renderColumnFilterControl('estatus2026', key, humanizeKey(key), estatusAnioData, key === estatus2026StatusFieldSummary ? opcionesEstatus : normalizeAnnualKey(key) === 'responsable' ? combinedResponsablesList : undefined)}
                                               </div>
                                               {!VIRTUAL_COLUMN_LABELS[key] && (normalizeAnnualKey(key) === 'responsable' ? (
                                                 <select
@@ -16360,6 +16721,10 @@ return (
                                                     <EstatusStatusPicker
                                                       value={rawValue ? String(rawValue) : ''}
                                                       onChange={(nextValue) => handleEstatus2026CellEdit(row, column, nextValue)}
+                                                      extras={estatusExtras}
+                                                      usos={usosEstatus}
+                                                      onAgregar={opcionesEstatusListas ? agregarEstatusExtra : undefined}
+                                                      onQuitar={opcionesEstatusListas && isAdmin ? quitarEstatusExtra : undefined}
                                                     />
                                                   ) : isBoolean ? (
                                                     <div className="flex items-center justify-center h-full min-h-[1.5em]" onClick={(e) => e.stopPropagation()}>
@@ -16517,9 +16882,10 @@ return (
                                                   ) : isEstatusStatusCol ? (
                                                     <div className="flex items-center justify-center">
                                                       {rawValue ? (
-                                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border ${getEstatusColorClass(String(rawValue))}`}>
-                                                          {String(rawValue)}
-                                                        </span>
+                                                        <BadgeEstatus
+                                                          label={String(rawValue)}
+                                                          color={estatusExtras.find((e) => e.nombre === String(rawValue).trim())?.color}
+                                                        />
                                                       ) : (
                                                         <span className="text-xs text-slate-400 italic">—</span>
                                                       )}
@@ -22515,7 +22881,7 @@ return (
                           const svcGerencia = estatus2026GerenciaFieldSummary ? String(svcRow[estatus2026GerenciaFieldSummary] ?? '') : '';
                           const svcSubdir = estatus2026SubdirFieldSummary ? String(svcRow[estatus2026SubdirFieldSummary] ?? '') : '';
                           const svcEstatus = estatus2026EstatusColumnField ? normalizeEstatus2026Value(svcRow[estatus2026EstatusColumnField]) : '';
-                          const estatusColor = ESTATUS_2026_COLOR_MAP[svcEstatus] ?? '#EAB308';
+                          const estatusColor = colorDeEstatus(svcEstatus, '#EAB308');
                           const lightColors = ['#FDE047', '#FACC15', '#EAB308', '#FBBF24', '#FFD700', '#F59E0B', '#F97316', '#CA8A04', '#D97706'];
                           const estatusText = lightColors.includes(estatusColor) ? '#78350F' : estatusColor;
 

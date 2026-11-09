@@ -337,6 +337,24 @@ export const TEMAS: Tema[] = [
         claves: 'agregar nuevo servicio alta fila registro crear añadir',
       },
       {
+        id: 'estatus.opcion',
+        pregunta: 'El estatus que necesito no está en la lista, ¿cómo lo agrego?',
+        resumen: 'Desde la misma lista del estatus: escribes la opción nueva y queda para todos.',
+        pasos: [
+          'En **Estatus servicios → Tabla** pulsa **Editar** y abre la lista de la columna **Estatus** del servicio.',
+          'Hasta abajo pulsa **Agregar otra opción**, escribe el nombre y escoge un color.',
+          'Pulsa **Agregar y elegir**: el servicio queda con ese estatus y la opción aparece en **Agregadas por el equipo** para cualquier servicio, en 2026 y 2027.',
+        ],
+        puntos: [
+          'Si ya existe una con ese nombre (aunque cambien acentos o mayúsculas), se elige ésa en lugar de repetirla.',
+          'Las gráficas y el Resumen la cuentan con su color. En **Mis servicios** aparece como fuera de las 9 fases.',
+          'Sólo un administrador puede quitar una opción, y sólo cuando ningún servicio la usa.',
+        ],
+        requiere: 'captura',
+        ir: { vista: ESTATUS, detalle: 'tabla', etiqueta: 'Ir a la tabla de Estatus' },
+        claves: 'estatus opcion nueva agregar otro otra lista no aparece falta personalizado crear catalogo',
+      },
+      {
         id: 'estatus.responsable',
         pregunta: '¿Cómo asigno o cambio el responsable de un servicio?',
         resumen: 'El responsable se elige de una lista con las personas de la plantilla del año.',

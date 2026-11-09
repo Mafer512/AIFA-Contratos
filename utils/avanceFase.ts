@@ -178,6 +178,8 @@ const PESO: Record<Alerta['tipo'], number> = {
 
 export interface EstadoServicio {
   indice: number;
+  /** Estatus escrito que no es ninguna fase (p. ej. una opción que agregó el equipo). */
+  otroEstatus: string | null;
   /** Días que lleva en la fase actual (si tiene fecha de inicio). */
   diasEnFase: number | null;
   inicioFase: Date | null;
@@ -202,11 +204,13 @@ export interface OpcionesEstado {
 export const estadoServicio = (row: Record<string, any>, o: OpcionesEstado): EstadoServicio => {
   const hoy = sinHora(o.hoy ?? new Date());
   const indice = indiceEtapa(row[o.columnaEstatus]);
+  const texto = String(row[o.columnaEstatus] ?? '').trim();
+  const otroEstatus = indice < 0 && texto ? texto : null;
   const alertas: Alerta[] = [];
   let diasEnFase: number | null = null;
   let inicioFase: Date | null = null;
 
-  if (indice < 0) alertas.push({ tipo: 'sin-iniciar' });
+  if (indice < 0 && !otroEstatus) alertas.push({ tipo: 'sin-iniciar' });
 
   if (indice >= 0 && indice < FASES.length) {
     inicioFase = deISO(row[FASES[indice].inicio]);
@@ -237,5 +241,5 @@ export const estadoServicio = (row: Record<string, any>, o: OpcionesEstado): Est
   }
 
   const puntaje = alertas.reduce((n, a) => n + PESO[a.tipo], 0) + (indice === INDICE_CANCELADO ? -100 : 0);
-  return { indice, diasEnFase, inicioFase, alertas, puntaje };
+  return { indice, otroEstatus, diasEnFase, inicioFase, alertas, puntaje };
 };

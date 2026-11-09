@@ -102,6 +102,7 @@ const Pasos: React.FC<{ indice: number }> = ({ indice }) => (
 );
 
 const etiquetaEtapa = (e: EstadoServicio) => {
+  if (e.otroEstatus) return 'Fuera de las 9 fases del proceso';
   if (e.indice < 0) return 'Sin iniciar';
   if (e.indice === INDICE_ADJUDICADO) return 'Adjudicado';
   if (e.indice === INDICE_CANCELADO) return 'Cancelado';
@@ -614,7 +615,12 @@ const MisServicios: React.FC<Props> = ({
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 mt-auto pt-1">
-                  {enProceso && (
+                  {/* Con un estatus agregado no se sabe cuál es la fase siguiente:
+                      "Iniciar proceso" pisaría las fechas de la primera. */}
+                  {enProceso && it.estado.otroEstatus && it.puedeEditar && (
+                    <span className="text-[11px] text-slate-500">Para moverlo, cambia su estatus en Estatus servicios.</span>
+                  )}
+                  {enProceso && !it.estado.otroEstatus && (
                     <button
                       type="button"
                       disabled={!it.puedeEditar}

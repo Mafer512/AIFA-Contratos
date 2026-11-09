@@ -90,6 +90,8 @@ const casos = [
   [ADMIN, 'dar de alta un usuario nuevo', 'admin.alta'],
   [ADMIN, 'quién modificó este registro', 'admin.historial'],
   [SUPER, 'darle una contraseña temporal', 'admin.contrasena'],
+  [OPERADOR, 'agregar otra opción de estatus', 'estatus.opcion'],
+  [OPERADOR, 'el estatus no está en la lista', 'estatus.opcion'],
   [ADMIN, 'quien esta conectado', 'admin.bitacora'],
   [OPERADOR, 'agregar una persona al organigrama', 'organigrama.agregar'],
   [OPERADOR, 'cambiar foto', 'organigrama.foto'],

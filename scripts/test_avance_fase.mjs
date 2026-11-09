@@ -95,5 +95,11 @@ ok('lo vencido pesa más que lo que vence', vencido.puntaje > adj.alertas.filter
 const cancel = estadoServicio({ [E]: 'Cancelado' }, { columnaEstatus: E, hoy, tipicas, actualizado: d('2026-01-01') });
 ok('cancelado: sin alertas y al fondo de la bandeja', [cancel.alertas.length, cancel.puntaje < 0], [0, true]);
 
+const sinNada = estadoServicio({ [E]: '' }, { columnaEstatus: E, hoy, tipicas });
+ok('sin estatus: "sin iniciar" y sin otro estatus', [sinNada.alertas.map((a) => a.tipo), sinNada.otroEstatus], [['sin-iniciar'], null]);
+const agregado = estadoServicio({ [E]: ' En espera de suficiencia ' }, { columnaEstatus: E, hoy, tipicas });
+ok('estatus agregado: fuera de las fases, sin "sin iniciar"', [agregado.indice, agregado.otroEstatus, agregado.alertas.length], [-1, 'En espera de suficiencia', 0]);
+ok('una fase no es "otro estatus"', estadoServicio({ [E]: 'En IM' }, { columnaEstatus: E, hoy, tipicas }).otroEstatus, null);
+
 console.log(`\n${fallos === 0 ? 'TODO BIEN' : `${fallos} FALLA(S)`}`);
 process.exitCode = fallos ? 1 : 0;
