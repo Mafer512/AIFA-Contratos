@@ -331,7 +331,9 @@ const formatColumnFilterLabel = (count: number) => (
 );
 
 const COLUMN_FILTER_EMPTY_TOKEN = '__EMPTY__';
-const COLUMN_FILTER_POPOVER_WIDTH = 240; // Tailwind w-60 (15rem)
+// Ancho para leer completos los valores largos (nombres de servicio, gerencias).
+// En pantallas angostas se ajusta al ancho disponible.
+const COLUMN_FILTER_POPOVER_WIDTH = 360;
 const COLUMN_FILTER_POPOVER_MARGIN = 8;
 
 const normalizeColumnFilterToken = (value: any): string => {
@@ -404,7 +406,7 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: COLUMN_FILTER_POPOVER_WIDTH });
   const hasExplicitSelection = Array.isArray(selectedValues);
   const explicitValues = hasExplicitSelection ? selectedValues : [];
   const isActive = hasExplicitSelection;
@@ -452,14 +454,14 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
     const viewportWidth = window.innerWidth;
     const scrollY = window.scrollY ?? window.pageYOffset ?? 0;
     const scrollX = window.scrollX ?? window.pageXOffset ?? 0;
-    const halfWidth = COLUMN_FILTER_POPOVER_WIDTH / 2;
-    let left = rect.left + rect.width / 2 - halfWidth + scrollX;
-    const maxLeft = scrollX + viewportWidth - COLUMN_FILTER_POPOVER_WIDTH - 8;
+    const width = Math.min(COLUMN_FILTER_POPOVER_WIDTH, viewportWidth - 16);
+    let left = rect.left + rect.width / 2 - width / 2 + scrollX;
+    const maxLeft = scrollX + viewportWidth - width - 8;
     const minLeft = scrollX + 8;
     if (left < minLeft) left = minLeft;
     if (left > maxLeft) left = maxLeft;
     const top = rect.bottom + COLUMN_FILTER_POPOVER_MARGIN + scrollY;
-    setPopoverPosition({ top, left });
+    setPopoverPosition({ top, left, width });
   }, [isOpen]);
 
   useEffect(() => {
@@ -575,10 +577,10 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
       {isOpen && portalTarget && createPortal(
         <div
           ref={popoverRef}
-          className="z-[2000] w-60 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-xl"
-          style={{ position: 'absolute', top: popoverPosition.top, left: popoverPosition.left, width: COLUMN_FILTER_POPOVER_WIDTH }}
+          className="z-[2000] rounded-lg border border-slate-200 bg-white p-3 text-left shadow-xl"
+          style={{ position: 'absolute', top: popoverPosition.top, left: popoverPosition.left, width: popoverPosition.width }}
         >
-          <p className="text-[11px] font-semibold text-slate-500 mb-2 leading-snug truncate">{label}</p>
+          <p className="text-[11px] font-semibold text-slate-500 mb-2 leading-snug break-words">{label}</p>
           <div className="mb-2">
             <input
               ref={searchInputRef}
@@ -618,7 +620,7 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
               )}
             </div>
           </div>
-          <div className="max-h-56 overflow-auto rounded border border-slate-100 divide-y divide-slate-100">
+          <div className="max-h-72 overflow-y-auto overflow-x-hidden rounded border border-slate-100 divide-y divide-slate-100">
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-6 text-center text-[11px] text-slate-400">
                 Sin coincidencias
@@ -629,18 +631,17 @@ const ColumnFilterControl: React.FC<ColumnFilterControlProps> = React.memo(({
                 return (
                   <label
                     key={option.token}
-                    className="flex items-center justify-between gap-3 px-3 py-2 text-[12px] text-slate-600 hover:bg-slate-50"
+                    className="flex items-start gap-2 px-3 py-2 text-[12px] text-slate-600 hover:bg-slate-50 cursor-pointer"
                   >
-                    <span className="inline-flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-[#0F4C3A] focus:ring-[#0F4C3A]"
-                        checked={checked}
-                        onChange={() => toggleToken(option.token)}
-                      />
-                      <span className="truncate max-w-[160px]" title={option.label}>{option.label}</span>
-                    </span>
-                    <span className="text-[11px] text-slate-400">{option.count.toLocaleString('es-MX')}</span>
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded border-slate-300 text-[#0F4C3A] focus:ring-[#0F4C3A]"
+                      checked={checked}
+                      onChange={() => toggleToken(option.token)}
+                    />
+                    {/* El valor completo, en varias líneas si hace falta: cortado no se sabía qué se filtraba. */}
+                    <span className="flex-1 min-w-0 break-words leading-snug">{option.label}</span>
+                    <span className="flex-shrink-0 text-[11px] text-slate-400 tabular-nums">{option.count.toLocaleString('es-MX')}</span>
                   </label>
                 );
               })
@@ -1321,9 +1322,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [calendarView, setCalendarView] = useState<View>('month');
   const [calendarDate, setCalendarDate] = useState(new Date());
 
-  const [is2025Expanded, setIs2025Expanded] = useState(true);
-  const [is2026Expanded, setIs2026Expanded] = useState(true);
-  const [is2027Expanded, setIs2027Expanded] = useState(true);
+  const [is2025Expanded, setIs2025Expanded] = useState(false);
+  const [is2026Expanded, setIs2026Expanded] = useState(false);
+  const [is2027Expanded, setIs2027Expanded] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Database State
@@ -1636,7 +1637,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [activePagos2026View, setActivePagos2026View] = useState<'tabla' | 'resumen'>('tabla');
   const [expandedPagos2026SummaryKey, setExpandedPagos2026SummaryKey] = useState<string | null>(null);
   const [activeReportesView, setActiveReportesView] = useState<'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas'>(() => (destinoInicial?.reportesView as 'gastoEfectuado' | 'historicoServicios' | 'anteproyecto' | 'paaas' | 'deductivas' | undefined) ?? 'gastoEfectuado');
-  const [isReportesExpanded, setIsReportesExpanded] = useState(true);
+  const [isReportesExpanded, setIsReportesExpanded] = useState(false);
   const [selectedHistoricoYear, setSelectedHistoricoYear] = useState<number>(2026);
   const [serviciosHistoricoRaw, setServiciosHistoricoRaw] = useState<Record<string, any>[]>([]);
   const [loadingServiciosHistorico, setLoadingServiciosHistorico] = useState(false);
@@ -1912,7 +1913,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               key={`${tableKey}-${columnKey}`}
               className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-[#8a5a00]"
             >
-              <span className="truncate max-w-[130px]" title={displayLabel}>{displayLabel}</span>
+              <span className="break-words">{displayLabel}</span>
               <span className="text-[9px] font-normal text-[#a97100]">
                 {Array.isArray(values) && values.length ? `${values.length} valor${values.length === 1 ? '' : 'es'}` : 'Vacío'}
               </span>
@@ -11057,43 +11058,52 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         {/* ── Nav ── */}
         <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-0.5 scrollbar-thin">
 
-          {/* ─ 2025 Group (amber) ─ */}
-          {(['2025.resumen', '2025.estatus', '2025.contratos'].some(ve)) && (
+          {/* Años del más reciente al más antiguo, todos plegados al entrar. */}
+          {/* ─ 2027 Group (violet) ─ */}
+          {(['2027.mis', '2027.resumen', '2027.estatus', '2027.gantt'].some(ve)) && (
           <div className="mb-1">
             <button
-              onClick={() => setIs2025Expanded(!is2025Expanded)}
+              onClick={() => setIs2027Expanded(!is2027Expanded)}
               className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all group hover:bg-white/5"
             >
               <div className="flex items-center gap-2.5">
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/20">
-                  <CalendarIcon className="h-3.5 w-3.5 text-amber-400" />
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-500/20">
+                  <CalendarDays className="h-3.5 w-3.5 text-violet-400" />
                 </span>
-                <span className="text-[13px] font-bold text-white/80 group-hover:text-white tracking-wide">2025</span>
-                <span className="text-[9px] font-bold bg-amber-500/20 text-amber-400 rounded-full px-1.5 py-0.5 leading-none uppercase tracking-wider">Histórico</span>
+                <span className="text-[13px] font-bold text-white/80 group-hover:text-white tracking-wide">2027</span>
+                <span className="text-[9px] font-bold bg-violet-500/20 text-violet-300 rounded-full px-1.5 py-0.5 leading-none uppercase tracking-wider">Anteproyecto</span>
               </div>
-              <ChevronRight className={`h-3.5 w-3.5 text-white/30 transition-transform duration-200 ${is2025Expanded ? 'rotate-90' : ''}`} />
+              <ChevronRight className={`h-3.5 w-3.5 text-white/30 transition-transform duration-200 ${is2027Expanded ? 'rotate-90' : ''}`} />
             </button>
 
-            {is2025Expanded && (
-              <div className="mt-0.5 ml-3 pl-3 border-l border-amber-500/20 space-y-0.5">
-                {[
-                  { id: 'overview', vista: '2025.resumen', icon: LayoutDashboard, label: 'Resumen' },
-                  { id: 'serviciosStatus', vista: '2025.estatus', icon: BarChart2, label: 'Estatus servicios' },
-                  { id: 'contracts', vista: '2025.contratos', icon: FileText, label: 'Gestión Contratos' },
-                ].filter((item) => ve(item.vista)).map((item) => {
-                  const isActive = activeTab === item.id;
+            {is2027Expanded && (
+              <div className="mt-0.5 ml-3 pl-3 border-l border-violet-500/20 space-y-0.5">
+                {/* 2027 todavía no tiene Pagos: ningún servicio está adjudicado. */}
+                {([
+                  { view: 'mis' as const, icon: Inbox, label: 'Mis servicios' },
+                  { view: 'resumen' as const, icon: LayoutDashboard, label: 'Resumen' },
+                  { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
+                  { view: 'gantt' as const, icon: Layers, label: 'Diagrama Gantt' },
+                ]).filter((item) => ve(`2027.${item.view}`)).map((item) => {
+                  const isActive = activeTab === '2027' && activeAnioView === item.view;
                   return (
                     <button
-                      key={item.id}
-                      onClick={() => handleSidebarSelection(item.id)}
+                      key={item.view}
+                      onClick={() => {
+                        handleSidebarSelection('2027');
+                        setActiveAnioView(item.view);
+                        setSelectedEstatus2026Estatus(null);
+                        setSelectedEstatus2026Phase(null);
+                        setSelectedResumenCard(null);
+                      }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${isActive
-                        ? 'bg-amber-500/15 text-amber-300'
+                        ? 'bg-violet-500/15 text-violet-300'
                         : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                         }`}
                     >
-                      <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-amber-400' : 'text-white/30'}`} />
+                      <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-violet-400' : 'text-white/30'}`} />
                       <span className="truncate">{item.label}</span>
-                      {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400 flex-shrink-0" />}
+                      {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-violet-400 flex-shrink-0" />}
                     </button>
                   );
                 })}
@@ -11157,51 +11167,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
           )}
 
-          {/* ─ 2027 Group (violet) ─ */}
-          {(['2027.mis', '2027.resumen', '2027.estatus', '2027.gantt'].some(ve)) && (
+          {/* ─ 2025 Group (amber) ─ */}
+          {(['2025.resumen', '2025.estatus', '2025.contratos'].some(ve)) && (
           <div className="mb-1">
             <button
-              onClick={() => setIs2027Expanded(!is2027Expanded)}
+              onClick={() => setIs2025Expanded(!is2025Expanded)}
               className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all group hover:bg-white/5"
             >
               <div className="flex items-center gap-2.5">
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-500/20">
-                  <CalendarDays className="h-3.5 w-3.5 text-violet-400" />
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/20">
+                  <CalendarIcon className="h-3.5 w-3.5 text-amber-400" />
                 </span>
-                <span className="text-[13px] font-bold text-white/80 group-hover:text-white tracking-wide">2027</span>
-                <span className="text-[9px] font-bold bg-violet-500/20 text-violet-300 rounded-full px-1.5 py-0.5 leading-none uppercase tracking-wider">Anteproyecto</span>
+                <span className="text-[13px] font-bold text-white/80 group-hover:text-white tracking-wide">2025</span>
+                <span className="text-[9px] font-bold bg-amber-500/20 text-amber-400 rounded-full px-1.5 py-0.5 leading-none uppercase tracking-wider">Histórico</span>
               </div>
-              <ChevronRight className={`h-3.5 w-3.5 text-white/30 transition-transform duration-200 ${is2027Expanded ? 'rotate-90' : ''}`} />
+              <ChevronRight className={`h-3.5 w-3.5 text-white/30 transition-transform duration-200 ${is2025Expanded ? 'rotate-90' : ''}`} />
             </button>
 
-            {is2027Expanded && (
-              <div className="mt-0.5 ml-3 pl-3 border-l border-violet-500/20 space-y-0.5">
-                {/* 2027 todavía no tiene Pagos: ningún servicio está adjudicado. */}
-                {([
-                  { view: 'mis' as const, icon: Inbox, label: 'Mis servicios' },
-                  { view: 'resumen' as const, icon: LayoutDashboard, label: 'Resumen' },
-                  { view: 'estatus' as const, icon: BarChart2, label: 'Estatus servicios' },
-                  { view: 'gantt' as const, icon: Layers, label: 'Diagrama Gantt' },
-                ]).filter((item) => ve(`2027.${item.view}`)).map((item) => {
-                  const isActive = activeTab === '2027' && activeAnioView === item.view;
+            {is2025Expanded && (
+              <div className="mt-0.5 ml-3 pl-3 border-l border-amber-500/20 space-y-0.5">
+                {[
+                  { id: 'overview', vista: '2025.resumen', icon: LayoutDashboard, label: 'Resumen' },
+                  { id: 'serviciosStatus', vista: '2025.estatus', icon: BarChart2, label: 'Estatus servicios' },
+                  { id: 'contracts', vista: '2025.contratos', icon: FileText, label: 'Gestión Contratos' },
+                ].filter((item) => ve(item.vista)).map((item) => {
+                  const isActive = activeTab === item.id;
                   return (
                     <button
-                      key={item.view}
-                      onClick={() => {
-                        handleSidebarSelection('2027');
-                        setActiveAnioView(item.view);
-                        setSelectedEstatus2026Estatus(null);
-                        setSelectedEstatus2026Phase(null);
-                        setSelectedResumenCard(null);
-                      }}
+                      key={item.id}
+                      onClick={() => handleSidebarSelection(item.id)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] font-medium transition-all ${isActive
-                        ? 'bg-violet-500/15 text-violet-300'
+                        ? 'bg-amber-500/15 text-amber-300'
                         : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                         }`}
                     >
-                      <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-violet-400' : 'text-white/30'}`} />
+                      <item.icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-amber-400' : 'text-white/30'}`} />
                       <span className="truncate">{item.label}</span>
-                      {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-violet-400 flex-shrink-0" />}
+                      {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400 flex-shrink-0" />}
                     </button>
                   );
                 })}
@@ -14875,7 +14877,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   profile?.fullName,
                                   profile?.employeeNumber,
                                   profile?.academicDegree,
-                                  profile?.aifaTenure,
                                 ].filter(Boolean).join(' ')).includes(q);
                                 const filtered = profileMatches
                                   ? svcs
@@ -22485,16 +22486,6 @@ return (
                   <input
                     value={newResponsableForm.academicDegree}
                     onChange={(e) => setNewResponsableForm(prev => ({ ...prev, academicDegree: e.target.value }))}
-                    className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">Antigüedad en el AIFA</label>
-                  <input
-                    value={newResponsableForm.aifaTenure}
-                    onChange={(e) => setNewResponsableForm(prev => ({ ...prev, aifaTenure: e.target.value }))}
-                    placeholder="Ej. 2 años 3 meses 3 días"
                     className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#B38E5D]/50 outline-none"
                   />
                 </div>

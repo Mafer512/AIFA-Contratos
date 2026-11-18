@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Users, UserPlus, Pencil, Trash2, X, Loader2, Search, AlertCircle,
-  Briefcase, GraduationCap, CalendarClock, Hash, BadgeCheck, ChevronDown,
+  Briefcase, GraduationCap, CalendarClock, Hash, ChevronDown,
   Network, List, Maximize2, Minimize2,
   HelpCircle, Image as ImageIcon, ListChecks, Save, UserMinus, Lightbulb,
   Upload, Camera, Check,
@@ -306,13 +306,9 @@ const FichaPersona: React.FC<{
               </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2 mt-3 pt-3 border-t" style={{ borderColor: paleta.borde }}>
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-3 gap-y-2 mt-3 pt-3 border-t" style={{ borderColor: paleta.borde }}>
               <Dato icono={Hash} etiqueta="No. empleado" valor={persona.employeeNumber} />
-              <Dato icono={CalendarClock} etiqueta="Antigüedad" valor={persona.aifaTenure} />
-              <Dato icono={BadgeCheck} etiqueta="Partida" valor={persona.partida ? String(persona.partida) : undefined} />
-              <div className="col-span-2 sm:col-span-3">
-                <Dato icono={GraduationCap} etiqueta="Grado académico" valor={persona.academicDegree} />
-              </div>
+              <Dato icono={GraduationCap} etiqueta="Grado académico" valor={persona.academicDegree} />
             </div>
           </div>
         </div>
@@ -425,7 +421,7 @@ const Instructivo: React.FC<{ onCerrar: () => void; puedeEditar: boolean; anio: 
     {
       icono: Hash,
       titulo: 'Escribe sus datos',
-      texto: 'Nombre completo, número de empleado, grado académico, antigüedad, puesto y nivel salarial. Tal como vienen en la plantilla del área.',
+      texto: 'Nombre completo, número de empleado, grado académico, puesto y nivel salarial. Tal como vienen en la plantilla del área.',
     },
     {
       icono: Network,
@@ -1199,12 +1195,6 @@ const Organigrama: React.FC<Props> = ({
                   <input type="text" value={editando.employeeNumber}
                     onChange={(e) => setEditando({ ...editando, employeeNumber: e.target.value })}
                     placeholder="1765" className={claseInput} />
-                ))}
-
-                {campo('Años en el AIFA', (
-                  <input type="text" value={editando.aifaTenure}
-                    onChange={(e) => setEditando({ ...editando, aifaTenure: e.target.value })}
-                    placeholder="2 años 3 meses 5 días" className={claseInput} />
                 ))}
 
                 {campo('Grado académico', (

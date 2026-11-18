@@ -513,7 +513,7 @@ export const TEMAS: Tema[] = [
         resumen: 'Son cinco pasos y no hace falta saber nada técnico.',
         pasos: [
           'En el organigrama pulsa **Agregar persona** (botón verde, arriba a la derecha).',
-          'Escribe sus datos: nombre completo, número de empleado, grado académico, antigüedad, puesto y nivel salarial.',
+          'Escribe sus datos: nombre completo, número de empleado, grado académico, puesto y nivel salarial.',
           'Elige su coordinador en **Depende de** y su equipo en **Color de su coordinación**.',
           'Guarda: ya aparece en su equipo y en el orden que le corresponde.',
           'Asígnale sus servicios desde **Estatus servicios**, columna **Responsable**.',
