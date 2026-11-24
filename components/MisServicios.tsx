@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight, CheckCircle2, Clock, AlertTriangle, ShieldAlert, FileText, StickyNote, X, Loader2, Search,
-  CalendarClock, Play, Ban, Undo2, Lock, ClipboardEdit, Inbox, Hourglass,
+  CalendarClock, Play, Ban, Undo2, Lock, ClipboardEdit, Inbox, Hourglass, Plus, Pencil, Package, Wrench,
+  LayoutGrid, CalendarDays,
 } from 'lucide-react';
 import {
   FASES, INDICE_ADJUDICADO, INDICE_CANCELADO, ESTATUS_CANCELADO, planAvanzar, valoresPrevios, aISO, deISO,
   type EstadoServicio, type Alerta,
 } from '../utils/avanceFase';
 import { claveContrato } from '../utils/fichaServicio';
+import type { TipoContratacion } from '../utils/servicio2027';
+import FormularioServicio2027 from './FormularioServicio2027';
 
 // "Mis servicios": la bandeja de cada responsable. En vez de buscar celdas en
 // una tabla de 65 columnas, cada servicio dice en qué fase va, qué pide
@@ -54,6 +57,25 @@ interface Props {
   onNota: (row: Record<string, any>, nombre: string, nota: { texto: string; tipo: 'nota' | 'alerta' | 'acuerdo'; fecha: string }) => Promise<string | null>;
   onAbrirFicha: (row: Record<string, any>, nombre: string) => void;
   onAbrirNotas: (row: Record<string, any>, nombre: string) => void;
+  /** 2027: separar adquisiciones y servicios. */
+  tipoDe?: (row: Record<string, any>) => TipoContratacion;
+  /**
+   * 2027: aquí se da de alta y se edita cada servicio con un formulario, en
+   * lugar de la tabla. "Editar" toma el lugar de "Notas" (las notas siguen en
+   * la Ficha y en "Avanzar fase").
+   */
+  captura?: {
+    puedeAgregar: boolean;
+    columnas: string[];
+    responsables: string[];
+    responsableInicial?: string;
+    responsableFijo?: boolean;
+    sugerencias: Record<string, string[]>;
+    renderEstatus: (valor: string, onChange: (v: string) => void) => React.ReactNode;
+    onCrear: (datos: Record<string, any>) => Promise<string | null>;
+  };
+  /** 2027: el calendario de seguimiento, en su propia pestaña. */
+  seguimiento?: () => React.ReactNode;
 }
 
 const CORTO = [
@@ -430,12 +452,26 @@ const DatosContrato: React.FC<{
 // ── Bandeja ─────────────────────────────────────────────────────────────────
 
 type Filtro = 'atencion' | 'proceso' | 'adjudicados' | 'todos';
+type FiltroTipo = 'todos' | TipoContratacion;
 
 const MisServicios: React.FC<Props> = ({
-  anio, items, columnaEstatus, columnas, sugerencias, responsables, filtroResponsable, onFiltroResponsable,
-  onAplicar, onNota, onAbrirFicha, onAbrirNotas,
+  anio, items: todosLosItems, columnaEstatus, columnas, sugerencias, responsables, filtroResponsable, onFiltroResponsable,
+  onAplicar, onNota, onAbrirFicha, onAbrirNotas, tipoDe, captura, seguimiento,
 }) => {
   const [filtro, setFiltro] = useState<Filtro>('atencion');
+  const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos');
+  const [vista, setVista] = useState<'servicios' | 'seguimiento'>('servicios');
+  const [editando, setEditando] = useState<string | null>(null);
+  const [creando, setCreando] = useState(false);
+  const cuentaTipo = useMemo(() => ({
+    todos: todosLosItems.length,
+    'Adquisición': tipoDe ? todosLosItems.filter((i) => tipoDe(i.row) === 'Adquisición').length : 0,
+    'Servicio': tipoDe ? todosLosItems.filter((i) => tipoDe(i.row) === 'Servicio').length : 0,
+  }), [todosLosItems, tipoDe]);
+  const items = useMemo(
+    () => (tipoDe && filtroTipo !== 'todos' ? todosLosItems.filter((i) => tipoDe(i.row) === filtroTipo) : todosLosItems),
+    [todosLosItems, tipoDe, filtroTipo],
+  );
   const [busqueda, setBusqueda] = useState('');
   const [avanzando, setAvanzando] = useState<string | null>(null);
   const [contratoDe, setContratoDe] = useState<string | null>(null);
@@ -478,6 +514,7 @@ const MisServicios: React.FC<Props> = ({
   const porKey = (k: string | null) => (k ? items.find((i) => i.key === k) ?? null : null);
   const itemAvance = porKey(avanzando);
   const itemContrato = porKey(contratoDe);
+  const itemEdicion = porKey(editando);
 
   const deshacer = async () => {
     if (!ultimo) return;
@@ -514,16 +551,77 @@ const MisServicios: React.FC<Props> = ({
             </p>
           </div>
         </div>
-        {responsables && onFiltroResponsable && (
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-slate-500 font-semibold">Responsable</span>
-            <select value={filtroResponsable ?? ''} onChange={(e) => onFiltroResponsable(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/25">
-              <option value="">Todos</option>
-              {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </label>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {responsables && onFiltroResponsable && (
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-slate-500 font-semibold">Responsable</span>
+              <select value={filtroResponsable ?? ''} onChange={(e) => onFiltroResponsable(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/25">
+                <option value="">Todos</option>
+                {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+          )}
+          {captura?.puedeAgregar && (
+            <button
+              type="button"
+              onClick={() => setCreando(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0F4C3A] text-white text-sm font-bold hover:bg-[#0d3f30] shadow-md shadow-[#0F4C3A]/20"
+            >
+              <Plus className="h-4 w-4" /> Nuevo
+            </button>
+          )}
+        </div>
       </div>
+
+      {(tipoDe || seguimiento) && (
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+          {tipoDe ? (
+            <div className="inline-flex flex-wrap gap-1 rounded-2xl bg-slate-100 p-1" role="tablist" aria-label="Adquisiciones o servicios">
+              {([
+                { id: 'Adquisición', etiqueta: 'Adquisiciones', icono: Package },
+                { id: 'Servicio', etiqueta: 'Servicios', icono: Wrench },
+                { id: 'todos', etiqueta: 'Todos', icono: LayoutGrid },
+              ] as const).map((t) => {
+                const activo = filtroTipo === t.id;
+                const Icono = t.icono;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activo}
+                    onClick={() => setFiltroTipo(t.id)}
+                    className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${activo ? 'bg-white text-[#0F4C3A] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    <Icono className="h-4 w-4" />
+                    {t.etiqueta}
+                    <span className={`text-xs tabular-nums ${activo ? 'text-[#0F4C3A]/60' : 'text-slate-400'}`}>{cuentaTipo[t.id]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : <span />}
+          {seguimiento && (
+            <div className="inline-flex items-center bg-slate-100 rounded-xl p-1 gap-1">
+              {([
+                { id: 'servicios', etiqueta: 'Servicios', icono: Inbox },
+                { id: 'seguimiento', etiqueta: 'Seguimiento', icono: CalendarDays },
+              ] as const).map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setVista(v.id)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all ${vista === v.id ? 'bg-[#0F4C3A] text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}
+                >
+                  <v.icono className="h-3.5 w-3.5" /> {v.etiqueta}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {seguimiento && vista === 'seguimiento' ? seguimiento() : (<>
 
       {/* Filtros */}
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
@@ -565,7 +663,11 @@ const MisServicios: React.FC<Props> = ({
           <p className="text-sm font-semibold text-slate-600">
             {items.length === 0 ? 'No tienes servicios asignados todavía.' : 'Nada por aquí.'}
           </p>
-          {items.length === 0 && <p className="text-xs text-slate-400 mt-1">Un administrador te los asigna desde la tabla de Estatus servicios (columna Responsable).</p>}
+          {items.length === 0 && (
+            <p className="text-xs text-slate-400 mt-1">
+              {captura?.puedeAgregar ? 'Agrégalo con el botón Nuevo.' : 'Un administrador te los asigna desde la tabla de Estatus servicios (columna Responsable).'}
+            </p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -618,7 +720,7 @@ const MisServicios: React.FC<Props> = ({
                   {/* Con un estatus agregado no se sabe cuál es la fase siguiente:
                       "Iniciar proceso" pisaría las fechas de la primera. */}
                   {enProceso && it.estado.otroEstatus && it.puedeEditar && (
-                    <span className="text-[11px] text-slate-500">Para moverlo, cambia su estatus en Estatus servicios.</span>
+                    <span className="text-[11px] text-slate-500">Para moverlo, cambia su estatus {captura ? 'con Editar' : 'en Estatus servicios'}.</span>
                   )}
                   {enProceso && !it.estado.otroEstatus && (
                     <button
@@ -644,9 +746,17 @@ const MisServicios: React.FC<Props> = ({
                       {faltanDatos ? 'Completar datos del contrato' : 'Datos del contrato'}
                     </button>
                   )}
-                  <button type="button" onClick={() => onAbrirNotas(it.row, it.nombre)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-50">
-                    <StickyNote className="h-3.5 w-3.5" /> Notas{it.notas ? ` (${it.notas})` : ''}
-                  </button>
+                  {captura ? (
+                    it.puedeEditar && (
+                      <button type="button" onClick={() => setEditando(it.key)} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 text-xs font-bold hover:bg-emerald-100">
+                        <Pencil className="h-3.5 w-3.5" /> Editar
+                      </button>
+                    )
+                  ) : (
+                    <button type="button" onClick={() => onAbrirNotas(it.row, it.nombre)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-50">
+                      <StickyNote className="h-3.5 w-3.5" /> Notas{it.notas ? ` (${it.notas})` : ''}
+                    </button>
+                  )}
                   <button type="button" onClick={() => onAbrirFicha(it.row, it.nombre)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-500 text-xs font-semibold hover:text-[#0F4C3A]">
                     <FileText className="h-3.5 w-3.5" /> Ficha
                   </button>
@@ -656,6 +766,8 @@ const MisServicios: React.FC<Props> = ({
           })}
         </div>
       )}
+
+      </>)}
 
       {/* Aviso con Deshacer */}
       {ultimo && (
@@ -680,6 +792,30 @@ const MisServicios: React.FC<Props> = ({
             setUltimo({ key: itemAvance.key, nombre: itemAvance.nombre, previos, descripcion });
             setAvanzando(null);
             if (pideAdjudicacion) setContratoDe(itemAvance.key);
+          }}
+        />
+      )}
+
+      {captura && (creando || itemEdicion) && (
+        <FormularioServicio2027
+          modo={creando ? 'nuevo' : 'editar'}
+          row={creando ? undefined : itemEdicion!.row}
+          anio={anio}
+          columnas={captura.columnas}
+          tipoInicial={filtroTipo !== 'todos' ? filtroTipo : undefined}
+          responsableInicial={captura.responsableInicial}
+          responsables={captura.responsables}
+          responsableFijo={captura.responsableFijo}
+          sugerencias={captura.sugerencias}
+          renderEstatus={captura.renderEstatus}
+          onCerrar={() => { setCreando(false); setEditando(null); }}
+          onGuardar={async (datos) => {
+            if (creando) return captura.onCrear(datos);
+            const it = itemEdicion!;
+            const previos = valoresPrevios(it.row, datos);
+            const err = await onAplicar(it.row, datos, 'Ficha editada');
+            if (!err) setUltimo({ key: it.key, nombre: it.nombre, previos, descripcion: 'Ficha actualizada' });
+            return err;
           }}
         />
       )}

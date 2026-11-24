@@ -69,8 +69,8 @@ console.log('\n=== Pantalla actual ===');
 ok('Pagos 2026 → tema Pagos', temaDeVista(temasPara(ADMIN), '2026.pagos')?.id, 'pagos');
 ok('Accesos → Administración', temaDeVista(temasPara(ADMIN), 'accesos')?.id, 'admin');
 ok('Resumen 2027 → Resumen', temaDeVista(temasPara(ADMIN), '2027.resumen')?.id, 'resumen');
-ok('nombres de pantallas', ['2026.pagos', '2027.estatus', 'reportes.paaas', 'auditoria', 'historial'].map(nombreVista),
-  ['Pagos 2026', 'Estatus servicios (2027)', 'PAAAS', 'Auditoría', 'Historial']);
+ok('nombres de pantallas', ['2026.pagos', '2026.estatus', 'reportes.paaas', 'auditoria', 'historial'].map(nombreVista),
+  ['Pagos 2026', 'Estatus servicios (2026)', 'PAAAS', 'Auditoría', 'Historial']);
 
 console.log('\n=== El buscador entiende a la gente ===');
 ok('normaliza acentos y signos', normalizar('¿Cómo cambio mi CONTRASEÑA?'), 'como cambio mi contrasena');
@@ -91,6 +91,7 @@ const casos = [
   [ADMIN, 'quién modificó este registro', 'admin.historial'],
   [SUPER, 'darle una contraseña temporal', 'admin.contrasena'],
   [OPERADOR, 'agregar otra opción de estatus', 'estatus.opcion'],
+  [OPERADOR, 'agregar una adquisición de 2027', 'mis.ficha2027'],
   [OPERADOR, 'el estatus no está en la lista', 'estatus.opcion'],
   [ADMIN, 'quien esta conectado', 'admin.bitacora'],
   [OPERADOR, 'agregar una persona al organigrama', 'organigrama.agregar'],

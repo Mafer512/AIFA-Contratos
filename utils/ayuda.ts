@@ -57,7 +57,8 @@ export interface Tema {
 
 // ── Contenido ───────────────────────────────────────────────────────────────
 
-const ESTATUS = ['2026.estatus', '2027.estatus'];
+// En 2027 la tabla de Estatus se fusionó con Mis servicios (se captura con formulario).
+const ESTATUS = ['2026.estatus'];
 const RESUMEN = ['2026.resumen', '2027.resumen'];
 const MIS = ['2026.mis', '2027.mis'];
 const GANTT = ['2026.gantt', '2027.gantt'];
@@ -202,6 +203,27 @@ export const TEMAS: Tema[] = [
         tip: 'Si tu cuenta no está ligada a un responsable, arriba a la derecha eliges de quién ver la bandeja con **Responsable**.',
         ir: { vista: MIS, etiqueta: 'Ir a Mis servicios' },
         claves: 'bandeja mis servicios tarjetas pendientes trabajo asignados',
+      },
+      {
+        id: 'mis.ficha2027',
+        pregunta: '¿Cómo agrego o edito un servicio o una adquisición de 2027?',
+        resumen: 'En 2027 ya no se edita una tabla: todo se captura con una ficha desde **Mis servicios 2027**.',
+        pasos: [
+          'Para uno nuevo pulsa **Nuevo** (arriba a la derecha), elige si es **Adquisición** o **Servicio** y llena sus datos.',
+          'Para cambiar uno que ya existe, pulsa **Editar** en su tarjeta.',
+          'Los datos están agrupados: Identificación, Estatus y montos, Procedimiento de contratación, Contrato, Cronograma (Gantt) y Observaciones. Las fechas se eligen en calendario y los montos van sólo con números.',
+          'Pulsa **Agregar** o **Guardar cambios**. Al editar, durante 20 segundos verás **Deshacer** abajo.',
+        ],
+        puntos: [
+          'Arriba separas **Adquisiciones**, **Servicios** o **Todos**.',
+          'Con **Seguimiento** ves en el calendario todas las fechas capturadas.',
+          'Las fases se siguen avanzando con **Avanzar a …**; en la ficha sólo se corrigen fechas del cronograma.',
+          'Las notas siguen en la **Ficha** del servicio y al avanzar de fase.',
+        ],
+        requiere: 'captura',
+        vistas: ['2027.mis'],
+        ir: { vista: '2027.mis', etiqueta: 'Ir a Mis servicios 2027' },
+        claves: 'agregar nuevo editar servicio adquisicion 2027 ficha formulario capturar llenar datos tabla estatus',
       },
       {
         id: 'mis.avanzar',

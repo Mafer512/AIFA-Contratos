@@ -46,5 +46,10 @@ ok('usuario de Auditoría entra directo a Auditoría', primeraVista(['auditoria'
 ok('le quitaron Pagos: otra de 2026', primeraVista(['2025.resumen', '2026.gantt'], ['2026.mis', '2026.resumen', '2026.estatus', '2026.pagos', '2026.gantt']), '2026.gantt');
 ok('sin vistas: ninguna', primeraVista([]), null);
 
+console.log('\n=== 2027: Estatus servicios se fusionó con Mis servicios ===');
+ok('ya no hay vista 2027.estatus', TODAS_LAS_VISTAS.includes('2027.estatus'), false);
+ok('quien tenía Estatus 2027 ve Mis servicios 2027', puedeVer(['2027.estatus'], '2027.mis'), true);
+ok('al guardar sus permisos se convierte', normalizarModulos(['2027.estatus', 'auditoria']), ['2027.mis', 'auditoria']);
+
 console.log(fallos ? `\n${fallos} prueba(s) FALLARON` : '\nTodas las pruebas pasan');
 process.exit(fallos ? 1 : 0);

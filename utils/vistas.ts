@@ -34,9 +34,9 @@ export const GRUPOS_VISTAS: GrupoVistas[] = [
   {
     id: '2027', etiqueta: '2027', detalle: 'Anteproyecto',
     vistas: [
+      // En 2027 "Estatus servicios" se fusionó con "Mis servicios".
       { id: '2027.mis', etiqueta: 'Mis servicios' },
       { id: '2027.resumen', etiqueta: 'Resumen' },
-      { id: '2027.estatus', etiqueta: 'Estatus servicios' },
       { id: '2027.gantt', etiqueta: 'Diagrama Gantt' },
     ],
   },
@@ -58,8 +58,11 @@ export const GRUPOS_VISTAS: GrupoVistas[] = [
 
 export const TODAS_LAS_VISTAS: string[] = GRUPOS_VISTAS.flatMap((g) => g.vistas.map((v) => v.id));
 
+/** Vistas que ya no existen y la que las reemplaza: quien tenía la vieja ve la nueva. */
+const REEMPLAZOS: Record<string, string> = { '2027.estatus': '2027.mis' };
+
 export const puedeVer = (modulos: readonly string[] | null | undefined, vista: string): boolean =>
-  !modulos || modulos.includes(vista);
+  !modulos || modulos.includes(vista) || modulos.some((m) => REEMPLAZOS[m] === vista);
 
 /**
  * La lista que se guarda: sin repetidos ni llaves desconocidas, en el orden
@@ -68,7 +71,7 @@ export const puedeVer = (modulos: readonly string[] | null | undefined, vista: s
  */
 export const normalizarModulos = (modulos: readonly string[] | null | undefined): string[] | null => {
   if (!modulos) return null;
-  const set = new Set(modulos);
+  const set = new Set(modulos.map((m) => REEMPLAZOS[m] ?? m));
   const lista = TODAS_LAS_VISTAS.filter((v) => set.has(v));
   return lista.length === TODAS_LAS_VISTAS.length ? null : lista;
 };
