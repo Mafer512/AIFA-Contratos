@@ -216,6 +216,7 @@ export const TEMAS: Tema[] = [
         ],
         puntos: [
           'Arriba separas **Adquisiciones**, **Servicios** o **Todos**.',
+          'Cada uno recibe solo su número interno (GPyC-001, GPyC-002…) al darse de alta; aparece arriba a la derecha de su tarjeta y no se cambia.',
           'Con **Seguimiento** ves en el calendario todas las fechas capturadas.',
           'Las fases se siguen avanzando con **Avanzar a …**; en la ficha sólo se corrigen fechas del cronograma.',
           'Las notas siguen en la **Ficha** del servicio y al avanzar de fase.',

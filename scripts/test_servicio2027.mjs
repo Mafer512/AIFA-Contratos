@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import {
   CAMPOS_2027, COLUMNAS_NUEVAS_2027, ETIQUETAS_CALENDARIO_2027, aFechaISO, tipoContratacionDe, valorFormulario,
   textoNoFecha, valoresIniciales, valorGuardar, camposDisponibles, columnasFaltantes, cambiosFicha, registroNuevo,
-  validarFicha, estatusGeneral,
+  validarFicha, estatusGeneral, numeroFolio, formatoFolio, siguienteFolio,
 } from '../utils/servicio2027.ts';
 
 let fallos = 0;
@@ -83,6 +83,14 @@ ok('CUCOP con guion está bien', validarFicha(campos, { ...base, 'Clave cucop': 
 ok('monto con letras', Object.keys(validarFicha(campos, { ...base, 'Monto de Suficiencia presupuestal': 'mil pesos' })), ['Monto de Suficiencia presupuestal']);
 ok('vigencia al revés', Object.keys(validarFicha(campos, { ...base, 'Vigencia de inicio': '2027-05-01', 'Vigencia de Término': '2027-04-01' })), ['Vigencia de Término']);
 ok('fase del Gantt al revés', Object.keys(validarFicha(campos, { ...base, 'Fecha remisión IM': '2027-02-10', 'Fecha recepción IM': '2027-02-01' })), ['Fecha recepción IM']);
+
+console.log('\n=== Número interno GPyC ===');
+ok('formato con 3 dígitos', [formatoFolio(1), formatoFolio(27), formatoFolio(1000)], ['GPyC-001', 'GPyC-027', 'GPyC-1000']);
+ok('lee el número sin importar mayúsculas', [numeroFolio('GPyC-007'), numeroFolio('gpyc-12'), numeroFolio('123'), numeroFolio(null)], [7, 12, null, null]);
+ok('sin ninguno: el 001', siguienteFolio([]), 'GPyC-001');
+ok('el que sigue al mayor (con huecos)', siguienteFolio([{ 'No. GPYC': 'GPyC-001' }, { 'No. GPYC': 'GPyC-005' }, { 'No. GPYC': null }, { 'No. GPYC': 'otro' }]), 'GPyC-006');
+ok('la ficha nunca escribe el número', cambiosFicha(campos, ini, { ...ini, 'No. GPYC': 'GPyC-999' }, COLS), {});
+ok('ni al dar de alta', 'No. GPYC' in registroNuevo(campos, { ...valoresIniciales({}, campos), 'Nombre del Servicio.': 'X servicio', 'No. GPYC': 'GPyC-1' }, COLS), false);
 
 console.log('\n=== Estatus general ===');
 ok('En IM → En proceso', estatusGeneral('En IM'), 'En proceso');

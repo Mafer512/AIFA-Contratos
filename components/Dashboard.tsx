@@ -44,7 +44,7 @@ import AsistenteAyuda from './AsistenteAyuda';
 import SelectorPermisos, { type Permisos } from './PermisosVistas';
 import { puedeVer, primeraVista, destinoDeVista, vistaActual, resumenModulos, normalizarModulos, GRUPOS_VISTAS } from '../utils/vistas';
 import { estadoServicio, duracionesTipicas, valoresPrevios, INDICE_ADJUDICADO } from '../utils/avanceFase';
-import { tipoContratacionDe, ETIQUETAS_CALENDARIO_2027 } from '../utils/servicio2027';
+import { tipoContratacionDe, ETIQUETAS_CALENDARIO_2027, siguienteFolio } from '../utils/servicio2027';
 import {
   PALETA_ESTATUS, MAX_NOMBRE_ESTATUS, limpiarNombreEstatus, validarNombreEstatus, buscarEstatusExistente,
   colorSugeridoEstatus, type EstatusExtra,
@@ -11431,6 +11431,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (!canManageRecords) return 'Tu perfil es de solo lectura.';
     const registro: Record<string, any> = { ...datos };
     if (!registro['Responsable'] && user.responsable && !isAdmin) registro['Responsable'] = user.responsable;
+    // El número interno lo pone la base (trigger, sin choques entre dos altas a
+    // la vez). Éste sólo se queda si la migración del folio no se ha corrido.
+    if (anioActivo === 2027 && estatus2026TableColumns.includes('No. GPYC')) registro['No. GPYC'] = siguienteFolio(estatusAnioData);
     const { data, error } = await supabase.from(tablaEstatusAnio).insert([registro]).select().single();
     if (error) {
       console.error('Alta de servicio:', error);
@@ -14893,6 +14896,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     tipoDe={anioActivo === 2027 ? tipoContratacionDe : undefined}
                     captura={capturaAnio}
                     seguimiento={anioActivo === 2027 ? renderCalendarioSeguimiento : undefined}
+                    folioDe={anioActivo === 2027 ? (row) => (String(row['No. GPYC'] ?? '').trim() || null) : undefined}
+                    folioSiguiente={anioActivo === 2027 ? siguienteFolio(estatusAnioData) : undefined}
                   />
                 )}
 

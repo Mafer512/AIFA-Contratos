@@ -76,6 +76,10 @@ interface Props {
   };
   /** 2027: el calendario de seguimiento, en su propia pestaña. */
   seguimiento?: () => React.ReactNode;
+  /** 2027: número interno del servicio (GPyC-001), arriba a la derecha de la tarjeta. */
+  folioDe?: (row: Record<string, any>) => string | null;
+  /** 2027: el número que probablemente le tocará al siguiente. */
+  folioSiguiente?: string;
 }
 
 const CORTO = [
@@ -456,7 +460,7 @@ type FiltroTipo = 'todos' | TipoContratacion;
 
 const MisServicios: React.FC<Props> = ({
   anio, items: todosLosItems, columnaEstatus, columnas, sugerencias, responsables, filtroResponsable, onFiltroResponsable,
-  onAplicar, onNota, onAbrirFicha, onAbrirNotas, tipoDe, captura, seguimiento,
+  onAplicar, onNota, onAbrirFicha, onAbrirNotas, tipoDe, captura, seguimiento, folioDe, folioSiguiente,
 }) => {
   const [filtro, setFiltro] = useState<Filtro>('atencion');
   const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos');
@@ -507,9 +511,9 @@ const MisServicios: React.FC<Props> = ({
         if (filtro === 'adjudicados') return i.estado.indice === INDICE_ADJUDICADO;
         return true;
       })
-      .filter((i) => !q || [i.nombre, i.gerencia, i.estatus, i.responsable].some((v) => String(v ?? '').toLowerCase().includes(q)))
+      .filter((i) => !q || [i.nombre, i.gerencia, i.estatus, i.responsable, folioDe?.(i.row)].some((v) => String(v ?? '').toLowerCase().includes(q)))
       .sort((a, b) => b.estado.puntaje - a.estado.puntaje || a.nombre.localeCompare(b.nombre, 'es'));
-  }, [items, filtro, busqueda]);
+  }, [items, filtro, busqueda, folioDe]);
 
   const porKey = (k: string | null) => (k ? items.find((i) => i.key === k) ?? null : null);
   const itemAvance = porKey(avanzando);
@@ -644,7 +648,7 @@ const MisServicios: React.FC<Props> = ({
         </div>
         <div className="relative sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar servicio o gerencia" aria-label="Buscar servicio" className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/25" />
+          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder={folioDe ? 'Buscar servicio, gerencia o GPyC' : 'Buscar servicio o gerencia'} aria-label="Buscar servicio" className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]/25" />
         </div>
       </div>
 
@@ -690,10 +694,19 @@ const MisServicios: React.FC<Props> = ({
                       {it.nombre}
                     </button>
                   </div>
-                  {!it.puedeEditar && (
-                    <span title="Este servicio es de otro responsable: puedes verlo pero no cambiarlo." className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400">
-                      <Lock className="h-3 w-3" /> Sólo lectura
-                    </span>
+                  {(folioDe?.(it.row) || !it.puedeEditar) && (
+                    <div className="flex-shrink-0 flex flex-col items-end gap-1">
+                      {folioDe?.(it.row) && (
+                        <span title="Número interno del servicio" className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white font-mono text-[11px] font-bold text-slate-700 tabular-nums">
+                          {folioDe(it.row)}
+                        </span>
+                      )}
+                      {!it.puedeEditar && (
+                        <span title="Este servicio es de otro responsable: puedes verlo pero no cambiarlo." className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400">
+                          <Lock className="h-3 w-3" /> Sólo lectura
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -807,6 +820,7 @@ const MisServicios: React.FC<Props> = ({
           responsables={captura.responsables}
           responsableFijo={captura.responsableFijo}
           sugerencias={captura.sugerencias}
+          folioSiguiente={folioSiguiente}
           renderEstatus={captura.renderEstatus}
           onCerrar={() => { setCreando(false); setEditando(null); }}
           onGuardar={async (datos) => {

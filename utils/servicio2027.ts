@@ -13,6 +13,7 @@ import { parseFechaFlexible } from './fichaServicio.ts';
 export type TipoCampo =
   | 'texto'        // texto libre
   | 'alfanumerico' // claves y números de procedimiento/contrato
+  | 'folio'        // número interno GPyC-001: lo pone la base, no se edita
   | 'cucop'        // números y guiones
   | 'moneda'       // columna numeric
   | 'fecha'        // columna date
@@ -56,6 +57,26 @@ export const TIPOS_PROCEDIMIENTO = [
 
 /** Columnas que agrega la migración 20261123000000; sin ella no existen. */
 export const COLUMNAS_NUEVAS_2027 = ['Tipo de contratación', 'No. GPYC', 'Tipo de procedimiento'] as const;
+
+// ── Número interno GPyC ─────────────────────────────────────────────────────
+
+const FOLIO_RE = /^gpyc-(\d+)$/i;
+
+/** "GPyC-007" → 7; cualquier otra cosa → null. */
+export const numeroFolio = (v: unknown): number | null => {
+  const m = String(v ?? '').trim().match(FOLIO_RE);
+  return m ? Number(m[1]) : null;
+};
+
+export const formatoFolio = (n: number) => `GPyC-${String(n).padStart(3, '0')}`;
+
+/**
+ * El que sigue: uno más que el mayor que ya exista. Lo asigna la base al dar
+ * de alta (trigger de la migración 20261126000000); esto es sólo para mostrar
+ * el que probablemente tocará y para cuando la migración todavía no se corre.
+ */
+export const siguienteFolio = (rows: readonly Record<string, any>[], col = 'No. GPYC'): string =>
+  formatoFolio(rows.reduce((max, r) => Math.max(max, numeroFolio(r[col]) ?? 0), 0) + 1);
 
 /** Columnas de los requisitos para liberar pago. */
 export const GARANTIAS_2027 = [
@@ -114,7 +135,7 @@ export const CAMPOS_2027: readonly CampoFicha[] = [
   // Identificación
   { col: 'Tipo de contratación', etiqueta: '¿Qué es?', tipo: 'tipoContratacion', seccion: 'identificacion', ancho: 'completo' },
   { col: 'Nombre del Servicio.', etiqueta: 'Nombre del servicio', tipo: 'texto', seccion: 'identificacion', ancho: 'completo', placeholder: 'Servicio de mantenimiento a bardas perimetrales' },
-  { col: 'No. GPYC', etiqueta: 'No. GPYC', tipo: 'alfanumerico', seccion: 'identificacion', placeholder: 'GPYC-027' },
+  { col: 'No. GPYC', etiqueta: 'No. GPyC', tipo: 'folio', seccion: 'identificacion' },
   { col: 'Clave cucop', etiqueta: 'Clave CUCOP', tipo: 'cucop', seccion: 'identificacion', placeholder: '35102-0003' },
   { col: 'Responsable', etiqueta: 'Responsable GPYC', tipo: 'responsable', seccion: 'identificacion' },
   { col: 'Tipo_de_servicio', etiqueta: 'Tipo de servicio', tipo: 'opciones', seccion: 'identificacion', opciones: TIPOS_SERVICIO },
@@ -241,6 +262,7 @@ export const cambiosFicha = (
 ): Record<string, string | number | boolean | null> => {
   const cambios: Record<string, string | number | boolean | null> = {};
   for (const c of campos) {
+    if (c.tipo === 'folio') continue;
     const antes = valorGuardar(c, inicial[c.col]);
     const ahora = valorGuardar(c, actual[c.col]);
     if (antes === ahora) continue;
@@ -258,6 +280,7 @@ export const registroNuevo = (
 ): Record<string, string | number | boolean | null> => {
   const r: Record<string, string | number | boolean | null> = {};
   for (const c of campos) {
+    if (c.tipo === 'folio') continue;
     const v = valorGuardar(c, valores[c.col]);
     if (v === null || v === false) continue;
     r[c.col] = v;

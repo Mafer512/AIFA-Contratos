@@ -28,6 +28,8 @@ interface Props {
   responsableFijo?: boolean;
   /** Valores que ya existen en la tabla, para sugerir al escribir (por columna). */
   sugerencias: Record<string, string[]>;
+  /** El número interno que probablemente le tocará a uno nuevo (lo asigna la base). */
+  folioSiguiente?: string;
   renderEstatus: (valor: string, onChange: (v: string) => void) => React.ReactNode;
   onCerrar: () => void;
   /** Guarda. Devuelve el mensaje de error, o null si salió bien. */
@@ -60,7 +62,7 @@ const moneda = (t: string) => {
 
 const FormularioServicio2027: React.FC<Props> = ({
   modo, row = {}, anio, columnas, tipoInicial, responsableInicial, responsables, responsableFijo,
-  sugerencias, renderEstatus, onCerrar, onGuardar,
+  sugerencias, folioSiguiente, renderEstatus, onCerrar, onGuardar,
 }) => {
   const campos = useMemo(() => camposDisponibles(columnas), [columnas]);
   const faltantes = useMemo(() => columnasFaltantes(columnas), [columnas]);
@@ -200,6 +202,14 @@ const FormularioServicio2027: React.FC<Props> = ({
           </>
         );
       }
+      case 'folio':
+        return (
+          <div id={ids(c)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm">
+            {texto
+              ? <span className="font-mono font-bold text-[#0F4C3A]">{texto}</span>
+              : <span className="text-slate-500">Se asigna solo al guardar{modo === 'nuevo' && folioSiguiente ? <> (será <b className="font-mono text-slate-700">{folioSiguiente}</b>)</> : ''}</span>}
+          </div>
+        );
       case 'notas':
         return <textarea {...comunes} rows={3} value={texto} onChange={(e) => poner(c.col, e.target.value)} className={`${campoCls} ${borde} resize-y`} placeholder="Algo que convenga saber de este servicio." />;
       default: {
